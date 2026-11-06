@@ -331,7 +331,7 @@ setting-security-guard-builtins_off = Built-in guard rules switched off
     .help = The ids of the shipped guard rules that should not apply.
 
 setting-security-guard-harness_project_settings = Let a checkout's harness settings act in the platform's sessions
-    .help = A Claude Code session the platform drives is started with --setting-sources user and --strict-mcp-config: your own settings load; a repository's .claude/settings.json, .claude/settings.local.json, hooks and .mcp.json do not, since their permission allow-lists, hooks and MCP servers would act before the guard sees a call. On starts the session as before, every source loaded. A harness you open in a terminal is yours and reads everything, as ever.
+    .help = A Claude Code session the platform drives is started with --setting-sources user and --strict-mcp-config: your own settings load; a repository's .claude/settings.json, .claude/settings.local.json, hooks and .mcp.json do not, since their permission allow-lists, hooks and MCP servers would act before the guard sees a call. On starts the session as before, every source loaded. In the platform's own scratch folders — an agent's, a goal's — the sources are left whole either way, so the skill files written there load; a checkout is never one. A harness you open in a terminal is yours and reads everything, as ever.
     .choice-off = Off
     .choice-on = On
 

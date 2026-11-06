@@ -36,6 +36,20 @@
 //! binary). The adapter keys off those numbers and enums; the shared prose
 //! table in [`crate::util`] is only the last resort, for the paths where the
 //! CLI dies before it can emit a frame at all.
+//!
+//! **The platform's server must be there.** A `claude -p` run whose MCP
+//! server fails its first connection "continues without the server's tools"
+//! (code.claude.com/docs/en/mcp § Failed first connections, read
+//! 2026-11-06); for the platform's own server that is a session with no
+//! hands, which would then describe changes it cannot make. So the
+//! `system/init` event is read for its `mcp_servers[{name, status}]` and
+//! `mcp_server_errors[{name, type, message}]` (code.claude.com/docs/en/headless
+//! § Read session metadata), and a platform server that `failed`,
+//! `needs-auth`, is `disabled`, was skipped by config validation or is not
+//! listed ends the session failed with the reason ([`platform_server_fault`]);
+//! `connected` goes on, `pending` goes on with a warning (the CLI waits on a
+//! pending server before the first turn), a status word nobody knows yet is
+//! let through. A revival mounts no server and is not checked.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -122,7 +136,10 @@ fn effort_sent(model: Option<&str>, effort: Option<Effort>) -> Option<Effort> {
 /// the stream-json wire, `--model <id>`, `--effort <level>` right after it
 /// (https://code.claude.com/docs/en/cli-reference, read 2026-09-29: the flag
 /// holds for this session and does not persist), the session to resume, the
-/// MCP servers, the allowlist.
+/// MCP servers, the allowlist. The setting sources are the person's alone
+/// unless the folder is the platform's own scratch (`SessionSpec::scratch_cwd`)
+/// or the workspace lets a checkout's act; the engine's servers are the only
+/// ones mounted unless the workspace says so.
 fn argv(spec: &SessionSpec, resume: Option<&str>) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
@@ -146,11 +163,15 @@ fn argv(spec: &SessionSpec, resume: Option<&str>) -> Vec<String> {
     // what a checkout pre-allows or hooks would otherwise act before the
     // guard sees a call.
     if !spec.harness_project_settings {
-        args.extend([
-            "--setting-sources".to_string(),
-            "user".to_string(),
-            "--strict-mcp-config".to_string(),
-        ]);
+        // The platform's own scratch folder holds nothing but the skill files
+        // the engine wrote for this harness, which load only with the
+        // `project` setting source (code.claude.com/docs/en/skills, read
+        // 2026-11-06): there every source loads; anywhere else the person's
+        // own alone.
+        if !spec.scratch_cwd {
+            args.extend(["--setting-sources".to_string(), "user".to_string()]);
+        }
+        args.push("--strict-mcp-config".to_string());
     }
     if let Some(model) = &spec.model {
         args.extend(["--model".to_string(), model.clone()]);
@@ -187,6 +208,8 @@ fn revival_spec(token: &ResumeToken) -> SessionSpec {
         // A revived session is strict whatever the setting said when it
         // first ran; the next launch reads the setting.
         harness_project_settings: false,
+        // And its folder is read as a checkout's: the token does not say.
+        scratch_cwd: false,
         tier_ceiling: ToolTier::Write,
         output_schema: None,
         skills: vec![],
@@ -275,7 +298,7 @@ impl ClaudeCodeAdapter {
             .emit(SessionEvent::Lifecycle(LifecycleEvent::Started));
         shared.set_phase(Phase::Idle);
 
-        let wire: WireState = Arc::default();
+        let wire: WireState = Arc::new(Mutex::new(Wire::for_spec(spec)));
         let driver_wire = Arc::clone(&wire);
         let shared = shared.in_group(proc.group());
         let driver_shared = shared.for_driver();
@@ -414,6 +437,8 @@ impl HarnessAdapter for ClaudeCodeAdapter {
             .broadcaster
             .emit(SessionEvent::Lifecycle(LifecycleEvent::Revived));
         shared.set_phase(Phase::Idle);
+        // A revival mounts no server of its own (`revival_spec`): nothing
+        // for its init to be checked against.
         let wire: WireState = Arc::default();
         let driver_wire = Arc::clone(&wire);
         let shared = shared.in_group(proc.group());
@@ -483,12 +508,136 @@ fn mcp_config_json(mounts: &[McpMount]) -> String {
 }
 
 /// What the driver and the session both need to know about the wire: which
-/// tool-use ids are open (and which of them are sub-agents), and which
-/// control requests wait for an answer, with the input each carried.
+/// tool-use ids are open (and which of them are sub-agents), which control
+/// requests wait for an answer, with the input each carried, and which of
+/// the mounted MCP servers are the platform's own, so `system/init` can say
+/// whether each one connected.
 #[derive(Default)]
 struct Wire {
     tool_uses: HashMap<String, ToolUse>,
     pending: HashMap<String, serde_json::Value>,
+    /// The platform's own servers this launch mounted
+    /// (`McpMount::is_platform`), by name; empty for a revival, which mounts
+    /// none and is not checked.
+    platform_servers: Vec<String>,
+}
+
+impl Wire {
+    /// The wire of a launch: the spec's platform mounts, by name.
+    fn for_spec(spec: &SessionSpec) -> Self {
+        Self {
+            platform_servers: spec
+                .mcp_servers
+                .iter()
+                .filter(|m| m.is_platform())
+                .map(|m| m.name().to_string())
+                .collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Why the platform's own MCP server is not there to be used, read off the
+/// `system/init` event — `None` when every platform server connected or is
+/// still connecting. The CLI's words (code.claude.com/docs/en/headless § Read
+/// session metadata, and the Agent SDK's `McpServerStatus`, both read
+/// 2026-11-06): `mcp_servers[]` carries each server's `name` and `status` —
+/// `connected`, `failed`, `needs-auth`, `pending` or `disabled` — and
+/// `mcp_server_errors[]` the `--mcp-config` entries skipped by config
+/// validation, each with `name`, `type` and `message`, absent from
+/// `mcp_servers`. A `pending` server is waited on by the CLI before the
+/// first turn (`MCP_TIMEOUT`), so it passes with a warning; a word nobody
+/// knows yet passes too, so a newer CLI is not refused over a vocabulary; an
+/// init with no `mcp_servers` list at all cannot be judged and passes. An
+/// installed server's failure is the agent's to hear about from the engine,
+/// never the session's end.
+fn platform_server_fault(init: &serde_json::Value, platform: &[String]) -> Option<String> {
+    if platform.is_empty() {
+        return None;
+    }
+    let servers = init.get("mcp_servers").and_then(|s| s.as_array());
+    let errors = init
+        .get("mcp_server_errors")
+        .and_then(|e| e.as_array())
+        .map(|e| e.as_slice())
+        .unwrap_or(&[]);
+    let named = |entry: &serde_json::Value, name: &str| {
+        entry.get("name").and_then(|n| n.as_str()) == Some(name)
+    };
+    let word = |entry: &serde_json::Value, key: &str| -> Option<String> {
+        entry
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    for name in platform {
+        if let Some(skipped) = errors.iter().find(|e| named(e, name)) {
+            let message = word(skipped, "message").unwrap_or_else(|| "no reason given".to_string());
+            return Some(format!(
+                "the platform's MCP server `{name}` was skipped by Claude Code's config validation: {message}"
+            ));
+        }
+        let Some(servers) = servers else {
+            // LCOV_EXCL_START: the fields of a tracing event, evaluated under a subscriber only
+            tracing::warn!(
+                target: "bisa_adapters::claude",
+                server = %name,
+                "the init names no MCP servers; whether the platform's server connected cannot be read",
+            );
+            // LCOV_EXCL_STOP
+            continue;
+        };
+        let Some(entry) = servers.iter().find(|s| named(s, name)) else {
+            let listed = servers.len();
+            let plural = if listed == 1 { "" } else { "s" };
+            return Some(format!(
+                "the platform's MCP server `{name}` is not in the session: Claude Code's init lists {listed} MCP server{plural} and none is it"
+            ));
+        };
+        let detail = word(entry, "error")
+            .map(|e| format!(": {e}"))
+            .unwrap_or_default();
+        match entry.get("status").and_then(|s| s.as_str()) {
+            Some("connected") => {}
+            Some("failed") => {
+                return Some(format!(
+                    "the platform's MCP server `{name}` failed to connect{detail}"
+                ))
+            }
+            Some("needs-auth") => {
+                return Some(format!(
+                    "the platform's MCP server `{name}` needs authentication, which the platform's own server never asks for{detail}"
+                ))
+            }
+            Some("disabled") => {
+                return Some(format!(
+                    "the platform's MCP server `{name}` is disabled in Claude Code's settings{detail}"
+                ))
+            }
+            Some("pending") => {
+                // LCOV_EXCL_START: the fields of a tracing event, evaluated under a subscriber only
+                tracing::warn!(
+                    target: "bisa_adapters::claude",
+                    server = %name,
+                    "the platform's MCP server is still connecting at init; the CLI waits on it before the first turn",
+                );
+                // LCOV_EXCL_STOP
+            }
+            other => {
+                // LCOV_EXCL_START: the fields of a tracing event, evaluated under a subscriber only
+                tracing::warn!(
+                    target: "bisa_adapters::claude",
+                    server = %name,
+                    status = other.unwrap_or("none"),
+                    "an MCP server status this adapter does not know; the session goes on",
+                );
+                // LCOV_EXCL_STOP
+            }
+        }
+    }
+    None
 }
 
 struct ToolUse {
@@ -641,6 +790,9 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
             }
         }
         "system" => {
+            // Set by `init` when the platform's own server did not connect:
+            // the init line still passes through raw, then the session ends.
+            let mut no_hands: Option<Outcome> = None;
             match value.get("subtype").and_then(|s| s.as_str()) {
                 Some("init") => {
                     if let Some(id) = value.get("session_id").and_then(|s| s.as_str()) {
@@ -658,6 +810,11 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                             },
                         ));
                     }
+                    // The platform's own server must be there to be used: a
+                    // run that goes on without it has no hands (module doc).
+                    let platform = wire.locked().platform_servers.clone();
+                    no_hands = platform_server_fault(&value, &platform)
+                        .map(|error| Outcome::Failed { error });
                 }
                 // Typed signal: the CLI switched the turn to its *own*
                 // configured fallback because the primary model failed
@@ -692,6 +849,9 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                 _ => {}
             }
             shared.broadcaster.emit(SessionEvent::Raw(value));
+            if let Some(outcome) = no_hands {
+                return Drive::End(outcome);
+            }
         }
         "assistant" => {
             let parent = parent_of(&value);
@@ -1380,6 +1540,208 @@ mod tests {
         );
     }
 
+    /// The wire of a launch that mounted the platform's server, as
+    /// `Wire::for_spec` reads it off a spec.
+    fn wire_mounting(platform: &[&str]) -> WireState {
+        Arc::new(Mutex::new(Wire {
+            platform_servers: platform.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }))
+    }
+
+    /// An init line with the servers the CLI lists and, when given, the
+    /// entries its config validation skipped.
+    fn init_line(servers: &str, errors: Option<&str>) -> String {
+        match errors {
+            Some(errors) => format!(
+                r#"{{"type":"system","subtype":"init","session_id":"s1","mcp_servers":{servers},"mcp_server_errors":{errors}}}"#
+            ),
+            None => format!(
+                r#"{{"type":"system","subtype":"init","session_id":"s1","mcp_servers":{servers}}}"#
+            ),
+        }
+    }
+
+    /// `feed`, with the driver's verdict kept.
+    fn drive(shared: &Shared, wire: &WireState, line: &str) -> Drive {
+        let v: serde_json::Value = serde_json::from_str(line).expect("fixture json");
+        map_line(shared, Line::Json(v), wire)
+    }
+
+    /// The platform's server failed, needs a sign-in or is disabled at
+    /// init: the session ends there, failed, naming the server and the
+    /// CLI's word — a `claude -p` run would otherwise go on with no hands —
+    /// and the init line still passes through raw. The CLI's own detail
+    /// rides along when the entry carries one.
+    #[tokio::test]
+    async fn an_init_whose_platform_server_failed_ends_the_session_naming_it() {
+        let (shared, _out_rx, _) = harness();
+        let wire = wire_mounting(&["bisa"]);
+        let mut events = shared.broadcaster.subscribe();
+        for (status, word) in [
+            ("failed", "failed to connect"),
+            ("needs-auth", "needs authentication"),
+            ("disabled", "is disabled"),
+        ] {
+            let line = init_line(&format!(r#"[{{"name":"bisa","status":"{status}"}}]"#), None);
+            let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+                panic!("{status}: the session should end");
+            };
+            assert!(
+                error.contains("`bisa`") && error.contains(word),
+                "{status}: {error}"
+            );
+            assert!(
+                matches!(next(&mut events).await, SessionEvent::Raw(_)),
+                "the init line still passes through raw"
+            );
+        }
+        let line = init_line(
+            r#"[{"name":"bisa","status":"failed","error":"spawn ENOENT"}]"#,
+            None,
+        );
+        let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+            panic!("the session should end");
+        };
+        assert!(error.ends_with(": spawn ENOENT"), "{error}");
+    }
+
+    /// Connected, still connecting, a status word nobody knows yet, no
+    /// status at all, or an installed server's failure — or its skip by
+    /// validation — beside a connected platform server: the session goes on.
+    #[tokio::test]
+    async fn an_init_with_the_platform_server_connected_or_pending_goes_on() {
+        let (shared, _out_rx, _) = harness();
+        let wire = wire_mounting(&["bisa"]);
+        for servers in [
+            r#"[{"name":"bisa","status":"connected"}]"#,
+            r#"[{"name":"bisa","status":"pending"}]"#,
+            r#"[{"name":"bisa","status":"warming-up"}]"#,
+            r#"[{"name":"bisa"}]"#,
+            r#"[{"name":"github","status":"failed"},{"name":"bisa","status":"connected"}]"#,
+        ] {
+            assert!(
+                matches!(
+                    drive(&shared, &wire, &init_line(servers, None)),
+                    Drive::Continue
+                ),
+                "{servers}"
+            );
+        }
+        let line = init_line(
+            r#"[{"name":"bisa","status":"connected"}]"#,
+            Some(r#"[{"name":"github","type":"invalid_config","message":"bad"}]"#),
+        );
+        assert!(
+            matches!(drive(&shared, &wire, &line), Drive::Continue),
+            "an installed server's skip is its own matter"
+        );
+    }
+
+    /// A platform server Claude Code's config validation skipped is absent
+    /// from `mcp_servers` and named in `mcp_server_errors` with its message:
+    /// the session ends quoting it. Listed servers with the platform's not
+    /// among them, and no error naming it, end it too: absent is absent.
+    #[tokio::test]
+    async fn an_init_that_skipped_the_platform_server_by_validation_ends_the_session_with_the_message(
+    ) {
+        let (shared, _out_rx, _) = harness();
+        let wire = wire_mounting(&["bisa"]);
+        let line = init_line(
+            "[]",
+            Some(r#"[{"name":"bisa","type":"invalid_config","message":"command is required"}]"#),
+        );
+        let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+            panic!("the session should end");
+        };
+        assert!(
+            error.contains("skipped") && error.ends_with(": command is required"),
+            "{error}"
+        );
+        let line = init_line("[]", Some(r#"[{"name":"bisa","type":"invalid_config"}]"#));
+        let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+            panic!("the session should end");
+        };
+        assert!(error.ends_with(": no reason given"), "{error}");
+        let line = init_line(r#"[{"name":"github","status":"connected"}]"#, None);
+        let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+            panic!("the session should end");
+        };
+        assert!(
+            error.contains("not in the session") && error.contains("lists 1 MCP server and"),
+            "{error}"
+        );
+        let line = init_line("[]", None);
+        let Drive::End(Outcome::Failed { error }) = drive(&shared, &wire, &line) else {
+            panic!("the session should end");
+        };
+        assert!(error.contains("lists 0 MCP servers and"), "{error}");
+    }
+
+    /// A revival mounts no server of its own, and an init that lists no
+    /// servers at all cannot be judged: neither ends the session.
+    #[tokio::test]
+    async fn a_revival_init_is_not_checked_for_servers() {
+        let (shared, _out_rx, wire) = harness();
+        let line = init_line(r#"[{"name":"bisa","status":"failed"}]"#, None);
+        assert!(
+            matches!(drive(&shared, &wire, &line), Drive::Continue),
+            "no platform server mounted, nothing to check"
+        );
+        let wire = wire_mounting(&["bisa"]);
+        assert!(
+            matches!(
+                drive(
+                    &shared,
+                    &wire,
+                    r#"{"type":"system","subtype":"init","session_id":"s1"}"#
+                ),
+                Drive::Continue
+            ),
+            "no server list, no verdict"
+        );
+    }
+
+    /// The wire of a launch names the platform's own servers and none of a
+    /// person's installed ones.
+    #[test]
+    fn the_wire_of_a_launch_names_the_platforms_servers_alone() {
+        let spec = SessionSpec {
+            work_item: None,
+            cwd: std::env::temp_dir(),
+            prompt: String::new(),
+            model: None,
+            effort: None,
+            mcp_servers: vec![
+                McpMount::platform(McpServerConfig::Stdio {
+                    name: "bisa".into(),
+                    command: "bisa".into(),
+                    args: vec![],
+                    env: Default::default(),
+                    cwd: None,
+                }),
+                McpMount::installed(McpServerConfig::Stdio {
+                    name: "gh".into(),
+                    command: "gh-mcp".into(),
+                    args: vec![],
+                    env: Default::default(),
+                    cwd: None,
+                }),
+            ],
+            env: Default::default(),
+            env_remove: Vec::new(),
+            harness_project_settings: false,
+            scratch_cwd: false,
+            tier_ceiling: ToolTier::Exec,
+            output_schema: None,
+            skills: vec![],
+        };
+        assert_eq!(
+            Wire::for_spec(&spec).platform_servers,
+            vec!["bisa".to_string()]
+        );
+    }
+
     #[tokio::test]
     async fn a_can_use_tool_request_is_an_input_request_and_allow_answers_it_on_stdin() {
         let (shared, mut out_rx, wire) = harness();
@@ -1662,6 +2024,7 @@ mod tests {
             env: Default::default(),
             env_remove: Vec::new(),
             harness_project_settings: false,
+            scratch_cwd: false,
             tier_ceiling: ToolTier::Exec,
             output_schema: None,
             skills: vec![],
@@ -1722,6 +2085,7 @@ mod tests {
             env: Default::default(),
             env_remove: Vec::new(),
             harness_project_settings: false,
+            scratch_cwd: false,
             tier_ceiling: ToolTier::Write,
             output_schema: None,
             skills: vec![],
@@ -1840,6 +2204,42 @@ mod tests {
         };
         let revived = argv(&revival_spec(&token), Some("sess-9"));
         assert!(revived.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    /// In the platform's own scratch folder the setting sources are left
+    /// whole, so the skill files the engine wrote there load — project
+    /// skills load only with the `project` source — while the engine's
+    /// servers stay the only ones mounted; a checkout's session is the
+    /// person's settings alone; a workspace that lets a checkout's settings
+    /// act drops both flags wherever the session runs.
+    #[test]
+    fn a_scratch_session_loads_its_own_folders_skills_and_still_mounts_the_engines_servers_alone() {
+        let scratch = argv(
+            &SessionSpec {
+                scratch_cwd: true,
+                ..bare()
+            },
+            None,
+        );
+        assert!(flag(&scratch, "--setting-sources").is_none(), "{scratch:?}");
+        assert!(scratch.iter().any(|a| a == "--strict-mcp-config"));
+        let checkout = argv(&bare(), None);
+        assert_eq!(
+            flag(&checkout, "--setting-sources").map(|f| f.1.to_string()),
+            Some("user".to_string())
+        );
+        assert!(checkout.iter().any(|a| a == "--strict-mcp-config"));
+        let open = argv(
+            &SessionSpec {
+                scratch_cwd: true,
+                harness_project_settings: true,
+                ..bare()
+            },
+            None,
+        );
+        assert!(!open
+            .iter()
+            .any(|a| a == "--setting-sources" || a == "--strict-mcp-config"));
     }
 
     /// No word that skips a permission is ever sent: the guard is the one

@@ -262,6 +262,51 @@ impl Workspace {
         Ok(def)
     }
 
+    /// The shipped definition's words on a core agent's existing record —
+    /// its description, its prompt and its respond policy, the fields
+    /// [`Agent::check_update`] holds fixed to a person — with everything a
+    /// person or the platform chose kept exactly: harness, models, the
+    /// decision-making switch, photo, key, origin, birth and the
+    /// attestation. `Ok(false)` when the record already says so. A truth
+    /// file that does not parse is left alone and named, never written over.
+    pub(crate) fn restate_core_agent(
+        &self,
+        id: &AgentId,
+        description: Option<String>,
+        system_prompt: String,
+        respond: bisa_core::RespondPolicy,
+    ) -> Result<bool, StoreError> {
+        let stored = match self.read_agent_file(id) {
+            Ok(file) => file,
+            Err(e) => {
+                tracing::warn!(
+                    target: "bisa_store::agents",
+                    "the core agent {id} could not be restated to the shipped definition: {e}"
+                );
+                return Ok(false);
+            }
+        };
+        if stored.def.description == description
+            && stored.def.system_prompt == system_prompt
+            && stored.def.respond == respond
+        {
+            return Ok(false);
+        }
+        let def = Agent {
+            description,
+            system_prompt,
+            respond,
+            ..stored.def
+        };
+        self.write_agent_file(&AgentFile {
+            def: def.clone(),
+            attestation: stored.attestation,
+        })?;
+        self.snapshot_agent(&def)?;
+        self.index_agent(&def)?;
+        Ok(true)
+    }
+
     /// Flip enablement. Returns `(was, now)` so the caller can derive the
     /// membership events the flip produces
     /// ([`bisa_core::events_for_enablement`]).

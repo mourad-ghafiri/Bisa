@@ -568,6 +568,277 @@ async fn a_workflow_conversation_asks_no_triage() {
 
 /// The notes the platform authored under one agent's key in a conversation
 /// — what a turn says of itself — as the Fluent id and the English.
+/// The Workflow Agent on a harness that takes no MCP servers has none of a
+/// workflow's tools: an unaddressed message in a conversation about a
+/// workflow is answered with its note that says so and names the harness —
+/// no session is launched, the bus settles on the note — rather than a
+/// turn that describes a change it never made.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_workflow_agent_on_a_toolless_harness_refuses_a_workflow_conversation_with_a_sentence()
+{
+    let dir = tempfile::tempdir().unwrap();
+    let toolless = MockAdapter {
+        id: "toolless".into(),
+        caps: bisa_core::HarnessCaps::STEER | bisa_core::HarnessCaps::FOLLOW_UP,
+        ..Default::default()
+    };
+    let launches = toolless.launches.clone();
+    let engine = engine_with(&dir, vec![toolless]);
+    let ws = engine.workspace();
+    core_on(ws, "toolless");
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
+    let wf = release_workflow(ws);
+    let conversation = start(ws, ConversationOrigin::Workflow { id: wf.id });
+    let mut events = engine.events();
+    say(&engine, conversation.id, "add a review step", &[]);
+    let (id, words) = until("the Workflow Agent says it has no tools here", || {
+        notes_by(&engine, conversation.id, &workflow_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert_eq!(id, "engine-conversation-no-platform-tools");
+    assert!(
+        words.contains("toolless") && words.contains("under Agents"),
+        "{words}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        launches.lock().unwrap().is_empty(),
+        "no session was launched"
+    );
+    assert_eq!(
+        said_by(&engine, conversation.id, &workflow_pk).len(),
+        1,
+        "the note and nothing else"
+    );
+    let replies = replies_on(&mut events, &conversation.id.to_string());
+    assert!(
+        replies
+            .iter()
+            .any(|(agent, posted, message)| agent == AgentId::WORKFLOW
+                && *posted
+                && message.is_some()),
+        "the bus settled the turn on the note: {replies:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// Every other agent and origin keeps the toolless frame: the General Agent
+/// on the same harness still answers a workspace conversation, told what
+/// it cannot do, and named in a conversation about a workflow it answers
+/// with the frame that says it cannot read, validate or save it — the
+/// refusal is the owner's alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_general_agent_on_a_toolless_harness_still_answers_in_a_workspace_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            id: "toolless".into(),
+            caps: bisa_core::HarnessCaps::STEER | bisa_core::HarnessCaps::FOLLOW_UP,
+            ..Default::default()
+        }],
+    );
+    let ws = engine.workspace();
+    core_on(ws, "toolless");
+    let general = general_pubkey(&engine);
+    let general_mention = PrincipalId::new(general.clone()).unwrap();
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
+
+    let about_workspace = start(ws, ConversationOrigin::Workspace);
+    say(&engine, about_workspace.id, "what can you do here?", &[]);
+    let answered = until("the General Agent answers in the workspace room", || {
+        said_by(&engine, about_workspace.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(answered.contains("what can you do here?"), "{answered}");
+    assert!(
+        notes_by(&engine, about_workspace.id, &general).is_empty(),
+        "no refusal outside a room with an owner"
+    );
+
+    let wf = release_workflow(ws);
+    let about_workflow = start(ws, ConversationOrigin::Workflow { id: wf.id });
+    say(
+        &engine,
+        about_workflow.id,
+        "@General Agent what is this workflow?",
+        std::slice::from_ref(&general_mention),
+    );
+    let framed = until("the General Agent answers in the workflow room", || {
+        said_by(&engine, about_workflow.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(
+        framed.contains("has no platform tools in this conversation: you cannot read, validate"),
+        "the toolless frame, not a refusal: {framed}"
+    );
+    assert!(
+        notes_by(&engine, about_workflow.id, &workflow_pk).is_empty()
+            && said_by(&engine, about_workflow.id, &workflow_pk).is_empty(),
+        "the owner was not woken by a message addressed to another"
+    );
+    engine.shutdown().await;
+}
+
+/// A turn's spec says whether its folder is the platform's own: in the
+/// agent's scratch it is (`scratch_cwd`), and a Claude Code agent's skills
+/// are written there as native files the harness loads; in a checkout it is
+/// not, and the skills ride the prompt instead — no file of the platform's
+/// lands in a repository, adopted or cloned.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turns_spec_says_whether_its_folder_is_the_platforms_own_and_a_checkouts_skills_ride_the_prompt(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockAdapter {
+        id: "claude-code".into(),
+        ..Default::default()
+    };
+    let launches = mock.launches.clone();
+    let engine = engine_with(&dir, vec![mock]);
+    let ws = engine.workspace();
+    ws.create_skill(bisa_store::NewSkill {
+        id: bisa_core::SkillId::new("tidy").unwrap(),
+        name: "Tidy".into(),
+        description: "keeps things tidy".into(),
+        tags: Default::default(),
+        markdown: "Keep every change small and tidy.".into(),
+    })
+    .unwrap();
+    let tidy = ws
+        .add_agent(NewAgent {
+            harness: "claude-code".into(),
+            skills: vec![bisa_core::SkillId::new("tidy").unwrap()],
+            ..new_agent("Tidy")
+        })
+        .unwrap();
+    let tidy_pk = tidy.pubkey.as_hex().to_string();
+    let mention = PrincipalId::new(tidy_pk.clone()).unwrap();
+
+    let about_workspace = start(ws, ConversationOrigin::Workspace);
+    say(
+        &engine,
+        about_workspace.id,
+        "@Tidy hello",
+        std::slice::from_ref(&mention),
+    );
+    let reply = until("Tidy answers in its scratch", || {
+        said_by(&engine, about_workspace.id, &tidy_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    let scratch_spec = launches
+        .lock()
+        .unwrap()
+        .first()
+        .cloned()
+        .expect("one launch");
+    assert!(
+        scratch_spec.scratch_cwd,
+        "the agent's scratch is the platform's own folder"
+    );
+    assert!(
+        scratch_spec
+            .cwd
+            .join(".claude")
+            .join("skills")
+            .join("tidy")
+            .join("SKILL.md")
+            .is_file(),
+        "a native skill file in the platform's own folder"
+    );
+    assert!(
+        !reply.contains("Keep every change small and tidy."),
+        "delivered as a file, not in the prompt: {reply}"
+    );
+
+    let (project, _, about_checkout) = checkout_conversation(ws);
+    say(
+        &engine,
+        about_checkout.id,
+        "@Tidy hello there",
+        std::slice::from_ref(&mention),
+    );
+    let reply = until("Tidy answers in the checkout", || {
+        said_by(&engine, about_checkout.id, &tidy_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    let checkout_spec = launches
+        .lock()
+        .unwrap()
+        .get(1)
+        .cloned()
+        .expect("a second launch");
+    assert!(
+        !checkout_spec.scratch_cwd,
+        "a checkout is never the platform's folder"
+    );
+    let primary = ws.primary_workstream(project.id).unwrap();
+    let checkout = ws.checkout_in(&project, &primary);
+    assert_eq!(checkout_spec.cwd, checkout);
+    assert!(
+        !checkout.join(".claude").exists(),
+        "no file of the platform's lands in a repository"
+    );
+    assert!(
+        reply.contains("Keep every change small and tidy."),
+        "the skill rides the prompt: {reply}"
+    );
+    engine.shutdown().await;
+}
+
+/// A channel is not a conversation surface: an unaddressed message there
+/// wakes the default agent as best effort, so a wake that cannot launch
+/// stays a line in the log — no note lands among the members' messages —
+/// and the bus still settles.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_channels_failed_wake_posts_no_note_and_still_settles() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            available: false,
+            ..Default::default()
+        }],
+    );
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let mut events = engine.events();
+    ws.post_message(
+        "general",
+        MessageBody::post("hello, everyone"),
+        None,
+        &[],
+        &[],
+        None,
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    until("the wake settles on the bus", || {
+        replies_on(&mut events, "general")
+            .into_iter()
+            .find(|(agent, posted, _)| agent == AgentId::GENERAL && !posted)
+    })
+    .await;
+    let messages = ws.messages("general", None, 50).unwrap();
+    assert_eq!(
+        messages.len(),
+        1,
+        "no note among the members' messages: {:?}",
+        messages.iter().map(|m| &m.content).collect::<Vec<_>>()
+    );
+    assert!(messages.iter().all(|m| m.said.is_none()));
+    engine.shutdown().await;
+}
+
 fn notes_by(engine: &Engine, conversation: ConversationId, pubkey: &str) -> Vec<(String, String)> {
     engine
         .workspace()
@@ -978,7 +1249,8 @@ async fn a_turn_in_a_checkout_that_is_gone_says_so() {
     let general = general_pubkey(&engine);
     let (project, primary, conversation) = checkout_conversation(ws);
     let checkout = ws.checkout_in(&project, &ws.get_workstream(primary).unwrap());
-    std::fs::remove_dir_all(&checkout).unwrap();
+    // Moved aside, not removed: the temp dir's drop does the removing.
+    std::fs::rename(&checkout, checkout.with_file_name("moved-aside")).unwrap();
     say(&engine, conversation.id, "what is in this tree?", &[]);
     let (id, words) = until("the missing checkout is said", || {
         notes_by(&engine, conversation.id, &general)

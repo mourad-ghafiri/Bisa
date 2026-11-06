@@ -387,6 +387,7 @@ fn revival_spec(token: &ResumeToken) -> SessionSpec {
         env: Default::default(),
         env_remove: Vec::new(),
         harness_project_settings: false,
+        scratch_cwd: false,
         tier_ceiling: ToolTier::Write,
         output_schema: None,
         skills: vec![],

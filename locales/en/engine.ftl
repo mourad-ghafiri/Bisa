@@ -338,6 +338,7 @@ engine-conversation-turn-no-checkout = I cannot work on project { $project } her
 engine-conversation-turn-ended-without-reply = I could not finish this turn: the session ended ({ $why }). Ask again, or check my harness under Agents.
 engine-conversation-turn-past-wall-clock = This turn ran past the { $secs } s a turn may take and was stopped. Ask again, in smaller steps.
 engine-conversation-plan-unguarded = This conversation is in plan mode, and I run on { $harness }, which the platform cannot hold to reading. Switch the conversation to manual or auto, or address an agent on a harness the guard can stop.
+engine-conversation-no-platform-tools = I run on { $harness }, which takes no MCP servers, so I have none of the tools this conversation is about: I cannot read, validate or save the workflow from here. Move me onto a harness that does, under Agents, and ask again.
 engine-session-terminated-at-deadline = The { $kind } session { $session } did not stop within { $secs } s of being told to; its process { $pid } was terminated.
 engine-rationale-parent-goal-stopped = its parent goal { $parent } was stopped
 engine-rationale-parent-goal-closed = its parent goal { $parent } was closed

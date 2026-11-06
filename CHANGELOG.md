@@ -142,9 +142,14 @@ notes (`docs/contributing/release.md`).
 - `get_workflow` takes `workflow` optionally: left out in a conversation about a workflow, it
   reads that workflow with its validation problems. The intake's `get_workflow` op carries the
   session's `scope` for it, as `save_workflow` does.
-- A conversation's turn that could not run says why in the conversation, as the agent's own note:
+- A conversation's or a goal thread's turn that could not run says why there, as the agent's own
+  note (a channel's failed wake stays a line in the log and settles the bus):
   `engine-conversation-turn-not-launched`, `-prompt-refused`, `-no-checkout`,
-  `-ended-without-reply`, `-past-wall-clock`; the plan-mode refusal is `engine-conversation-plan-unguarded`.
+  `-ended-without-reply`, `-past-wall-clock`; the plan-mode refusal is `engine-conversation-plan-unguarded`,
+  and `engine-conversation-no-platform-tools` is the Workflow Agent's note when it runs on a harness
+  that takes no MCP servers.
+- `SessionSpec.scratch_cwd` (optional, `false` when absent): the session's folder is the platform's
+  own scratch — an agent's, a goal's, the ask's — and never a checkout.
 
 ### Changed
 
@@ -176,6 +181,28 @@ notes (`docs/contributing/release.md`).
   said so far before the note that says it was stopped.
 - A harness that refused a conversation's first turn leaves no running row: the turn's row ends
   as failed.
+- A Claude Code session the platform drives ends, failed and naming the reason, when its init
+  says the platform's MCP server failed to connect, needs authentication, is disabled, was skipped
+  by config validation or is not listed — where the CLI's own rule is to go on without the
+  server's tools (code.claude.com/docs/en/mcp, read 2026-11-06). A `pending` server and a status
+  word nobody knows yet go on with a warning; a revived session is not checked.
+- A core agent on a harness that takes no MCP servers — pi, Oh My Pi — is unready in the setup
+  gate, with the sentence and only capable harnesses as fixes; a design wake on such a harness is
+  refused before any launch and recorded failed; the Workflow Agent in a conversation about a
+  workflow says so in a note instead of running toolless. Another agent named there keeps the
+  frame that says what it cannot do.
+- In the platform's own scratch folders an engine-driven Claude Code session leaves its setting
+  sources whole, so the skill files written there load (a project skill loads only with the
+  `project` source, code.claude.com/docs/en/skills, read 2026-11-06); a checkout's session stays
+  on the person's settings alone, and `--strict-mcp-config` holds everywhere. Skills ride the
+  prompt in every checkout, adopted or cloned by the platform; skill files are written only in
+  the platform's own folders.
+- The core agents' description, prompt and respond policy are restated to the shipped definition
+  at every workspace open; the harness, model plan, decision-making switch, key and attestation
+  a workspace has are kept, and a truth file that does not parse is left alone. The profile
+  snapshot gains a revision when the words changed.
+- The design wake's session runs at `exec`, the ceiling its answers were already judged at (its
+  spec said `read`, which no adapter applied).
 
 ### Fixed
 
@@ -192,9 +219,26 @@ notes (`docs/contributing/release.md`).
 - **A conversation turn that failed said nothing.** A harness that would not launch, one that
   refused its first turn, a checkout gone from disk, a session that ended failed before a word
   and a turn past the wall clock were a line in the log and a working dot that never rested; each
-  is now a note of the agent's in the conversation, and the turn settles.
+  is now a note of the agent's in the conversation or the goal's thread, and the turn settles; in a
+  channel, where an unaddressed message wakes the default agent as best effort, the failure stays
+  in the log and the turn settles all the same.
 - The designer's hint and the guide spoke of the workflow's "runs" where they meant its flows, and
   the designer's own comments of two panes where there are three.
+- **A Claude Code session could run with no hands.** When the platform's MCP server failed its
+  first connection — the mount's `bisa` binary gone, a socket not yet listening — the CLI went on
+  without its tools and the agent said it had none, now and then. The init event is read, and such
+  a session ends with the reason, said where the person asked.
+- **A core agent on a harness without MCP servers passed the setup gate and ran toolless**, ending
+  stalled on a goal or describing, in a conversation, a change it never made.
+- **A skilled agent's conversation turn wrote skill files into an adopted checkout.** A
+  conversation's launch delivered skills as native files wherever it ran, so a Claude Code agent
+  with a skill left `.claude/skills/` in a repository the platform did not create. A checkout's
+  turn now carries its skills in the prompt, as a work item's does — and in the platform's own
+  folders the files it writes are loaded, where the person's-settings-only start had silently
+  left them unread.
+- **An older workspace kept an older Workflow Agent.** The core agents were created once and
+  their prompt was fixed thereafter, so a release that improved the method never reached a
+  workspace that already had one.
 
 ## [0.6.0] - 2026-10-28
 

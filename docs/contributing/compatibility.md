@@ -42,8 +42,10 @@ Two consequences that surprise people:
   can change or leave the catalog in a minor; what a person installed is theirs and an upgrade never
   touches it — except a built-in connector, which the engine refreshes to the bundle's `revision`
   at start, its accounts, secrets and steps kept ([areas/connectors](areas/connectors.md#compatibility)),
-  and a built-in addon, refreshed to the release's version when the workspace opens
-  ([18 — Addons](../architecture/18-addons.md)).
+  a built-in addon, refreshed to the release's version when the workspace opens
+  ([18 — Addons](../architecture/18-addons.md)), and the two core agents, whose shipped description,
+  prompt and respond policy the store restates at every open, their harness, plan, switch and key kept
+  ([06 — Agents and teams](../architecture/06-agents-and-teams.md)).
 
 ## Deprecating something
 

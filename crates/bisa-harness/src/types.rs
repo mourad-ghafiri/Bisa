@@ -219,6 +219,16 @@ pub struct SessionSpec {
     /// stored before the field: the person's own settings alone.
     #[serde(default)]
     pub harness_project_settings: bool,
+    /// Whether the working folder is the platform's own — an agent's or a
+    /// goal's scratch, the ask's folder — and never a checkout, adopted or
+    /// cloned by the platform. Nothing but the platform's own writes land in
+    /// such a folder, so a harness may load the folder's own project-level
+    /// files there (Claude Code: the skill files the engine wrote under
+    /// `.claude/skills`, which load only with the `project` setting source);
+    /// a checkout is a repository, whose own files stay unread. `false` by
+    /// default and for a spec stored before the field.
+    #[serde(default)]
+    pub scratch_cwd: bool,
     /// Highest tool tier the session may use without a gate decision.
     pub tier_ceiling: ToolTier,
     /// JSON Schema for the expected structured result, if contracted.
@@ -807,6 +817,7 @@ mod effort_tests {
             env: BTreeMap::new(),
             env_remove: vec![],
             harness_project_settings: false,
+            scratch_cwd: false,
             tier_ceiling: ToolTier::Write,
             output_schema: None,
             skills: vec![],

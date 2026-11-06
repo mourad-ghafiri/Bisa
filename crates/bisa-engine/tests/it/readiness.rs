@@ -264,6 +264,79 @@ async fn a_core_agent_on_a_harness_not_here_is_unready_and_the_fix_moves_it() {
     engine.shutdown().await;
 }
 
+/// A core agent's tools ride the MCP server the engine mounts: on a harness
+/// that takes none (pi, Oh My Pi) the agent is unready and told why, and the
+/// fixes name only the harnesses it could work on; applying one makes the
+/// check ready while the other core agent, still on the toolless harness,
+/// stays unready.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_core_agent_on_a_harness_without_mcp_servers_is_unready_and_the_fixes_name_only_capable_harnesses(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![
+            MockAdapter::default(),
+            MockAdapter {
+                id: "toolless".into(),
+                caps: bisa_core::HarnessCaps::STEER | bisa_core::HarnessCaps::FOLLOW_UP,
+                ..Default::default()
+            },
+        ],
+    );
+    core_agents_on(&engine, "toolless");
+    let r = engine.readiness().await;
+    assert!(!r.ready);
+    assert_eq!(
+        state(&r, CheckId::Harness).state,
+        CheckState::Ready,
+        "a toolless harness is still an installed one"
+    );
+    for id in [CheckId::GeneralAgent, CheckId::WorkflowAgent] {
+        let c = state(&r, id);
+        assert_eq!(c.state, CheckState::Unready, "{id:?}");
+        assert!(
+            c.detail.contains("toolless, takes no MCP servers")
+                && c.detail.contains("without the platform's tools")
+                && c.detail.contains("onto a harness that takes MCP servers"),
+            "{}",
+            c.detail
+        );
+        let offered: Vec<&str> = c
+            .fixes
+            .iter()
+            .map(|f| match f {
+                Fix::AgentHarness { harness, .. } => harness.as_str(),
+                Fix::Settings { label, .. } => label.as_str(),
+            })
+            .collect();
+        assert_eq!(
+            offered,
+            vec!["mock"],
+            "only a harness with the tools is offered"
+        );
+    }
+    let Some(Fix::AgentHarness {
+        harness, models, ..
+    }) = state(&r, CheckId::WorkflowAgent).fixes.first()
+    else {
+        panic!("a move onto the mock");
+    };
+    let ws = engine.workspace();
+    let mut a = ws.get_agent(&AgentId::workflow()).unwrap();
+    a.harness = harness.clone();
+    a.models = models.clone();
+    ws.update_agent(a).unwrap();
+    let r = engine.readiness().await;
+    assert_eq!(state(&r, CheckId::WorkflowAgent).state, CheckState::Ready);
+    assert_eq!(
+        state(&r, CheckId::GeneralAgent).state,
+        CheckState::Unready,
+        "the General Agent is still on the toolless harness"
+    );
+    engine.shutdown().await;
+}
+
 /// The first fix a check offers for one agent, as the plan it would write.
 fn plan_fix(r: &bisa_engine::readiness::Readiness, id: CheckId) -> ModelPlan {
     match state(r, id).fixes.first() {

@@ -30,6 +30,7 @@ fn spec(dir: &Path, prompt: &str) -> SessionSpec {
         env: Default::default(),
         env_remove: Vec::new(),
         harness_project_settings: false,
+        scratch_cwd: false,
         tier_ceiling: ToolTier::Exec,
         output_schema: None,
         skills: vec![],
@@ -1596,6 +1597,64 @@ while read -r _l; do :; done
             })
         )),
         "expected ModelUnavailable in {events:?}"
+    );
+}
+
+/// The custom-JSON session's own contract beside its launch: launched with
+/// nothing to say it waits, a prompt starts the turn and the stub's words
+/// come back; an abort ends the session as aborted; and a custom harness
+/// has no resume token, so a revival is never attempted. (The engine used
+/// to drive these through a core agent on a custom harness; a core agent
+/// is refused there now, as the harness takes no MCP servers.)
+#[tokio::test]
+async fn a_custom_session_is_prompted_after_launch_aborted_on_request_and_resumes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "mine",
+        r#"
+read -r _prompt
+echo '{"type":"started"}'
+echo '{"type":"text","text":"custom answers"}'
+echo '{"type":"ended","outcome":"completed"}'
+while read -r _l; do :; done
+"#,
+    );
+    let adapter =
+        bisa_adapters::custom_json::CustomJsonAdapter::new(bisa_harness::CustomHarnessSpec {
+            id: "mine".into(),
+            label: "Mine".into(),
+            command: stub.display().to_string(),
+            args: vec![],
+            resume_args: vec![],
+            env: Default::default(),
+            install_hint: None,
+        });
+    let session = adapter.launch(spec(dir.path(), "")).await.unwrap();
+    assert!(
+        session.resume_token().is_none(),
+        "a custom harness resumes nothing"
+    );
+    let mut stream = session.subscribe();
+    session.prompt("say something".into()).await.unwrap();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(has_text_delta(&events, "custom answers"), "{events:?}");
+    assert!(ended_completed(&events));
+    session.dispose().await.unwrap();
+
+    let session = adapter.launch(spec(dir.path(), "")).await.unwrap();
+    let mut stream = session.subscribe();
+    session.abort().await.unwrap();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                ..
+            })
+        )),
+        "{events:?}"
     );
 }
 

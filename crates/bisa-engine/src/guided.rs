@@ -916,6 +916,17 @@ fn unresolved_agent_detail(agent_id: &str) -> String {
     )
 }
 
+/// Why a wake on this harness is refused before it is launched: the design
+/// tools ride the platform's MCP server, which the harness takes none of.
+/// The sentence names the way out, because the goal is not being driven
+/// until the agent is moved.
+fn toolless_harness_detail(harness: &str) -> String {
+    format!(
+        "the Workflow Agent runs on {harness}, which takes no MCP servers, so it would design \
+         with none of the platform's tools. Move it onto a harness that does, under Agents."
+    )
+}
+
 /// One wake in flight per goal; a notification during a wake queues exactly
 /// one re-wake (debounce: later phases replace the pending one). Scheduling
 /// is the first fact of the lifecycle: the goal's screen learns at once that
@@ -1284,7 +1295,14 @@ fn build_guided_spec(inner: &Inner, goal_id: GoalId) -> std::io::Result<SessionS
         // A checkout's own harness settings act before the guard sees a call:
         // the person's alone, unless the workspace says otherwise.
         harness_project_settings: inner.security.policy().harness_project_settings,
-        tier_ceiling: bisa_core::ToolTier::Read,
+        // The goal's scratch is the platform's own folder.
+        scratch_cwd: true,
+        // One tier, stated once and read by the wake's `InputContext`: a
+        // design runs in the goal's own scratch, every call is still judged
+        // by the rules and the classifier, a conversation turn of the same
+        // agent runs at `Exec`, and a `Read` ceiling would hold a design's
+        // `ls` in the Inbox until the wake timed out.
+        tier_ceiling: bisa_core::ToolTier::Exec,
         output_schema: None,
         skills: vec![],
     })
@@ -1417,6 +1435,19 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     // for it — rather than a second list in engine config that could disagree
     // with it.
     let candidates = info.harness;
+    // A design is made with the platform's tools — `get_workflow`,
+    // `validate_workflow`, `propose_workflow` — which ride the MCP server the
+    // spec mounts; a harness that takes no MCP servers would run the whole
+    // wake with no hands and end stalled. Said now, as a failure the thread
+    // hears, rather than found out at the end.
+    if let Some(toolless) = candidates.iter().find(|h| {
+        inner
+            .catalog
+            .get(h)
+            .is_some_and(|a| !a.caps().contains(bisa_core::HarnessCaps::MCP_SERVERS))
+    }) {
+        return WakeEnd::Failed(toolless_harness_detail(toolless));
+    }
     let spec = match build_guided_spec(inner, goal_id) {
         Ok(spec) => spec,
         // LCOV_EXCL_START: the goal's work directory is made under its home, which fails only unwritable (disk-only)
@@ -1739,7 +1770,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                         live_run: agent_id,
                         home: Some(Home::Goal { goal: goal_id }),
                         work_item: None,
-                        tier_ceiling: bisa_core::ToolTier::Exec,
+                        tier_ceiling: spec.tier_ceiling,
                         agent: Some(AgentId::WORKFLOW.to_string()),
                         cwd: Some(inner.ws.paths().goal(goal_id).scratch()),
                         classifier: true,

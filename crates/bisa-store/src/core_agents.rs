@@ -5,11 +5,15 @@
 //! somebody chose it. These two are not a choice: always present, always
 //! enabled, never removable, their names fixed, only their harness and model
 //! plan editable. The rules live in [`bisa_core::Agent`]; this module
-//! only ensures the objects exist.
+//! ensures the objects exist and carry the shipped words.
 //!
 //! **They are created in exactly one place**: [`Workspace::open_with_keystore`]
 //! calls [`Workspace::ensure_core_agents`], and nothing else does. A workspace
-//! that is open has both, by construction.
+//! that is open has both, by construction — and both say what this release's
+//! definition says: the description, the prompt and the respond policy are
+//! fixed to a person, so they are the release's to restate at every open,
+//! while the harness, the model plan, the decision-making switch, the key and
+//! the attestation stay exactly as the workspace has them.
 //!
 //! Their definitions are `library/core/general-agent.toml` and
 //! `library/core/workflow-agent.toml`, compiled in — the catalog's
@@ -43,20 +47,38 @@ pub(crate) const CORE_AGENTS: [(&str, &str, &str); 2] = [
 ];
 
 impl Workspace {
-    /// Create each core agent this workspace does not have, and leave the
-    /// ones it has completely alone — a harness swap must survive every
-    /// subsequent open.
+    /// Create each core agent this workspace does not have, and restate the
+    /// ones it has to the shipped definition: a core agent's description,
+    /// prompt and respond policy are the platform's — fixed to a person
+    /// ([`bisa_core::Agent::check_update`]), so an older workspace would
+    /// otherwise keep an older method forever — while its harness, model
+    /// plan, decision-making switch, photo, key, origin, birth and
+    /// attestation are kept exactly (`Workspace::restate_core_agent`); a
+    /// harness swap survives every open, and a second open writes nothing.
     ///
     /// Presence is decided on the truth file rather than on a successful
     /// parse: a file that failed to parse must not be written over with a
-    /// fresh keypair, and must not fail a workspace open either.
+    /// fresh keypair, must not fail a workspace open either, and is not
+    /// restated — it is named in the log and left for a person to repair.
     pub fn ensure_core_agents(&self) -> Result<(), StoreError> {
         for (id, name, toml_str) in CORE_AGENTS {
             let id = AgentId::new(id)?;
+            let body = parse_agent(id.as_str(), toml_str)?;
             if self.agent_file_exists(&id) {
+                let restated = self.restate_core_agent(
+                    &id,
+                    body.description.clone(),
+                    body.system_prompt.clone(),
+                    body.respond,
+                )?;
+                if restated {
+                    tracing::info!(
+                        target: "bisa_store::core_agents",
+                        "the core agent {id} now carries the shipped definition"
+                    );
+                }
                 continue;
             }
-            let body = parse_agent(id.as_str(), toml_str)?;
             let mut new = body.into_new_agent();
             new.name = name.to_string();
             self.add_agent_with_id(&id, new, AgentOrigin::Core)?;
@@ -68,6 +90,90 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A workspace on disk whose keys persist across opens.
+    fn open(dir: &tempfile::TempDir) -> Workspace {
+        let identity = crate::paths::Paths::new(dir.path()).identity_dir();
+        Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::FileKeyStore::new(identity)),
+        )
+        .unwrap()
+    }
+
+    fn file_json(path: &std::path::Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    /// An older workspace's core agent takes the shipped description, prompt
+    /// and respond policy at the next open, and keeps the harness, plan and
+    /// switch a person chose, its key, its birth and its attestation; a
+    /// second open writes nothing.
+    #[test]
+    fn an_older_workspace_takes_the_shipped_prompt_and_keeps_its_harness_plan_switch_and_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = open(&dir);
+        let id = AgentId::workflow();
+        let mut chosen = ws.get_agent(&id).unwrap();
+        chosen.harness = "codex".into();
+        chosen.models = bisa_core::ModelPlan::pinned("gpt-5");
+        chosen.decision_making = true;
+        ws.update_agent(chosen).unwrap();
+        // An older release's words, as its file would hold them.
+        let path = ws.paths().agent_file(&id);
+        let mut file = file_json(&path);
+        file["system_prompt"] = serde_json::Value::String("an older method".into());
+        file["description"] = serde_json::Value::String("an older description".into());
+        file["respond"] = serde_json::json!("owner_only");
+        std::fs::write(&path, serde_json::to_vec_pretty(&file).unwrap()).unwrap();
+        let before = file_json(&path);
+        drop(ws);
+
+        let ws = open(&dir);
+        let shipped = parse_agent(AgentId::WORKFLOW, WORKFLOW_AGENT_TOML).unwrap();
+        let agent = ws.get_agent(&id).unwrap();
+        assert_eq!(agent.system_prompt, shipped.system_prompt);
+        assert_eq!(agent.description, shipped.description);
+        assert_eq!(agent.respond, shipped.respond);
+        assert_eq!(agent.harness, "codex", "the person's harness is kept");
+        assert_eq!(agent.models, bisa_core::ModelPlan::pinned("gpt-5"));
+        assert!(agent.decision_making, "the person's switch is kept");
+        let after = file_json(&path);
+        for kept in [
+            "pubkey",
+            "created_at",
+            "attestation",
+            "origin",
+            "enabled",
+            "name",
+        ] {
+            assert_eq!(after[kept], before[kept], "{kept} is kept");
+        }
+        drop(ws);
+
+        let bytes = std::fs::read(&path).unwrap();
+        let ws = open(&dir);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "a second open writes nothing"
+        );
+        drop(ws);
+    }
+
+    /// A core agent's truth file that does not parse is neither written over
+    /// nor a failed open: it is left as it is for a person to repair.
+    #[test]
+    fn a_core_agent_file_that_does_not_parse_is_left_alone_at_the_next_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = open(&dir);
+        let path = ws.paths().agent_file(&AgentId::general());
+        drop(ws);
+        std::fs::write(&path, "this is not json").unwrap();
+        let ws = open(&dir);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "this is not json");
+        assert!(ws.get_agent(&AgentId::general()).is_err());
+    }
 
     /// The Workflow Agent's method is stated once, in its definition: where
     /// a step's outcome lands, that a project is made only by

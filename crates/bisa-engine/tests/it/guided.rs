@@ -1255,6 +1255,83 @@ async fn what_the_workflow_agent_says_of_a_failure_carries_no_secret() {
     engine.shutdown().await;
 }
 
+/// A design wake's session runs at the one ceiling its answers are judged
+/// at, `Exec`, in the goal's own scratch — the platform's folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_design_wake_runs_at_the_ceiling_its_answers_are_judged_by() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "mock-guided");
+    let adapter = Arc::new(MockAdapter {
+        id: "mock-guided".into(),
+        ..Default::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(ws, catalog, guided_config()).unwrap();
+    let goal = engine.submit_goal(guided("sell more socks")).unwrap();
+    let spec = until("the wake to launch", || {
+        adapter.launches.lock().unwrap().first().cloned()
+    })
+    .await;
+    assert_eq!(spec.tier_ceiling, bisa_core::ToolTier::Exec);
+    assert!(
+        spec.scratch_cwd,
+        "the goal's scratch is the platform's own folder"
+    );
+    assert_eq!(spec.cwd, engine.workspace().paths().goal(goal.id).scratch());
+    engine.shutdown().await;
+}
+
+/// The design tools ride the platform's MCP server: on a harness that takes
+/// none the wake is refused before any launch — recorded failed, naming the
+/// harness and the way out, said in the thread — rather than run toolless
+/// and end stalled.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_design_wake_on_a_harness_without_mcp_servers_records_failed_and_launches_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "toolless");
+    let adapter = Arc::new(MockAdapter {
+        id: "toolless".into(),
+        caps: bisa_core::HarnessCaps::STEER | bisa_core::HarnessCaps::FOLLOW_UP,
+        ..Default::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(ws, catalog, guided_config()).unwrap();
+    let goal = engine.submit_goal(guided("sell more socks")).unwrap();
+
+    until("the failure to be journaled", || {
+        guidance_facts(&engine, goal.id)
+            .iter()
+            .any(|(_, s, d)| {
+                *s == GuidanceStatus::Failed
+                    && d.as_deref()
+                        .unwrap_or("")
+                        .contains("toolless, which takes no MCP servers")
+            })
+            .then_some(())
+    })
+    .await;
+    let words = until("the failure to be said", || {
+        let words = said(&engine, goal.id);
+        (!words.is_empty()).then_some(words)
+    })
+    .await;
+    assert!(
+        words
+            .iter()
+            .any(|w| w.contains("takes no MCP servers") && w.contains("under Agents")),
+        "{words:?}"
+    );
+    assert!(
+        adapter.launches.lock().unwrap().is_empty(),
+        "nothing was launched"
+    );
+    engine.shutdown().await;
+}
+
 /// When the Workflow Agent cannot be resolved, the goal records a failure
 /// that names it, the thread hears why, and nothing runs.
 #[tokio::test(flavor = "multi_thread")]

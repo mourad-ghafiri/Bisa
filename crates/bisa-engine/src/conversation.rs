@@ -1240,6 +1240,7 @@ fn build_conversation_spec(
     scope: &str,
     agent: &Agent,
     cwd: std::path::PathBuf,
+    scratch_cwd: bool,
     goal: Option<GoalId>,
 ) -> SessionSpec {
     let command = std::env::current_exe()
@@ -1294,6 +1295,8 @@ fn build_conversation_spec(
         // A checkout's own harness settings act before the guard sees a call:
         // the person's alone, unless the workspace says otherwise.
         harness_project_settings: inner.security.policy().harness_project_settings,
+        // The agent's own scratch is the platform's folder; a checkout is not.
+        scratch_cwd,
         // Chat instances are full-capability: "do this for me" has to work.
         tier_ceiling: bisa_core::ToolTier::Exec,
         output_schema: None,
@@ -1551,7 +1554,24 @@ async fn wake_attempt(
             return;
         }
     }
-    let spec = build_conversation_spec(inner, scope, &agent, cwd.clone(), facts.goal);
+    // The room's owner answers with the room's tools — a workflow is read,
+    // validated and saved through the platform's MCP server — so an owner on
+    // a harness that takes none is refused with a sentence rather than run a
+    // turn that can only describe a change it cannot make; every other
+    // agent, and every other origin, keeps the toolless frame, which says
+    // what the agent cannot do.
+    if !platform_tools && facts.owner_agent().as_ref() == Some(&agent.id) {
+        refuse_toolless_owner(inner, scope, &agent);
+        return;
+    }
+    let spec = build_conversation_spec(
+        inner,
+        scope,
+        &agent,
+        cwd.clone(),
+        facts.checkout.is_none(),
+        facts.goal,
+    );
     let candidates = vec![agent.harness.clone()];
     // The setting is read for the project the conversation stands in.
     let effort_setting = crate::effort::setting(inner, facts.project());
@@ -1599,7 +1619,10 @@ async fn wake_attempt(
         effort_setting,
         judged_effort: judged.effort,
         rotation,
-        skills_in_prompt: false,
+        // A checkout is a repository: the agent's skills ride the prompt
+        // there, as a work item's do, and no file of the platform's lands in
+        // it; in the agent's own scratch they are files the harness loads.
+        skills_in_prompt: facts.checkout.is_some(),
     };
     let mut tried = std::collections::HashSet::new();
     // Roster + session row: a chat instance is a first-class runtime agent.
@@ -2401,6 +2424,18 @@ fn refuse_unguarded_plan(inner: &Arc<Inner>, scope: &str, agent: &bisa_core::Age
     say_turn_failed(inner, scope, agent.id.as_str(), note);
 }
 
+/// The room's owner on a harness that takes no MCP servers has none of the
+/// tools the room is about: say so in the conversation, naming the harness
+/// and the way out, rather than run a turn that can only describe a change
+/// it cannot make.
+fn refuse_toolless_owner(inner: &Arc<Inner>, scope: &str, agent: &bisa_core::Agent) {
+    let note = bisa_core::text!(
+        "engine-conversation-no-platform-tools",
+        harness = agent.harness.clone()
+    );
+    say_turn_failed(inner, scope, agent.id.as_str(), note);
+}
+
 /// A turn that could not run, or ended without a word, says so **in the
 /// conversation**: the agent's own standing note — signed by the agent when
 /// it can sign, by the owner otherwise, as the Workflow Agent speaks in a
@@ -2408,11 +2443,22 @@ fn refuse_unguarded_plan(inner: &Arc<Inner>, scope: &str, agent: &bisa_core::Age
 /// the turn settled on the bus as a reply that landed, so a pane's working
 /// dot rests on the note and the person reads why rather than nothing
 /// (13 § A turn that fails says so). The words it carries go through
-/// [`failure_words`] first.
+/// [`failure_words`] first. The note lands on a conversation surface — a
+/// conversation of any origin, a goal's thread; in a channel, where an
+/// unaddressed message wakes the default agent as best effort, the failure
+/// stays a line in the log as before and only the bus settles: a note on
+/// every message of a room whose harness is away would be noise.
 fn say_turn_failed(inner: &Arc<Inner>, scope: &str, agent_id: &str, note: bisa_core::Text) {
     let Ok(agent) = AgentId::new(agent_id) else {
         return; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
     };
+    let facts = scope_facts(inner, scope);
+    if facts.conversation.is_none() && facts.goal.is_none() {
+        let why = note.id.to_string();
+        tracing::warn!(agent = %agent_id, scope = %scope, "a channel's wake failed: {why}");
+        settle_empty_turn(inner, scope, agent_id);
+        return;
+    }
     let speaker = inner.ws.signer_for(&agent).is_ok().then_some(&agent);
     let posted = inner.ws.post_message(
         scope,

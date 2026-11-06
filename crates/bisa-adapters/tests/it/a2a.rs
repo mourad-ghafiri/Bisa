@@ -133,6 +133,7 @@ fn spec(intake_socket: &std::path::Path) -> SessionSpec {
         env: Default::default(),
         env_remove: Vec::new(),
         harness_project_settings: false,
+        scratch_cwd: false,
         tier_ceiling: ToolTier::Write,
         output_schema: Some(json!({"type": "object"})),
         skills: vec![],

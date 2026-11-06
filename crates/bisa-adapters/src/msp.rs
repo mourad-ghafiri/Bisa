@@ -511,6 +511,7 @@ pub fn revival(adapter_id: &str, token: &ResumeToken) -> Result<SessionSpec, Har
         env: Default::default(),
         env_remove: Vec::new(),
         harness_project_settings: false,
+        scratch_cwd: false,
         tier_ceiling: ToolTier::Write,
         output_schema: None,
         skills: vec![],

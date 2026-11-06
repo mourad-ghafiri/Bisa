@@ -25,7 +25,9 @@ is [06 — Agents and teams](../architecture/06-agents-and-teams.md).
 
 The General Agent and the Workflow Agent **hold a record**: their definitions are
 `library/core/general-agent.toml` and `library/core/workflow-agent.toml`, ensured at
-`Workspace::open` and nowhere else, so a workspace that is open has both, by construction. Each has
+`Workspace::open` and nowhere else, so a workspace that is open has both, by construction — and brought
+up to the shipped definition there at every open, so a release that improves an agent's method reaches
+every workspace, with the harness, models and switch you chose untouched. Each has
 exactly three things you may change: its harness, its model plan — the models, the strategy and
 the effort — and its decision-making switch
 (`bisa agent edit general-agent --model "claude-sonnet-5-5[1m]" --effort medium
@@ -158,9 +160,10 @@ the library and attaches by id, with a door to Settings › Capabilities › Ski
 form of its own.
 
 Every skill an agent carries is delivered into every session that agent runs: as
-`.claude/skills/<id>/SKILL.md` in the session's directory for `claude-code`, and as a prompt appendix
-for every other harness. **In an adopted root, skills are always an appendix** — the platform never
-writes its scratch into a folder it did not create.
+`.claude/skills/<id>/SKILL.md` in the session's own scratch folder for `claude-code`, and as a prompt
+appendix for every other harness. **In a checkout — adopted, or cloned by the platform — skills are
+always an appendix**: the platform writes no file of its own into a repository, and Claude Code, started
+there on your own settings alone, would not read a project skill anyway.
 A body is capped at 32 KiB;
 a catalog agent carries at most six — four of its own and the two platform skills every one carries, Embedded Browser and Drawing — enforced by a test; a reference that no longer resolves costs
 that skill and nothing else.

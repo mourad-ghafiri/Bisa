@@ -292,7 +292,7 @@ pub(crate) async fn resolve_and_launch(
         // the caller appends before the first prompt. An adopted root gets
         // the appendix whatever the harness: no file of ours lands there.
         let mut injection = if launch.skills_in_prompt {
-            bisa_harness::skills::as_appendix(&session_spec.skills) // LCOV_EXCL_LINE skills in the prompt of an adopted root; out by decision
+            bisa_harness::skills::as_appendix(&session_spec.skills) // LCOV_EXCL_LINE skills in the prompt of a checkout's work item; a conversation's turn covers the appendix, a work item of a skilled agent in a checkout is staged by no test; out by decision
         } else {
             bisa_harness::skills::materialize(&session_spec.skills, &session_spec.cwd, candidate)
         };
@@ -483,14 +483,19 @@ impl Placement {
         }
     }
 
-    /// A workstream of an adopted project is still the adopted repository —
-    /// a worktree shares its owner's `.git`, and a checkout is theirs — so
-    /// skills ride the prompt there rather than files in the tree.
+    /// A checkout — adopted, or cloned by the platform — is a repository: a
+    /// worktree shares its owner's `.git`, an adopted one is the person's,
+    /// and a cloned one carries whatever its remote ships, so skills ride
+    /// the prompt there rather than files in the tree. Files are written only
+    /// in the platform's own scratch folder, where Claude Code loads them
+    /// natively ([`SessionSpec::scratch_cwd`]).
     fn skills_in_prompt(&self) -> bool {
-        match self {
-            Placement::Checkout(c) => c.project.root.is_external(),
-            Placement::Scratch { .. } => false,
-        }
+        !self.is_scratch()
+    }
+
+    /// The platform's own scratch folder, never a checkout.
+    fn is_scratch(&self) -> bool {
+        matches!(self, Placement::Scratch { .. })
     }
 }
 
@@ -671,6 +676,7 @@ fn build_session_spec(
     inner: &Inner,
     spec: &WorkItemSpec,
     cwd: PathBuf,
+    scratch_cwd: bool,
     env: BTreeMap<String, String>,
 ) -> SessionSpec {
     // The proxy the platform follows, handed to the harness as its tools read it.
@@ -724,6 +730,7 @@ fn build_session_spec(
         // A checkout's own harness settings act before the guard sees a call:
         // the person's alone, unless the workspace says otherwise.
         harness_project_settings: inner.security.policy().harness_project_settings,
+        scratch_cwd,
         tier_ceiling: spec.tier_ceiling,
         output_schema: spec.output_schema.clone(),
         skills,
@@ -878,7 +885,13 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     //    fresh budget; each attempt's timeout is what is *left*.
     //  * `attempts` / `tried` — the bound. Both the launch walk and the
     //    mid-run relaunch draw on the same budget, so a run can never loop.
-    let base_spec = build_session_spec(&inner, &spec, placement.cwd().to_path_buf(), env);
+    let base_spec = build_session_spec(
+        &inner,
+        &spec,
+        placement.cwd().to_path_buf(),
+        placement.is_scratch(),
+        env,
+    );
     let first_candidate = spec.harness_candidates.first().cloned().unwrap_or_default();
     let _permits = match unless_stopped(&mark, inner.caps.acquire(&first_candidate)).await {
         None => {

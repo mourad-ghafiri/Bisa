@@ -280,8 +280,9 @@ you write, named or not — the pill at the composer's head says so, and `@` fin
 the one you were on is remembered for the workflow, so coming back lands on it. Ask it to
 analyse, fix, design or finish the workflow: it reads the inputs, the steps and the flows, validates
 until clean and **saves** the workflow as a new revision, and the canvas beside it shows the change
-as it lands. When a turn cannot run — its harness would not start, or ended without a word — the
-agent's note in the thread says why, in place of a silence. A new workflow is there to converse about from its first second — ask the agent to draw
+as it lands. When a turn cannot run — its harness would not start, ended without a word, or takes no MCP
+servers, so the agent would hold none of the workflow's tools — the agent's note in the thread says
+why, in place of a silence, and names the way out under Agents. A new workflow is there to converse about from its first second — ask the agent to draw
 the whole thing on the empty canvas; its save is refused while the definition has problems, so what
 it writes is complete. If you were mid-edit when it saved, the banner offers *Keep mine on top of theirs* or *Take theirs*, as for
 any other writer. A goal's Workflow tab is the canvas alone; the goal's conversation is its

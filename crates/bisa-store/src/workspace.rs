@@ -383,6 +383,8 @@ impl Workspace {
         // so the engine's first read never trusts a row the crash left stale.
         ws.reconcile_live()?;
         ws.governance_or_default_at_open()?;
+        // Made when missing; restated to this release's description, prompt
+        // and respond policy otherwise, the person's choices kept.
         ws.ensure_core_agents()?;
         ws.ensure_general_channel()?;
         // A built-in addon this binary ships at a version other than the one

@@ -96,6 +96,9 @@ struct Installed {
     plan: Option<ModelPlan>,
     /// `HarnessAdapter::recommended_judge`.
     judge: Option<String>,
+    /// `HarnessCaps::MCP_SERVERS`: the harness takes the MCP server the
+    /// engine mounts, which a core agent's tools ride on.
+    mcp_servers: bool,
 }
 
 fn now_secs() -> u64 {
@@ -152,6 +155,7 @@ async fn installed(inner: &Arc<Inner>) -> Vec<Installed> {
             models,
             plan: adapter.recommended_plan(),
             judge: adapter.recommended_judge(),
+            mcp_servers: adapter.caps().contains(bisa_core::HarnessCaps::MCP_SERVERS),
         });
     }
     out
@@ -352,9 +356,15 @@ fn core_agent(inner: &Arc<Inner>, id: AgentId, title: &str, installed: &[Install
             }
         }
     };
-    let on_installed = installed.iter().any(|h| h.id == agent.harness);
+    let host = installed.iter().find(|h| h.id == agent.harness);
+    let on_installed = host.is_some();
+    // The platform's tools — a workflow read, validated and saved, a goal
+    // designed — ride the MCP server the engine mounts: a harness that takes
+    // none would run a core agent with no hands, and it would say so in
+    // every room it answers.
+    let with_tools = host.is_some_and(|h| h.mcp_servers);
     let has_plan = !agent.models.models.is_empty();
-    if agent.enabled && on_installed && has_plan {
+    if agent.enabled && on_installed && with_tools && has_plan {
         return Check {
             id: check_of(&id),
             state: CheckState::Ready,
@@ -374,16 +384,32 @@ fn core_agent(inner: &Arc<Inner>, id: AgentId, title: &str, installed: &[Install
             fixes: Vec::new(),
         };
     }
-    let why = if !on_installed {
-        format!(
-            "Its harness, {}, is not installed on this machine.",
-            agent.harness
+    let (why, way) = if !on_installed {
+        (
+            format!(
+                "Its harness, {}, is not installed on this machine.",
+                agent.harness
+            ),
+            "Move it onto an installed harness with a model, under Agents.",
+        )
+    } else if !with_tools {
+        (
+            format!(
+                "Its harness, {}, takes no MCP servers, so it would run without the platform's tools.",
+                agent.harness
+            ),
+            "Move it onto a harness that takes MCP servers, under Agents.",
         )
     } else {
-        "It names no model to run on.".to_string()
+        (
+            "It names no model to run on.".to_string(),
+            "Move it onto an installed harness with a model, under Agents.",
+        )
     };
+    // Only a harness the agent could work on is offered.
     let fixes = installed
         .iter()
+        .filter(|h| h.mcp_servers)
         .map(|h| Fix::AgentHarness {
             label: format!("Run on {}", h.label),
             agent: id.to_string(),
@@ -395,7 +421,7 @@ fn core_agent(inner: &Arc<Inner>, id: AgentId, title: &str, installed: &[Install
         id: check_of(&id),
         state: CheckState::Unready,
         title: title.into(),
-        detail: format!("{why} Move it onto an installed harness with a model, under Agents."),
+        detail: format!("{why} {way}"),
         hint: None,
         door: Door::Agents,
         fixes,

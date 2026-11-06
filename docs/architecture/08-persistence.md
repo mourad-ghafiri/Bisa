@@ -861,7 +861,7 @@ graph TB
     ok --> reconcile
     reconcile["reconcile the live runs — stale rows repaired, a duplicate dispatch resolved; an orphan run is the engine's to end, under its lock"] --> ensure
     ensure["<b>ensure the permanent objects</b> — a torn members.json or general quarantined and made again, a torn governance.json read as the owner's alone"] --> a["ensure_owner_member()"]
-    a --> b["ensure_core_agents()"]
+    a --> b["ensure_core_agents() — made when missing, restated to the shipped words otherwise"]
     b --> c["ensure_general_channel()"]
     c --> ready["ready"]
 

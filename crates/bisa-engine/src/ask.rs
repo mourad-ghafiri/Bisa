@@ -350,6 +350,8 @@ pub async fn ask_once(
         // A one-shot session — a classifier's, an answer's — loads nothing of
         // a checkout's, whatever the setting says.
         harness_project_settings: false,
+        // Its folder is the platform's own, with nothing in it.
+        scratch_cwd: true,
         tier_ceiling: ToolTier::Read,
         output_schema,
         skills: vec![],
