@@ -85,9 +85,10 @@ export function BrowserPanel() {
       })
       .catch((e: unknown) => log.warn("browser", "browser placement refused", { key, shown: placed !== null, error: e instanceof Error ? e.message : String(e) }));
   }, []);
-  /** Place a tab by the slots as they stand right now — for a webview that has just opened. */
+  /** Place a tab by the slots as they stand right now — for a webview that has just opened — with the tab's own facts: out of sight, and the viewport it chose there. */
   const placeNow = useCallback(
-    (key: string, headless: boolean) => place(key, placementOf(key, { center: layerSlot("center"), aux: layerSlot("aux"), mayShow: layerMayShowNow(), headless })),
+    (key: string, tab: { headless: boolean; viewport: { width: number; height: number } | null }) =>
+      place(key, placementOf(key, { center: layerSlot("center"), aux: layerSlot("aux"), mayShow: layerMayShowNow(), headless: tab.headless, viewport: tab.viewport })),
     [place],
   );
 
@@ -147,7 +148,7 @@ export function BrowserPanel() {
       // The page's program carries the browser chords as the keymap spells them now (ide/15) and the overlay's theme as the app wears it now: a tab opened after a rebinding relays the new ones, and its every document starts dressed.
       void openBrowserView(s.key, s.url, browserScript(relayChords(currentKeymap()), readInspectorTheme())).then(
         () => {
-          if (opened.current.has(s.key)) placeNow(s.key, s.headless);
+          if (opened.current.has(s.key)) placeNow(s.key, s);
         },
         () => {
           opened.current.delete(s.key);
@@ -163,12 +164,13 @@ export function BrowserPanel() {
   }, [sessions, available, placeNow]);
 
   // Where each webview is: over the host that shows its tab while no
-  // surface is open; offstage for a headless tab; hidden otherwise.
+  // surface is open; offstage for a headless tab — at the viewport an agent
+  // gave it, when it did (a patched session re-runs this); hidden otherwise.
   useEffect(() => {
     if (!available) return;
     for (const s of sessions) {
       if (!opened.current.has(s.key)) continue;
-      place(s.key, placementOf(s.key, { center, aux, mayShow, headless: s.headless }));
+      place(s.key, placementOf(s.key, { center, aux, mayShow, headless: s.headless, viewport: s.viewport }));
     }
   }, [sessions, center, aux, mayShow, available, place]);
 

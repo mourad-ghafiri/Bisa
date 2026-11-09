@@ -399,7 +399,16 @@ strip — wears the same words.
 
 `browser_screenshot` (`desktop/src-tauri/src/browser.rs`) is `WKWebView.takeSnapshot` on the
 tab's own webview — the page's render, scaled to `browser.screenshot.width` (320–4096, 1280 by
-default), encoded as PNG by AppKit — never the screen, so no screen-recording grant is asked. The
+default) — or to the tab's own viewport width for a tab kept out of sight that chose one
+(`browserShotModel.shotWidthFor`, §Emulation), so a phone's page is never upscaled to a desktop's
+width — encoded as PNG by AppKit — never the screen, so no screen-recording grant is asked. A
+**full page** (`full_page: true`) is a tab kept out of sight grown to its document for the shot
+(`browserBridge.growForFullPage`: the page's measure — `MEASURE`, the document's height — then
+`fullPageHeight`, never shorter than the viewport and at most `MAX_FULL_PAGE_HEIGHT` 8192 px, the
+layer re-placing the webview on the store's word and `measureUntil` reading the page's own size as
+the proof it landed, then `settled`) and put back after, unless a `browser_emulate` moved it
+meanwhile (`restoreAfterFullPage` compares before it restores: requests are not serialised per
+tab); a shown tab's size is the person's pane, so a full page of one is refused in a sentence. The
 call runs on the main thread and answers over a channel within `SNAPSHOT_BUDGET`; on another
 platform it says so. The bytes come back to the main webview as raw IPC bytes, and
 `browserShotModel.pngSize` reads the size from the header. A hidden webview renders nothing worth
@@ -447,7 +456,7 @@ one browser an agent has, and every catalog agent carries the skill **Embedded B
 (`BROWSER_SKILL`, `embedded-browser`) as its guidance. *Assigned* narrows to the agents carrying
 that skill; the General Agent and the Workflow Agent always may; *nobody* refuses them too. Each refusal is a sentence
 naming what to attach or set (`OFF`, `NOBODY_MAY`, `NOT_ASSIGNED`, `LOCAL_ONLY`), so the agent tells
-the person rather than working around it. The twenty-one tools stay on every session's menu — a tool
+the person rather than working around it. The twenty-two tools stay on every session's menu — a tool
 list is a menu, not a permission, the same argument `core_agent_only` makes. Settings ›
 Capabilities › **Browser** (`BrowserAccessPanel.tsx` over `browserSettingsModel.mjs`, the rest of
 the group as registry rows) draws the switch on a status card — with how many tabs are open and how
@@ -464,8 +473,9 @@ tool — a read, a click, a screenshot — and nothing opens beside anyone. Whet
 `BrowserRequest.headless`), else the policy, *unattended* reading the goal's mode
 (`GoalMode::unattended`, an auto goal; a conversation with no goal has a person in it, so it is
 shown). The desktop draws such a tab **offstage** (`browserPlacementModel.placementOf`: a host
-that stands for the tab still wins; else `{host: "offstage"}`, a box a desktop viewport wide
-wholly above and to the left of the window — in the window still, so WebKit keeps rendering — and
+that stands for the tab still wins; else `{host: "offstage"}`, a box a desktop viewport wide — or
+the viewport the agent gave the tab (§Emulation) — wholly above and to the left of the window — in
+the window still, so WebKit keeps rendering — and
 a dialog over the window changes nothing offstage); `isShown` is true there, so a screenshot is
 taken where the tab renders (`browserBridge.untilShown`), never by revealing it. The store keeps
 `headless` on the session (remembered across a restart), opens such a tab without making it active,
@@ -475,7 +485,11 @@ tab in the pane's strip (dim, the hidden glyph), on its row in the footer's Brow
 *Unseen*, or worded *unseen* under *Tabs*), or in the IDE's
 Browser menu, or the pane opened on it (`openBrowserPane` reveals first). **Nothing an agent does
 reveals a headless tab** (`revealPlan` answers `null` for one): only the person, or the agent's own
-`headless: false` on a later `browser_open` of that tab.
+`headless: false` on a later `browser_open` of that tab — and the reverse holds: `headless: true`
+on a tab it holds puts a seen one out of sight (`conceal`, the active tab falling to a seen
+neighbour). For a tab already open the bridge reads the request's own word and nothing else
+(`planRequest`: the policy's word is for a tab a request opens); a revealed tab drops any viewport
+it had out of sight, since a host's box is its box from then on.
 
 **Nobody home is said at once.** `BrowserRequests` keeps when a desktop was last heard from —
 every `GET /browser/requests` and every answer stamps it — and the op refuses with `NOBODY_HOME`
@@ -487,6 +501,35 @@ is answered with a different sentence, `DESKTOP_SILENT`: the desktop *was* here,
 request was parked, so its silence is not its absence, and the agent is told to try once more rather
 than stop. An agent with no desktop to answer it reads `NOBODY_HOME` in a moment, not after a minute
 per call.
+
+## Emulation
+
+A design review looks at a page the way a device shows it, and `browser_emulate` is how an agent
+asks (`BrowserAction::Emulate`; `BrowserRequest.width`, `height`, `scheme`; the answer's
+`BrowserResult.viewport` and `scheme`). Two facts, either alone or both:
+
+- **A viewport** — `width` and `height` in CSS pixels, each within the shot's bounds (320–4096,
+  `browserPlacementModel.viewportOf`) — **for a tab kept out of sight**: the store keeps it on the
+  session (`browsersModel.emulated`, compared by value), `placementOf` draws the offstage box at
+  that size instead of a desktop page's (`offstageRect(viewport)`), and the layer re-places the
+  webview on the store's word as it does for any change of a session. The bridge then asks the
+  page its own size (`MEASURE` → `innerWidth`/`innerHeight`, every `MEASURE_POLL_MS` for up to
+  `MEASURE_MS`) and answers the size the page measured — the proof the box landed — so the agent
+  reads the truth, never the ask. A **shown tab's size is the person's**: the pane they sized, the
+  strip they chose; a viewport for one is refused in a sentence that says to open a tab kept out of
+  sight (`browser_open` with `headless: true`). A screenshot of such a tab is taken at its viewport
+  width (`shotWidthFor`), and `(W×H)` in the answer is the PNG's own header, as ever.
+- **A colour scheme** — `light`, `dark` or `system` — **for any tab**: the shell sets the tab
+  webview's `appearance` (`browser_appearance`, `appearance::set`: `NSAppearance` named Aqua or
+  Dark Aqua, or none for the window's own), AppKit resolves the view's effective appearance from it
+  and WebKit reads the page's `prefers-color-scheme` from that, so one tab shows a page in the dark
+  while the app and every other tab keep theirs; the store keeps the word (`scheme`) for the
+  answer. Where the shell cannot set one — another platform, a view that is gone — the agent reads
+  a sentence (`shell-browser-bridge-scheme-could-set`) rather than a lie.
+
+Neither fact is remembered across a restart: a viewport belongs to a tab out of sight, which is
+never remembered, and a scheme to a webview that ends with the window. A page's popup opens as the
+asker stands (out of sight beside a hidden page) and inherits neither.
 
 ## Artifacts in the browser
 
@@ -600,7 +643,7 @@ their choice ([09](09-agents-in-the-ide.md)).
 
 ## Agents browse here
 
-Agents have no browser of their own. The injected `bisa` MCP server holds **twenty-one tools on every
+Agents have no browser of their own. The injected `bisa` MCP server holds **twenty-two tools on every
 scope** ([reference](../../reference/mcp-tools.md); `bisa_core::browser::BROWSER_TOOLS` is the one
 list the note, the skill, the reference and the server are checked against) — a person's browsing:
 
@@ -608,14 +651,17 @@ list the note, the skill, the reference and the server are checked against) — 
 |---|---|
 | open and move | `browser_open` (a new tab, or a tab it holds), `browser_tabs`, `browser_back`, `browser_forward`, `browser_reload`, `browser_close` |
 | serve | `browser_serve` — a folder of the session's checkout on a loopback port of this machine, the URL answered (§Serving a folder) |
-| see | `browser_snapshot` — the page's outline: every heading, landmark, link, button, field, select, checkbox and menu item, one line each with a **ref** (`e12 button "Sign in"`, `e13 textbox "Email" value="…"`, `e14 link "Pricing" → /pricing`, `[disabled]`, `[checked]`); `browser_read` — the page or one element as text or HTML, an element led by its role, name and attributes; `browser_find` — words with their surroundings; `browser_screenshot` |
+| see | `browser_snapshot` — the page's outline: every heading, landmark, link, button, field, select, checkbox and menu item, one line each with a **ref** (`e12 button "Sign in"`, `e13 textbox "Email" value="…"`, `e14 link "Pricing" → /pricing`, `[disabled]`, `[checked]`); `browser_read` — the page or one element as text or HTML, an element led by its role, name and attributes; `browser_find` — words with their surroundings; `browser_screenshot` — the tab as it renders, or the whole page of a tab kept out of sight (`full_page`) |
+| emulate | `browser_emulate` — a viewport (320–4096 CSS pixels, for a tab kept out of sight) and a colour scheme (light, dark or system, for any tab), answered as the page measured them (§Emulation) |
 | act | `browser_click`, `browser_type` (a keystroke at a time — keydown · keypress · input · keyup per character, `clear`, `submit` presses Enter), `browser_fill` (a value in one go), `browser_press` (Enter, Escape, Tab, the arrows, a character, with modifiers; Enter in a form's field submits it), `browser_select` (by value or label), `browser_hover`, `browser_scroll` |
 | settle | `browser_wait` — until the load, an element (`selector`), some words (`text`), an element's going (`gone`), or quiet (`idle`, half a second without a mutation); 10 s by default, 30 s at most (`MAX_WAIT_MS`, under the op's 60 s) |
 | inspect | `browser_console` — what the page logged and the errors it raised since it loaded (a ring of a hundred lines); `browser_eval` — an expression evaluated in the page, a promise awaited, its value as JSON bounded to 16 KiB — refused where `browser.agents.scripts` says so (§Who may ask) |
 
 Every element is named by a **ref** from the last snapshot or by a CSS selector — the same
-`target` on every tool; the page keeps the refs (`pageInspector.mjs` `refs`) until it loads again,
-and a ref that is gone says so (*ref e12 is gone — the page changed; browser_snapshot again*).
+`target` on every tool; the page keeps the refs (`pageInspector.mjs` `refs`) for the life of its
+document — an element numbered once keeps its number in every later snapshot, whole or of one
+target, and a new document runs a fresh program — and a ref that is gone says so (*ref e12 is gone
+— the page changed; browser_snapshot again*).
 Every answer carries the **dialogs** the page raised meanwhile: the browser's program replaces
 `alert`, `confirm` and `prompt` at init — an alert dismissed, a confirm accepted, a prompt given
 its default — records each and reports them with the next answer, so nothing ever hangs and the
@@ -707,8 +753,8 @@ fact, not a malformed request; an envelope the engine truly cannot read is refus
 a *platform fault* the MCP server hands back as an internal error, not a "Not done".
 
 What stays unbuilt, said plainly: a file handed to a page's `<input type=file>`, cookies and
-storage, a viewport size of the agent's choosing, a screenshot clipped to one element, and the
-page's network. The tools do not pretend to them.
+storage, a screenshot clipped to one element, a viewport for a tab the person is looking at, and
+the page's network. The tools do not pretend to them.
 
 ## Invariants
 
@@ -768,10 +814,15 @@ page's network. The tools do not pretend to them.
   conversation runs in, the goal, the channel or the direct message the turn speaks in, the work
   item's checkout, the conversation — never a goal that does not exist; the desktop obeys or falls
   to the root it is on.
-- An element is named by a ref a snapshot handed out or by a selector; a ref outlives no load. An
+- An element is named by a ref a snapshot handed out or by a selector; a ref lives as long as the
+  document that gave it and means the same element in every snapshot of it. An
   act that moves the page answers the new page and says so; a dialog the page raises is answered
   for the agent and reported, never left hanging. The console and the errors are the page's own,
-  kept from its load. Every harness the engine drives receives the `bisa` server.
+  kept from the document's first line — what it logged before its load event included. Every
+  harness the engine drives receives the `bisa` server.
+- A tab kept out of sight renders at the viewport an agent gave it, else a desktop page's, and is
+  shot at that width; a shown tab's size is the person's, never an agent's. A colour scheme is one
+  tab's own, set on its webview, and the answer names the scheme set and the size the page measured.
 - A tab kept out of sight renders offstage and answers every tool, the screenshot too; whether it
   is kept out of sight is the engine's decision — the agent's word, else the policy, else the
   goal's mode — and nothing an agent does reveals it: only the person, or its own `headless: false`.
@@ -796,14 +847,15 @@ page's network. The tools do not pretend to them.
 | a channel-scoped browser call reaches the fake engine with the scope id as its candidate goal; a result's refusal and the envelope's wear the same *Not done*; a platform fault is an internal error and never *Not done* | `crates/bisa-mcp/tests/it/intake.rs` |
 | a silent page is asked once more only for an act that cannot move the page and never a third time, a gone tab and a silent page are two sentences, the second missed presence read is the warning; the bridge tells them apart where they arise and logs every refusal with the id and the act | `desktop/src/shell/browserBridgeModel.test.mjs`, `desktop/src/scenarios/browser.test.mjs` |
 | every session's browser sentence names every tool, the refusal and the one licence to stop, and an unattended session is told its tabs are out of sight | `crates/bisa-core/src/browser.rs` tests |
-| every session holds the twenty-one browser tools and the reference names them; the words an agent reads name the screenshot's path, a move, a wait, a scroll, a value, the console and the dialogs | `crates/bisa-mcp/src/server.rs` tests, `tests/it/docs.rs` |
+| every session holds the twenty-two browser tools and the reference names them; the words an agent reads name the screenshot's path, a move, a wait, a scroll, a value, the console, the dialogs, and an emulation's viewport and scheme | `crates/bisa-mcp/src/server.rs` tests, `tests/it/docs.rs` |
+| an emulation serialises by action with its viewport and scheme, a full-page shot by its switch, and an answer carries the viewport and the scheme — a key the wire does not know refused by name, a viewport both numbers or nothing | `crates/bisa-engine/src/browser.rs` unit tests |
 | the MCP servers reach Codex as config overrides and OpenCode as its inline configuration — a stdio server's command, args and env, an HTTP server's url, a TOML string escaped — and a spec with none adds nothing; both adapters claim `MCP_SERVERS` | `crates/bisa-adapters/src/mcp_inject.rs`, `codex.rs`, `opencode.rs` tests |
 | an artifact is served on a port of its own once, by its escaped name, stopped by id; a served view knows its checkout only as a folder of one | `crates/bisa-node/tests/it/node.rs`, `src/ide/serve.rs` unit tests |
 | the browser's keys hold their kinds, bounds and scopes | `crates/bisa-core/src/settings.rs` tests |
 | the machine's browser and a headless one are refused with the tools named in the reason; a project's own end-to-end suite is asked; a folder or a file opened is not a browser; a rule's hint rides its refusal | `crates/bisa-security/src/builtin.rs`, `guard.rs` tests |
 | the page reference round-trips as a file or a URL and frames as its path or its URL | `crates/bisa-core/src/message.rs`, `crates/bisa-engine/src/framing.rs` |
-| http(s) pages and the blank page are admitted and nothing else; a page's message is one JSON object under the cap and anything else is nothing; a box is one logical rectangle never thinner than a pixel and reads back as it was; a window asked for is a tab for a page and nothing for the rest; each event has its own name; a tab is a labelled webview the registry forgets once; a screenshot's width stays within bounds | `desktop/src-tauri/src/browser.rs` tests |
-| the bar's URL rule, a tab's life at home or the workspace's — the seven homes — its history as the webview says it, its words, where its drafts live, a headless tab opened out of sight and revealed by the person, every tab closed with the sequence kept; a target that names no opener opens nothing, the three openers and their words; what a restart brings back — the tabs in sight with who opened each, never one kept out of sight, never an older shape | `desktop/src/shell/browsersModel.test.mjs` |
+| http(s) pages and the blank page are admitted and nothing else; a page's message is one JSON object under the cap and anything else is nothing; a box is one logical rectangle never thinner than a pixel and reads back as it was; a window asked for is a tab for a page and nothing for the rest; each event has its own name; a tab is a labelled webview the registry forgets once; a screenshot's width stays within bounds; a scheme is one of three words and anything else is said | `desktop/src-tauri/src/browser.rs` tests |
+| the bar's URL rule, a tab's life at home or the workspace's — the seven homes — its history as the webview says it, its words, where its drafts live, a headless tab opened out of sight and revealed by the person, a seen tab put out of sight with the active one falling to a seen neighbour, a tab out of sight taking a viewport and a scheme (compared by value), dropping the viewport when revealed and keeping the scheme, neither remembered; every tab closed with the sequence kept; a target that names no opener opens nothing, the three openers and their words; what a restart brings back — the tabs in sight with who opened each, never one kept out of sight, never an older shape | `desktop/src/shell/browsersModel.test.mjs` |
 | a tab is born only from an act: an addon's navigation to a screen that remembers the pane opens none; ⌘⇧L with none in sight opens the person's; an agent's is counted and named; a page's window stands as the asker stands and a closed tab's opens nothing; a restart brings back the person's alone — and by source: no effect of the pane opens a tab, the address focuses and never reveals, every `openBrowserIn` names its opener, both doors go through `toggleBrowserPane` | `desktop/src/scenarios/browser.test.mjs`, `desktop/src/shell/browserDoorsModel.test.mjs` (`paneToggle`) |
 | every home's origin in the list's order; a place named from the workspace's rows — a goal, a workstream, a channel, a message, a conversation, a workflow — and the words with and without a name; the tabs grouped by origin; the footer's button in a sentence | `desktop/src/shell/browserPlacesModel.test.mjs` |
 | the footer's read-out counts every tab in sight or not, its title the footer's sentence, the dot's words, pressed while a tab is on screen; the bar of the tabs in sight against the ones out of sight; the three dimensions' words and glyphs in the icon registry; Tabs, Origins and Unseen rows — the order, the home by name, the current, dim and busy rows, every tab's door and ✕, an origin's share of the largest and its door the first tab in sight; the empty words; the policy's footnote | `desktop/src/shell/browserStatModel.test.mjs` |
@@ -811,18 +863,18 @@ page's network. The tools do not pretend to them.
 | what the centre shows under a mode: the conversation and the Board only on a workstream with a project, documents otherwise | `desktop/src/views/_workbench/ideModeModel.test.mjs` |
 | the tab a person looks at: the centre's, else the pane's, else none | `desktop/src/shell/browserPlacementModel.test.mjs` |
 | a browser tab beside an Inbox row is at home in the goal, channel, message, conversation or workstream the row is | `desktop/src/views/_studio/inboxModel.test.mjs` |
-| where a tab draws: the centre before the pane, offstage for a headless one — a dialog changing nothing — nowhere otherwise while a surface is open; a placement is as asked within a pixel and shown, else not | `desktop/src/shell/browserPlacementModel.test.mjs` |
-| a screenshot's width, name and the size a PNG header says; the camera's refusal for a page that is not showing is the person's sentence, apart from the agent's, and a refused clipboard is said | `desktop/src/shell/browserShotModel.test.mjs` |
+| where a tab draws: the centre before the pane, offstage for a headless one — at its own viewport when it chose one, a dialog changing nothing — nowhere otherwise while a surface is open; a viewport is whole pixels within the shot's bounds, both or nothing; a full page grows to the document, never shorter than the viewport, capped; a placement is as asked within a pixel and shown, else not | `desktop/src/shell/browserPlacementModel.test.mjs` |
+| a screenshot's width — the setting's, or the tab's own for one kept out of sight with a viewport of its own — its name and the size a PNG header says; the camera's refusal for a page that is not showing is the person's sentence, apart from the agent's, and a refused clipboard is said | `desktop/src/shell/browserShotModel.test.mjs` |
 | every kit surface that portals at the `z-50` tier counts itself or is allowed with its reason — the tooltip, hover-driven and `pointer-events-none`; a toast never hides the page; the two menus own their open state and run the chosen item the one shared way | `desktop/src/ui/openSurfaces.test.mjs` |
 | the policy's three words and sentences, scripts' two, the status card | `desktop/src/views/_settings/browserSettingsModel.test.mjs`, `settingsLink.test.mjs` |
 | the Browser button's main click and menu — *New tab · From folder…*, nothing named after a branch, *Open :port* and *Stop* (the port named when several are up), the door and its chord on whichever item is it and on none when it is the Terminal's; ⌘⇧R's door — a server, the approved command, else the folder picker — and the Terminal caret's run item, none unset, held to its approval (`runCommandModel.test.mjs`), a goal's short list, what a start in flight holds — which server a page is on, that any page but an artifact's and a blank tab is annotatable, where the chips go, the toasts | `desktop/src/views/_workbench/serversModel.test.mjs` |
 | the folder picker — the folders the paths name, Root first, files left out and a childless folder without a chevron, a failed listing in place, the filter's ranking, Root by its word, the path as typed offered only when it is valid and new, the field's arrows, a folder already served opening its server, the remembered folder capped and a garbage value reading as Root; and the whole walk from the caret to ⌘⇧R opening on the folder served last (`scenarios/serveFolder.test.mjs`) | `desktop/src/views/_workbench/serveFolderModel.test.mjs` |
 | the bar is whole on every tab: a blank tab holds every verb but the address with its reason, a page frees them, back and forward follow the history, Stop while loading, the wand held with its reason, the IDE door the pane's alone | `desktop/src/shell/browserChromeModel.test.mjs` |
-| what a request means for the tabs — a new tab at home where the engine said (any of the desktop's scopes), else the IDE's root, else the workspace, the engine's headless word riding into it; a read, a snapshot, a find, a click, a fill, typing, a key, a choice, a hover, a scroll, the console and a script on any page by ref or selector and none on a blank tab, the acts that may move the page marked, a wait for the load the bridge's own and bounded, the other waits the page's; back, forward and reload; a screenshot of any page, where a tab is shown — the strip at home while the centre shows documents, the pane otherwise — and that a headless one never is; the answers with every fact the page gave, a move said so | `desktop/src/shell/browserBridgeModel.test.mjs` |
+| what a request means for the tabs — a new tab at home where the engine said (any of the desktop's scopes), else the IDE's root, else the workspace, the engine's headless word riding into it; a read, a snapshot, a find, a click, a fill, typing, a key, a choice, a hover, a scroll, the console and a script on any page by ref or selector and none on a blank tab, the acts that may move the page marked, a wait for the load the bridge's own and bounded, the other waits the page's; back, forward and reload; a screenshot of any page, a full page of a tab out of sight alone, where a tab is shown — the strip at home while the centre shows documents, the pane otherwise — and that a headless one never is; `browser_open` on a tab the agent holds carrying its own word on sight and nothing else; an emulation taking a viewport only for a tab out of sight and a scheme for any, within bounds and the three words, its answer and the wire carrying the viewport and the scheme and nothing malformed; the answers with every fact the page gave, a move said so | `desktop/src/shell/browserBridgeModel.test.mjs` |
 | the policy's three words, everyone first; out of sight's three, unattended first; the status card counting the tabs kept out of sight | `desktop/src/views/_settings/browserSettingsModel.test.mjs` |
 | the IDE's Browser menu marks a tab kept out of sight *unseen* with the hidden glyph, a pick showing it | `desktop/src/shell/browserDoorModel.test.mjs`, `views/_workbench/serversModel.test.mjs` |
-| every catalog agent carries the Embedded Browser skill, the strips ride seen tabs only, Settings draws the out-of-sight and the scripts switches, an open desktop keeps the engine's presence fresh; the twenty-one tools are one list in the engine's note, the skill, the reference and the server, the bridge plans every act and a move answers the new page; the camera is two buttons and no screenshot is asked of a hidden page — the shot waits for the tab to show over the slots and the surfaces, the shell refuses a hidden view before WebKit is asked, the picture goes through the shell's clipboard, a refused placement is said, and every kit surface counts itself | `desktop/src/scenarios/browser.test.mjs` |
-| the browser's program is the core over the shell's door on every page — no IPC, inert with no door — answering the driver and relaying the browser chords by ⌘ on a Mac and Ctrl elsewhere; a snapshot names every heading, landmark and control with a ref and the refs drive the other tools until the page loads again; typing is a keystroke at a time and Enter in a form's field submits it, a key is pressed on the target or the focused element, a fill is one act; an option is chosen by value or label, a hover moves the pointer, a scroll answers where the page stands; a wait answers at once when its condition holds and says what it waited for when it cannot; the console and the errors are kept and drained, a dialog is answered and reported once, a script's value comes back bounded; the parser bounds an answer's every field, a title and a chord | `desktop/src/ui/artifact/pageInspector.test.mjs` |
+| every catalog agent carries the Embedded Browser skill, the strips ride seen tabs only, Settings draws the out-of-sight and the scripts switches, an open desktop keeps the engine's presence fresh; the twenty-two tools are one list in the engine's note, the skill, the reference and the server, the bridge plans every act and a move answers the new page, a held tab hears its own word on sight, a full page grows a tab out of sight and puts it back; the camera is two buttons and no screenshot is asked of a hidden page — the shot waits for the tab to show over the slots and the surfaces, the shell refuses a hidden view before WebKit is asked, the picture goes through the shell's clipboard, a refused placement is said, and every kit surface counts itself | `desktop/src/scenarios/browser.test.mjs` |
+| the browser's program is the core over the shell's door on every page — no IPC, inert with no door — answering the driver and relaying the browser chords by ⌘ on a Mac and Ctrl elsewhere; a snapshot names every heading, landmark and control with a ref and the refs drive the other tools for the life of the document — a snapshot of one target keeps the numbers handed out, a later element takes a number nobody holds, the document's own load event forgets nothing; a measure answers the viewport and the document's size, a misspelt viewport nothing; typing is a keystroke at a time and Enter in a form's field submits it, a key is pressed on the target or the focused element, a fill is one act; an option is chosen by value or label, a hover moves the pointer, a scroll answers where the page stands; a wait answers at once when its condition holds and says what it waited for when it cannot; the console and the errors are kept — what was logged before the load event included — and drained, a dialog is answered and reported once, a script's value comes back bounded; the parser bounds an answer's every field, a title and a chord | `desktop/src/ui/artifact/pageInspector.test.mjs` |
 | the browser scope's six chords, narrowest like the editor's, the bracket keys pressed as themselves, ⌘W the browser tab's in a browser body, and the relay table read from the keymap — a rebinding riding into it | `desktop/src/shell/keymapModel.test.mjs` |
 | an address typed into the palette is a row; a conversation's chips are kept under kind and id; the attach door names the message or says what to open | `desktop/src/shell/omniboxUrlModel.test.mjs`, `desktop/src/views/_studio/chatScopeModel.test.mjs` |
 | both hosts draw the one bar over a body the chords are live in and draw no note box of their own; no capability, no IPC command, a blank tab on the blank page, the page anchored on the main webview's frame with a real read-back and the anchor logged, the viewport riding every placement, a stray placement logged; the Pulse's door, a link's first verb, the palette's row; a tab at home in the IDE follows its centre — the reveal rule reads the published centre, every door shows a tab through `showBrowserTab`, the Workbench derives the centre once and carries the tab on a switch of the same root, the hosts know nothing of the mode | `desktop/src/scenarios/browser.test.mjs` |

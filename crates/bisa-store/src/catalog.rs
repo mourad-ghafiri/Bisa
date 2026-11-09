@@ -55,9 +55,9 @@ use crate::skills::NewSkill;
 use crate::workflows::NewWorkflow;
 use crate::workspace::Workspace;
 use bisa_core::{
-    AgentId, AgentOrigin, Assignee, ChannelId, ChannelOrigin, EffortChoice, InputDef, ModelChoice,
-    ModelPlan, ModelStrategy, Origin, RosterPolicy, SkillId, Step, Tags, TeamId, ValueRef,
-    WorkflowId, WorkflowOrigin,
+    Agent, AgentId, AgentOrigin, Assignee, ChannelId, ChannelOrigin, EffortChoice, InputDef,
+    ModelChoice, ModelPlan, ModelStrategy, Origin, RosterPolicy, Skill, SkillId, Step, Tags, Team,
+    TeamId, ValueRef, WorkflowId, WorkflowOrigin,
 };
 use serde::{Deserialize, Serialize};
 
@@ -408,6 +408,10 @@ const CATALOG_SKILLS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/skills/threat-modeling.toml"),
     ),
     (
+        "ui-ux-design",
+        include_str!("../../../library/catalog/skills/ui-ux-design.toml"),
+    ),
+    (
         "unit-economics",
         include_str!("../../../library/catalog/skills/unit-economics.toml"),
     ),
@@ -710,12 +714,33 @@ pub struct CatalogEntry {
     /// held by something you created reads as installed and is refused by
     /// [`Workspace::install`] rather than overwritten.
     pub installed: bool,
+    /// Whether the installed copy of this very entry no longer says what the
+    /// bundle says — a person edited the words an update restates, or the
+    /// bundle moved under it. `Some` only for a skill, an agent or a team
+    /// installed from this entry ([`Workspace::update_entry`] is the act that
+    /// brings it back); `None` when it is not installed, when its id is held
+    /// by something else, and for a kind that is installed once and is then
+    /// the person's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_differs: Option<bool>,
     /// A workflow template's whole definition — its inputs, its steps and
     /// their flows — so a gallery draws the template's graph before anything
     /// is installed. Read with the listing's placeholder for a `spawn` target
     /// that is not here yet, so a fresh workspace still has every picture;
     /// `None` for every other kind.
     pub workflow: Option<NewWorkflow>,
+}
+
+/// What an update from the catalog did ([`Workspace::update_entry`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Updated {
+    /// What the update created: the entry itself when it was not here, and
+    /// whatever it needs that was missing.
+    pub installed: Installed,
+    /// Whether the entry's installed copy was restated to the bundle's
+    /// definition — `false` when it already said so, and when the entry was
+    /// created just now.
+    pub restated: bool,
 }
 
 /// What a refresh of the installed catalog connectors did
@@ -957,7 +982,12 @@ struct SkillFile {
     skill: SkillBody,
 }
 
+/// The skill shape. A key it does not name is refused rather than dropped:
+/// a reference section written as its own table (`[[skill.reference]]`)
+/// instead of a `## Reference:` heading inside `content` would otherwise
+/// parse and ship a skill with no sections, silently.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SkillBody {
     name: String,
     description: String,
@@ -1462,6 +1492,72 @@ fn taken(kind: CatalogKind, slug: &str, holder: &str) -> StoreError {
     ))
 }
 
+/// Whether an installed record is this very entry's copy.
+fn this_entrys(origin: &Origin, slug: &str) -> bool {
+    matches!(origin, Origin::Catalog { slug: s } if s == slug)
+}
+
+fn this_entrys_agent(origin: &AgentOrigin, slug: &str) -> bool {
+    matches!(origin, AgentOrigin::Catalog { slug: s } if s == slug)
+}
+
+/// A stored skill with the bundle's words — what an update writes, and what
+/// the listing compares the copy against. The origin and the birth are the
+/// record's.
+fn restated_skill(stored: &Skill, body: &SkillBody) -> Skill {
+    Skill {
+        name: body.name.clone(),
+        description: body.description.clone(),
+        tags: bundle_tags(&body.tags),
+        markdown: body.content.clone(),
+        ..stored.clone()
+    }
+}
+
+/// A stored agent with the bundle's words — name, description, prompt, tags,
+/// respond policy — and every skill the bundle names, after the ones it
+/// carries, so a skill the person added stays. The harness, the plan, the
+/// MCP servers, the switch, the decision-making word, the photo, the key and
+/// the birth are the person's and stand.
+fn restated_agent(stored: &Agent, body: &AgentBody) -> Agent {
+    let mut skills = stored.skills.clone();
+    for skill in body.skills.iter().filter_map(|s| SkillId::new(s).ok()) {
+        if !skills.contains(&skill) {
+            skills.push(skill);
+        }
+    }
+    Agent {
+        name: body.name.clone(),
+        description: body.description.clone(),
+        system_prompt: body.system_prompt.clone(),
+        tags: bundle_tags(&body.tags),
+        respond: body.respond,
+        skills,
+        ..stored.clone()
+    }
+}
+
+/// A stored team with the bundle's words and roster — the bundle's agents in
+/// its order, then the people on it. The photo, the switch and the birth are
+/// the person's.
+fn restated_team(stored: &Team, body: &TeamBody) -> Team {
+    let mut members: Vec<Assignee> = body.agents.iter().cloned().map(Assignee::Agent).collect();
+    members.extend(
+        stored
+            .members
+            .iter()
+            .filter(|m| matches!(m, Assignee::Human(_)))
+            .cloned(),
+    );
+    Team {
+        name: body.name.clone(),
+        purpose: body.purpose.clone(),
+        tags: bundle_tags(&body.tags),
+        members,
+        ..stored.clone()
+    }
+}
+
 /// What holds an id, or `None` when the holder is this very catalog entry and
 /// there is nothing to refuse — that is the idempotent case, not a collision.
 fn holder(origin: &Origin, slug: &str) -> Option<String> {
@@ -1524,41 +1620,57 @@ impl Workspace {
         toml_str: &str,
     ) -> Result<CatalogEntry, StoreError> {
         let mut workflow = None;
+        let mut installed_differs = None;
         let (name, description, tags, requires, installed) = match kind {
             CatalogKind::Agent => {
                 let a = parse_agent(slug, toml_str)?;
+                let stored = AgentId::new(slug)
+                    .ok()
+                    .and_then(|id| self.get_agent(&id).ok());
+                installed_differs = stored
+                    .as_ref()
+                    .filter(|stored| this_entrys_agent(&stored.origin, slug))
+                    .map(|stored| restated_agent(stored, &a) != *stored);
                 (
                     a.name,
                     a.description.unwrap_or_default(),
                     bundle_tags(&a.tags),
                     a.skills,
-                    AgentId::new(slug)
-                        .map(|id| self.get_agent(&id).is_ok())
-                        .unwrap_or(false),
+                    stored.is_some(),
                 )
             }
             CatalogKind::Skill => {
                 let s = parse_skill(slug, toml_str)?;
+                let stored = SkillId::new(slug)
+                    .ok()
+                    .and_then(|id| self.get_skill(&id).ok());
+                installed_differs = stored
+                    .as_ref()
+                    .filter(|stored| this_entrys(&stored.origin, slug))
+                    .map(|stored| restated_skill(stored, &s) != *stored);
                 (
                     s.name,
                     s.description,
                     bundle_tags(&s.tags),
                     vec![],
-                    SkillId::new(slug)
-                        .map(|id| self.get_skill(&id).is_ok())
-                        .unwrap_or(false),
+                    stored.is_some(),
                 )
             }
             CatalogKind::Team => {
                 let t = parse_team(slug, toml_str)?;
+                let stored = TeamId::new(slug)
+                    .ok()
+                    .and_then(|id| self.get_team(&id).ok());
+                installed_differs = stored
+                    .as_ref()
+                    .filter(|stored| this_entrys(&stored.origin, slug))
+                    .map(|stored| restated_team(stored, &t) != *stored);
                 (
                     t.name,
                     t.purpose.unwrap_or_default(),
                     bundle_tags(&t.tags),
                     t.agents,
-                    TeamId::new(slug)
-                        .map(|id| self.get_team(&id).is_ok())
-                        .unwrap_or(false),
+                    stored.is_some(),
                 )
             }
             CatalogKind::Channel => {
@@ -1630,6 +1742,7 @@ impl Workspace {
             tags,
             requires,
             installed,
+            installed_differs,
             workflow,
         })
     }
@@ -1708,6 +1821,78 @@ impl Workspace {
             self.create_entry(*kind, slug, &mut out)?;
         }
         Ok(out)
+    }
+
+    /// Bring one installed entry back to the catalog's definition, at a
+    /// person's asking — the one act that changes an installed copy, since
+    /// [`Workspace::install`] only ever creates. A skill takes the bundle's
+    /// name, description, tags and markdown; an agent its name, description,
+    /// prompt, tags, respond policy and every skill the bundle names (one the
+    /// person added stays), its harness, plan, MCP servers, switch, photo, key
+    /// and birth untouched; a team its name, purpose, tags and agents, the
+    /// people on it kept. What the entry needs and is missing is installed
+    /// first, and the entry itself when it is not here (`restated` is then
+    /// `false`: nothing was replaced). A channel, a workflow, a connector or
+    /// an addon is installed once and is then the person's, and is refused by
+    /// kind; an id held by something that is not this entry is refused by
+    /// name, as an install is, before anything is written.
+    pub fn update_entry(&self, kind: CatalogKind, slug: &str) -> Result<Updated, StoreError> {
+        if !matches!(
+            kind,
+            CatalogKind::Skill | CatalogKind::Agent | CatalogKind::Team
+        ) {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-catalog-kind-cannot-be-updated",
+                kind = kind.to_string(),
+                slug = format!("{slug:?}")
+            )));
+        }
+        let toml_str = CATALOG.find(kind, slug)?;
+        let mut plan = Vec::new();
+        self.plan_install(kind, slug, &mut plan)?;
+        for (kind, slug) in &plan {
+            self.check_free(*kind, slug)?;
+        }
+        let mut installed = Installed::default();
+        for (kind, slug) in &plan {
+            self.create_entry(*kind, slug, &mut installed)?;
+        }
+        let restated = match kind {
+            CatalogKind::Skill => {
+                if installed.skills.iter().any(|s| s == slug) {
+                    false
+                } else {
+                    let stored = self.get_skill(&SkillId::new(slug)?)?;
+                    let fresh = restated_skill(&stored, &parse_skill(slug, toml_str)?);
+                    fresh != stored && self.update_skill(fresh).map(|_| true)?
+                }
+            }
+            CatalogKind::Agent => {
+                if installed.agents.iter().any(|s| s == slug) {
+                    false
+                } else {
+                    let stored = self.get_agent(&AgentId::new(slug)?)?;
+                    let fresh = restated_agent(&stored, &parse_agent(slug, toml_str)?);
+                    fresh != stored && self.update_agent(fresh).map(|_| true)?
+                }
+            }
+            CatalogKind::Team => {
+                if installed.teams.iter().any(|s| s == slug) {
+                    false
+                } else {
+                    let stored = self.get_team(&TeamId::new(slug)?)?;
+                    let fresh = restated_team(&stored, &parse_team(slug, toml_str)?);
+                    fresh != stored && self.update_team(fresh).map(|_| true)?
+                }
+            }
+            // LCOV_EXCL_START: every other kind was refused above, by kind
+            _ => unreachable!("only a skill, an agent or a team is restated"),
+            // LCOV_EXCL_STOP
+        };
+        Ok(Updated {
+            installed,
+            restated,
+        })
     }
 
     /// Everything the install touches, dependencies first: a skill before the
@@ -2005,7 +2190,7 @@ mod bundle_tests {
     use super::*;
     use bisa_core::tags::VOCABULARY;
     use bisa_core::StepKind;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     const CORE_AGENT_ID: &str = AgentId::GENERAL;
     const WORKFLOW_AGENT_ID: &str = AgentId::WORKFLOW;
@@ -3023,7 +3208,95 @@ mod bundle_tests {
                 "skill {slug}: body is {} bytes",
                 s.content.len(),
             );
+            // The body rides every prompt of a carrier; the reference sections
+            // are read on demand, so only the body is held to the smaller cap.
+            let body = bisa_core::skill::parts(&s.content).body.len();
+            assert!(
+                body <= bisa_core::MAX_SKILL_BODY_BYTES,
+                "skill {slug}: the body before its first `## Reference:` heading is {body} bytes; \
+                 move what a session reads on demand into reference sections",
+            );
             check_tags(&format!("skill {slug}"), &s.tags);
+        }
+    }
+
+    /// A skill's reference sections live inside `content`, under
+    /// `## Reference:` headings; a table of their own would parse to nothing.
+    #[test]
+    fn a_skill_with_a_key_its_shape_does_not_name_is_refused() {
+        let refused = |toml_str: &str| {
+            assert!(
+                matches!(parse_skill("x", toml_str), Err(StoreError::Invalid(_))),
+                "parsed: {toml_str}"
+            );
+        };
+        refused(
+            "[skill]\nname = \"X\"\ndescription = \"x\"\ncontent = \"x\"\n\n\
+             [[skill.reference]]\ntitle = \"Craft floor\"\nmarkdown = \"x\"\n",
+        );
+        refused("[skill]\nname = \"X\"\ndescription = \"x\"\ncontent = \"x\"\nbody = \"x\"\n");
+        assert!(parse_skill(
+            "x",
+            "[skill]\nname = \"X\"\ndescription = \"x\"\ntags = [\"design\"]\n\
+             content = \"# X\\n\\nBody.\\n\\n## Reference: Craft floor\\n\\nContrast.\\n\"\n",
+        )
+        .is_ok());
+    }
+
+    /// The one catalog skill with reference sections: the UI/UX Designer's
+    /// own, carried by the Developer too, since most screen work is built by
+    /// one and judged by the other. The section list is the skill's table of
+    /// contents — what `skill_read` answers and what the body's index names —
+    /// so a renamed or dropped section is caught here, not by a session that
+    /// asked for a section that is gone.
+    #[test]
+    fn the_ui_ux_design_skill_is_carried_by_the_designer_and_the_developer_and_splits_into_its_sections(
+    ) {
+        let agents: HashMap<&str, AgentBody> = parsed_agents().into_iter().collect();
+        for carrier in ["ux-designer", "developer"] {
+            assert!(
+                agents[carrier]
+                    .skills
+                    .iter()
+                    .any(|s| s == bisa_core::design::DESIGN_SKILL),
+                "agent {carrier}: carries no {}",
+                bisa_core::design::DESIGN_SKILL
+            );
+        }
+        assert_eq!(agents["ux-designer"].name, "UI/UX Designer");
+        let (_, skill) = parsed_skills()
+            .into_iter()
+            .find(|(slug, _)| *slug == bisa_core::design::DESIGN_SKILL)
+            .expect("the catalog ships the design skill");
+        let parts = bisa_core::skill::parts(&skill.content);
+        let titles: Vec<&str> = parts.sections.iter().map(|s| s.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Craft floor",
+                "Modes in depth",
+                "Review protocol and report",
+                "Accessibility checks",
+                "Responsive and viewports",
+                "Type, colour, space",
+                "Motion",
+                "States and copy",
+                "The design record",
+                "Stacks",
+            ],
+            "the skill's table of contents"
+        );
+        assert!(
+            parts.body.contains("skill_read") && parts.body.contains("browser_emulate"),
+            "the body names the reader and the matrix tool"
+        );
+        for section in &parts.sections {
+            assert!(
+                section.markdown.len() <= 8 * 1024,
+                "section {}: {} bytes; a section is read whole, keep each under 8 KiB",
+                section.slug,
+                section.markdown.len()
+            );
         }
     }
 

@@ -1242,6 +1242,7 @@ fn build_conversation_spec(
     cwd: std::path::PathBuf,
     scratch_cwd: bool,
     goal: Option<GoalId>,
+    project: Option<bisa_core::ProjectId>,
 ) -> SessionSpec {
     let command = std::env::current_exe()
         .map(|p| p.display().to_string())
@@ -1277,7 +1278,10 @@ fn build_conversation_spec(
         &agent.id,
         &agent.mcps,
     ));
-    let skills = inner.ws.skill_payloads(&agent.id, &agent.skills);
+    let mut skills = inner.ws.skill_payloads(&agent.id, &agent.skills);
+    // The workspace's design policy: under *nobody* the UI/UX Design skill
+    // leaves every turn, a carrier's too (`design.agents`).
+    crate::design::filter_skills(inner, project, &mut skills);
     let session_env = crate::network::session_env(inner, Default::default());
     SessionSpec {
         work_item: None,
@@ -1571,6 +1575,7 @@ async fn wake_attempt(
         cwd.clone(),
         facts.checkout.is_none(),
         facts.goal,
+        facts.project(),
     );
     let candidates = vec![agent.harness.clone()];
     // The setting is read for the project the conversation stands in.
@@ -1776,6 +1781,14 @@ async fn wake_attempt(
     prompt.push_str(&crate::framing::mobile_development_note(
         inner,
         facts.project(),
+    ));
+    // The UI/UX Design skill, where the workspace holds every agent to it
+    // and this one does not carry it (`design.agents`).
+    prompt.push_str(&crate::framing::design_note(
+        inner,
+        facts.project(),
+        &agent.skills,
+        platform_tools,
     ));
     if let Some((_, mode)) = reviewed {
         prompt.push_str("\n\n");

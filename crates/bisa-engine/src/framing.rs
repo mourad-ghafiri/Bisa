@@ -183,6 +183,46 @@ pub fn mobile_development_note(
     )
 }
 
+/// What a session reads about the UI/UX Design skill (`design::framing`):
+/// nothing; one sentence pointing at `skill_read`; or — on a harness without
+/// the platform's tools — a sentence and the whole skill appended under its
+/// heading, so a session with no tool to read it still has it.
+pub fn design_note(
+    inner: &crate::Inner,
+    project: Option<bisa_core::ProjectId>,
+    agent_skills: &[bisa_core::SkillId],
+    platform_tools: bool,
+) -> String {
+    match crate::design::framing(inner, project, agent_skills, platform_tools) {
+        crate::design::Framing::Silent => String::new(),
+        crate::design::Framing::ReadWithTool => {
+            format!("\n\n{}", bisa_core::design::DESIGN_NOTE)
+        }
+        crate::design::Framing::Appended(skill) => {
+            let appendix = bisa_harness::skills::as_appendix(
+                std::slice::from_ref(&skill),
+                bisa_harness::skills::Delivery::Full,
+            )
+            .prompt_appendix
+            .unwrap_or_default();
+            format!("\n\n{}{appendix}", bisa_core::design::DESIGN_NOTE_APPENDED)
+        }
+    }
+}
+
+/// How an agent's role opens its every work item, as it opens its
+/// conversations (06 — Agents and teams § Context injection): the prompt,
+/// then a blank line before the step's instructions; nothing at all for an
+/// item with no agent, or an agent whose prompt is blank.
+pub fn role_block(system_prompt: &str) -> String {
+    let role = system_prompt.trim();
+    if role.is_empty() {
+        String::new()
+    } else {
+        format!("{role}\n\n")
+    }
+}
+
 /// What every first prompt of a goal's run's work reads after the step's
 /// own instructions: the goal it serves ([`goal_block`]). `None` when the goal
 /// cannot be read — the work goes on without the note rather than not at
@@ -338,6 +378,18 @@ pub fn context_lines(refs: &[ContextRef]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_role_block_is_the_prompt_then_a_blank_line_and_nothing_for_a_blank_prompt() {
+        assert_eq!(role_block("You are Scout."), "You are Scout.\n\n");
+        assert_eq!(
+            role_block("  You are Scout.\n"),
+            "You are Scout.\n\n",
+            "the prompt's own blanks around it are not the block's"
+        );
+        assert_eq!(role_block(""), "");
+        assert_eq!(role_block("   \n"), "");
+    }
     use bisa_core::{LineRange, RelPath};
 
     #[test]

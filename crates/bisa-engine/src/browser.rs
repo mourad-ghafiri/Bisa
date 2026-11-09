@@ -119,8 +119,12 @@ pub enum BrowserAction {
     Eval,
     /// Close the tab.
     Close,
-    /// A PNG of the tab as the person sees it, answered by path.
+    /// A PNG of the tab as the person sees it, answered by path — or of the
+    /// whole page of a tab kept out of sight (`full_page`).
     Screenshot,
+    /// A viewport for a tab kept out of sight, or a colour scheme for any
+    /// tab (ide/18 §Emulation); answers the tab's viewport and scheme.
+    Emulate,
 }
 
 impl BrowserAction {
@@ -170,6 +174,20 @@ pub enum WaitUntil {
     Gone,
     /// The page to stop changing for half a second.
     Idle,
+}
+
+/// The colour scheme a tab's page is shown under (ide/18 §Emulation): the
+/// webview's own appearance, which the page's `prefers-color-scheme` follows;
+/// `system` is the window's own.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorScheme {
+    Light,
+    Dark,
+    #[default]
+    System,
 }
 
 /// One request, as the tool sent it and the desktop reads it. `target` is a
@@ -240,6 +258,19 @@ pub struct BrowserRequest {
     /// absent, the workspace's policy decides (`headless_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headless: Option<bool>,
+    /// For `emulate`: the viewport a tab kept out of sight renders in, in
+    /// CSS pixels — both, each 320 to 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// For `emulate`: the scheme the tab's page is shown under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<ColorScheme>,
+    /// For `screenshot`: the whole page of a tab kept out of sight — its box
+    /// grown to the document, capped — rather than the viewport alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_page: Option<bool>,
 }
 
 impl BrowserRequest {
@@ -416,6 +447,14 @@ pub struct ScrollPosition {
     pub height: i64,
 }
 
+/// The box a tab renders in, in CSS pixels — an emulation's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserViewport {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// What the desktop answers: `ok` with the facts, or a refusal in words.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -468,6 +507,12 @@ pub struct BrowserResult {
     /// by the desktop, which names no path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// An emulation's answer: the viewport the tab renders in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<BrowserViewport>,
+    /// An emulation's answer: the scheme the tab's page is shown under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheme: Option<ColorScheme>,
 }
 
 impl BrowserResult {
@@ -1304,9 +1349,62 @@ mod tests {
             BrowserAction::Eval,
             BrowserAction::Close,
             BrowserAction::Screenshot,
+            BrowserAction::Emulate,
         ] {
             assert!(!a.may_navigate(), "{a:?}");
         }
+    }
+
+    #[test]
+    fn an_emulation_serialises_by_action_and_its_answer_carries_the_viewport_and_the_scheme() {
+        let e = BrowserRequest {
+            tab: Some("b1".into()),
+            width: Some(390),
+            height: Some(844),
+            scheme: Some(ColorScheme::Dark),
+            ..request(BrowserAction::Emulate)
+        };
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"action": "emulate", "tab": "b1", "width": 390, "height": 844, "scheme": "dark"})
+        );
+        assert_eq!(serde_json::from_value::<BrowserRequest>(json).unwrap(), e);
+        let shot = BrowserRequest {
+            tab: Some("b1".into()),
+            full_page: Some(true),
+            ..request(BrowserAction::Screenshot)
+        };
+        assert_eq!(
+            serde_json::to_value(&shot).unwrap(),
+            serde_json::json!({"action": "screenshot", "tab": "b1", "full_page": true})
+        );
+        let answered: BrowserResult = serde_json::from_value(serde_json::json!({
+            "ok": true, "tab": "b1", "url": "http://x/", "viewport": {"width": 390, "height": 844}, "scheme": "dark"
+        }))
+        .unwrap();
+        assert_eq!(
+            answered.viewport,
+            Some(BrowserViewport {
+                width: 390,
+                height: 844
+            })
+        );
+        assert_eq!(answered.scheme, Some(ColorScheme::Dark));
+        assert!(
+            serde_json::from_value::<BrowserResult>(
+                serde_json::json!({"ok": true, "viewport_width": 390})
+            )
+            .is_err(),
+            "a key the wire does not know is refused by name"
+        );
+        assert!(
+            serde_json::from_value::<BrowserResult>(
+                serde_json::json!({"ok": true, "viewport": {"width": 390}})
+            )
+            .is_err(),
+            "a viewport is both numbers"
+        );
     }
 
     #[test]

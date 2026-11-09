@@ -13,18 +13,50 @@
 /** The hosts in the order they win. */
 export const HOSTS = Object.freeze(["center", "aux"]);
 
-/** The box a headless tab renders in, offstage: a desktop page's viewport. */
+/** The box a headless tab renders in, offstage, when it chose none of its own: a desktop page's viewport. */
 export const OFFSTAGE_VIEWPORT = Object.freeze({ width: 1280, height: 800 });
 
-/** Where offstage is: wholly to the left of the window, above its top-left corner, never on screen. */
-export function offstageRect() {
-  return { left: -OFFSTAGE_VIEWPORT.width - 64, top: -OFFSTAGE_VIEWPORT.height - 64, width: OFFSTAGE_VIEWPORT.width, height: OFFSTAGE_VIEWPORT.height };
+/** The bounds of a viewport an agent may give a tab out of sight — the shot's own (`browser.screenshot.width`), so the shell never re-clamps an emulated width. */
+export const MIN_VIEWPORT = 320;
+export const MAX_VIEWPORT = 4096;
+/** How tall a tab out of sight may grow for a full-page screenshot: a 1280×8192 PNG stays far under the attachment cap. */
+export const MAX_FULL_PAGE_HEIGHT = 8192;
+
+/**
+ * Where offstage is: wholly to the left of the window, above its top-left
+ * corner, never on screen — at the tab's own viewport, else a desktop page's.
+ * @param {{width: number, height: number}} [viewport]
+ */
+export function offstageRect(viewport = OFFSTAGE_VIEWPORT) {
+  return { left: -viewport.width - 64, top: -viewport.height - 64, width: viewport.width, height: viewport.height };
 }
 
 /**
- * The slot a tab is drawn over, offstage for a headless one, or `null` to hide it.
+ * A viewport an agent asked for, or `null`: two whole numbers of pixels,
+ * each within the shot's bounds — both, or nothing.
+ * @param {unknown} width @param {unknown} height
+ * @returns {{width: number, height: number} | null}
+ */
+export function viewportOf(width, height) {
+  const ok = (n) => typeof n === "number" && Number.isInteger(n) && n >= MIN_VIEWPORT && n <= MAX_VIEWPORT;
+  return ok(width) && ok(height) ? { width, height } : null;
+}
+
+/**
+ * How tall a tab out of sight is drawn for a full-page screenshot: the
+ * document's height, never shorter than the viewport, never past the cap.
+ * @param {unknown} pageHeight what the page said of its document
+ * @param {{width: number, height: number}} viewport the tab's box as it stands
+ */
+export function fullPageHeight(pageHeight, viewport) {
+  const said = typeof pageHeight === "number" && Number.isFinite(pageHeight) ? Math.round(pageHeight) : 0;
+  return Math.min(MAX_FULL_PAGE_HEIGHT, Math.max(viewport.height, said));
+}
+
+/**
+ * The slot a tab is drawn over, offstage for a headless one — at its own viewport when it has one — or `null` to hide it.
  * @param {string} key the tab's key
- * @param {{center: {rect: object | null, layer: string | null, key: string | null} | null, aux: {rect: object | null, layer: string | null, key: string | null} | null, mayShow: boolean, headless?: boolean}} facts
+ * @param {{center: {rect: object | null, layer: string | null, key: string | null} | null, aux: {rect: object | null, layer: string | null, key: string | null} | null, mayShow: boolean, headless?: boolean, viewport?: {width: number, height: number} | null}} facts
  * @returns {{host: "center" | "aux" | "offstage", rect: {left: number, top: number, width: number, height: number}} | null}
  */
 export function placementOf(key, facts) {
@@ -38,7 +70,7 @@ export function placementOf(key, facts) {
     }
   }
   // Out of sight, a dialog over the window changes nothing: offstage is offstage.
-  if (facts?.headless) return { host: "offstage", rect: offstageRect() };
+  if (facts?.headless) return { host: "offstage", rect: offstageRect(facts.viewport ?? OFFSTAGE_VIEWPORT) };
   return null;
 }
 

@@ -11,6 +11,16 @@ export interface BrowserHome {
 export declare const BROWSER_SESSIONS_KEY: string;
 export declare const BROWSER_SCOPES: readonly BrowserScope[];
 export declare const BLANK_URL: string;
+/** The colour schemes a tab's page may be shown under; `system` is the window's own. */
+export type BrowserScheme = "light" | "dark" | "system";
+export declare const SCHEMES: readonly BrowserScheme[];
+export declare const DEFAULT_SCHEME: BrowserScheme;
+/** The box a tab kept out of sight renders in, when an agent chose one (ide/18 §Emulation). */
+export interface TabViewport {
+  readonly width: number;
+  readonly height: number;
+}
+export declare function sameViewport(a: TabViewport | null | undefined, b: TabViewport | null | undefined): boolean;
 
 /** Who opened a tab: a person's act, an agent's request (its id, when the request named one), a window a page asked for (the asking tab's key). */
 export type BrowserOpener = { readonly kind: "person" } | { readonly kind: "agent"; readonly agent: string | null } | { readonly kind: "page"; readonly from: string };
@@ -37,6 +47,10 @@ export interface BrowserSession {
   /** Kept out of sight: no host draws it, and it is not made active (ide/18 §Headless tabs). */
   readonly headless: boolean;
   readonly pane: string | null;
+  /** The viewport an agent gave a tab kept out of sight; `null` is a desktop page's, or a host's box for a seen tab. */
+  readonly viewport: TabViewport | null;
+  /** The scheme the page is shown under. */
+  readonly scheme: BrowserScheme;
 }
 /** What the webview says of a tab's history on a move. */
 export interface BrowserHistory {
@@ -73,6 +87,8 @@ export declare function closeAll(state: BrowsersState): BrowsersState;
 export declare function closeBrowser(state: BrowsersState, key: string): BrowsersState;
 export declare function focusBrowser(state: BrowsersState, key: string): BrowsersState;
 export declare function reveal(state: BrowsersState, key: string): BrowsersState;
+export declare function conceal(state: BrowsersState, key: string): BrowsersState;
+export declare function emulated(state: BrowsersState, key: string, facts?: { viewport?: TabViewport | null; scheme?: string }): BrowsersState;
 export declare function seenSessions(sessions: readonly BrowserSession[]): BrowserSession[];
 export declare function seenRootedAt(sessions: readonly BrowserSession[], scope: string, id: string): BrowserSession[];
 export declare function visibilityWords(session: BrowserSession | null | undefined): string | null;

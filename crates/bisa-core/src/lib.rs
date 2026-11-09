@@ -31,6 +31,7 @@ pub mod collab_settings;
 pub mod connector;
 pub mod conversation;
 pub mod decision;
+pub mod design;
 pub mod draw;
 pub mod effort;
 pub mod error;
@@ -209,7 +210,7 @@ pub use settings::{
     SettingDef, SettingsError, REGISTRY as SETTINGS,
 };
 pub use signal::{Signal, MAX_SIGNAL_PAYLOAD_BYTES};
-pub use skill::{Skill, SkillError, MAX_SKILL_BYTES};
+pub use skill::{Skill, SkillError, MAX_SKILL_BODY_BYTES, MAX_SKILL_BYTES};
 pub use start::{
     map_event, Admission, Cadence, Dropped, FireOn, Guard, MapError, Overlap, ResolveError,
     Schedule, StartOn,

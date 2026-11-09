@@ -119,7 +119,7 @@ core set, and then one set each that the other never receives:
 
 | Tool set | Tools |
 |---|---|
-| **Common** — every session | `list_connectors`, `call_connector` (a read through an installed connector — the operation's host policy, deadline, cap and circuit, the answer redacted and screened as content from outside; a write is refused: it is a `connector` step behind a gate), `get_goal` (refused by name in a workspace run's work item, which has no goal — *orient with `get_run`*), `ask_human`, `await_human`, `ask_human_and_wait`, `add_note`, `spawn_sub_goal`, `emit_signal`, `post_message`, `recall_store`, `recall_get`, `recall_list`, `note_read`, `note_append`, `note_write`, `review_notes_list`, `review_note_resolve`, `create_project`, `decide` (typed questions to the Decision-Making Agent, refused in a sentence unless it is switched on for the session's agent — [15](15-decision-making-agent.md)), and the twenty-one browser tools (ide/18) — `browser_open`, `browser_tabs`, `browser_close`, `browser_snapshot`, `browser_read`, `browser_find`, `browser_click`, `browser_fill`, `browser_type`, `browser_press`, `browser_select`, `browser_hover`, `browser_scroll`, `browser_back`, `browser_forward`, `browser_reload`, `browser_wait`, `browser_console`, `browser_eval`, `browser_screenshot`, `browser_serve` — the seven drawing tools ([19](19-drawings.md)) — `drawing_list`, `drawing_read`, `drawing_create`, `drawing_draw`, `drawing_mermaid`, `drawing_erase`, `drawing_snapshot` — and the four mobile development tools (ide/19), on every menu and answered only where mobile development is on — `mobile_development_status`, `mobile_development_devices`, `mobile_development_boot`, `mobile_development_screenshot` |
+| **Common** — every session | `list_connectors`, `call_connector` (a read through an installed connector — the operation's host policy, deadline, cap and circuit, the answer redacted and screened as content from outside; a write is refused: it is a `connector` step behind a gate), `get_goal` (refused by name in a workspace run's work item, which has no goal — *orient with `get_run`*), `ask_human`, `await_human`, `ask_human_and_wait`, `add_note`, `spawn_sub_goal`, `emit_signal`, `post_message`, `recall_store`, `recall_get`, `recall_list`, `note_read`, `skill_read` (an installed skill's body, or one of its reference sections by slug or title — [§ Skills](#skills)), `note_append`, `note_write`, `review_notes_list`, `review_note_resolve`, `create_project`, `decide` (typed questions to the Decision-Making Agent, refused in a sentence unless it is switched on for the session's agent — [15](15-decision-making-agent.md)), and the twenty-one browser tools (ide/18) — `browser_open`, `browser_tabs`, `browser_close`, `browser_snapshot`, `browser_read`, `browser_find`, `browser_click`, `browser_fill`, `browser_type`, `browser_press`, `browser_select`, `browser_hover`, `browser_scroll`, `browser_back`, `browser_forward`, `browser_reload`, `browser_wait`, `browser_console`, `browser_eval`, `browser_screenshot`, `browser_emulate`, `browser_serve` — the seven drawing tools ([19](19-drawings.md)) — `drawing_list`, `drawing_read`, `drawing_create`, `drawing_draw`, `drawing_mermaid`, `drawing_erase`, `drawing_snapshot` — and the four mobile development tools (ide/19), on every menu and answered only where mobile development is on — `mobile_development_status`, `mobile_development_devices`, `mobile_development_boot`, `mobile_development_screenshot` |
 | **Work item** — a session running an `agent` step | `get_run` (the run the item belongs to — its workflow, inputs, steps, work items, journal, budget, and whose goal it is: `null` for a workspace run; the session orients with it, then with `get_goal` when the run is a goal's), `yield_result`, `report_progress` |
 | **Conversation** — a conversation's turn | `pr_reviews_list`, `pr_review_submit`, `pr_thread_reply`, `pr_thread_resolve` — the pull request of the checkout the conversation runs in, a workstream's or a project's primary; off a checkout they refuse |
 | **Goal** — a session designing a goal's workflow, and the Workflow Agent's turn in a goal's thread (launched knowing the goal) | `revise_statement`, `propose_workflow`, `amend_workflow` |
@@ -372,7 +372,7 @@ graph TB
     what -->|"a conversation turn<br/>about a checkout"| projctx["<b>Project context</b>"]
     what -->|"a guided wake"| designctx["<b>Design context</b>"]
 
-    goalctx --> common["<b>Always</b><br/>system prompt · skills · MCP servers — the platform's own, and the agent's installed ones where the harness is judged (11)<br/>model plan · signing keys · tool tier<br/>placement, and what kind of directory it is<br/>the embedded browser, never the machine's — out of sight in an auto goal (ide/18)"]
+    goalctx --> common["<b>Always</b><br/>the agent's role (its system prompt), first · skills — native files in the platform's own folder for Claude Code, an appendix elsewhere: the body and an index of its reference sections where the harness mounts the platform's servers, the whole text where it cannot · MCP servers — the platform's own, and the agent's installed ones where the harness is judged (11)<br/>model plan · signing keys · tool tier<br/>placement, and what kind of directory it is<br/>the embedded browser, never the machine's — out of sight in an auto goal (ide/18)<br/>the UI/UX Design skill, where the workspace holds every agent to it (design.agents)"]
     chatctx --> common
     projctx --> common
     designctx --> common
@@ -381,6 +381,7 @@ graph TB
 | | Agent step (a work item) | Guided wake (the Workflow Agent) | Conversation turn about a checkout (a workstream or a project) | Conversation turn about a goal, a workflow, the workspace or the node |
 |---|---|---|---|---|
 | goal statement | ✅ on a goal's run (`framing::goal_note`); none in a workspace run | ✅ | — | — |
+| the agent's role — its system prompt, opening the first prompt (`framing::role_block`; a step with no agent has none) | ✅ | — (the directive is the role) | ✅ | ✅ |
 | the step's instructions, rendered | ✅ | — | — | — |
 | the result protocol, and the step's `output_schema` when it has one | ✅ | — | — | — |
 | the unattended line — decide with defaults, say the assumptions, ask only for what a person alone holds (`executor::UNATTENDED_APPENDIX`) | ✅ on an auto goal | — (the design directive says it) | — | — |
@@ -569,6 +570,44 @@ at most six — four of its own, and the two platform skills every one carries, 
 skill is delivered into every session that agent runs and the list is a tax on each launch. A
 reference that no longer resolves costs that skill and nothing else.
 
+**A skill is a body and, after it, reference sections read on demand.** Its markdown is one record
+(`Skill.markdown`, at most 64 KiB — `MAX_SKILL_BYTES`); a heading `## Reference: <Title>` opens a
+section, and everything before the first is the body (`bisa_core::skill::parts`). The body rides every
+prompt of a carrier — for a catalog skill it stays under 32 KiB (`MAX_SKILL_BODY_BYTES`, the bundle
+test's rule) — and a section is read when the skill says to: with **`skill_read`**, the one tool every
+session holds for it (the skill's id, and a section by slug or title; any agent may read any installed
+skill, since guidance is nobody's secret), or, on Claude Code in the platform's own folder, from the
+file written beside `SKILL.md` (`reference/<slug>.md`). How the skill reaches a session follows what the
+harness can do (`bisa_harness::skills::Delivery`): a harness that mounts the platform's servers gets the
+body and one line naming the sections to read with `skill_read`; one that cannot — pi, omp, a custom
+harness — gets the whole text, since a section it could not open would be a promise the prompt cannot
+keep. The file Claude Code loads carries the platform's marker in its front matter's `metadata`
+(`bisa-skill`, `bisa-hash`, the Agent Skills specification's own map): a stale copy of ours is
+rewritten at the next launch, a file somebody edited or wrote themselves is left alone and the skill
+rides the prompt instead, and nothing under `.claude/skills` is ever deleted, since a goal's scratch is
+shared by every work item of the goal.
+
+The catalog ships one skill in this shape: **UI/UX Design** (`ui-ux-design`), the UI/UX Designer's own
+and the Developer's — a body of the procedure, and ten reference sections (the craft floor, the modes,
+the review protocol and report, the accessibility checks, responsive and viewports, type, colour and
+space, motion, states and copy, the design record, the stacks), each read whole and kept small. The
+bundle test holds the section titles, so a section a session asks for by name is one that exists.
+
+**Who follows the UI/UX Design skill is the workspace's word.** The skill (`ui-ux-design`, the UI/UX
+Designer's own) is the standard for anything that changes what a
+person sees or does on a screen, and `design.agents` (Settings › Capabilities › Design) says who is held
+to it once it is installed:
+
+| `design.agents` | an agent that carries the skill | an agent that does not |
+|---|---|---|
+| **everyone** — the default | the skill, as any skill | one sentence in the prompt (`framing::design_note`, `bisa_core::design::DESIGN_NOTE`): the workspace follows the skill, read it with `skill_read` before such work — or, on a harness without the platform's tools, the whole skill appended and a sentence saying so |
+| **assigned** | the skill, as any skill | nothing |
+| **nobody** | nothing — the skill is dropped from the session's skills (`design::filter_skills`) | nothing |
+
+Nothing is said while the skill is not installed: a sentence about a skill `skill_read` cannot find
+would send an agent to a door that is not there. The MCP server's instructions carry a fixed hint
+(`DESIGN_HINT`) naming the tool and the setting, since the server reads no settings.
+
 ---
 
 ## What holds it
@@ -587,6 +626,7 @@ reference that no longer resolves costs that skill and nothing else.
 | Nothing is removed while something names it, and the refusal names what | `bisa-store` `usage.rs`; the journey `the_roster_and_its_library` |
 | A probe is a report, never an error; its answer is the server's health; a secret comes back masked and a mask sent back keeps the stored value | `bisa-engine` `mcp_health.rs`; `bisa-node` `node::a_probe_is_a_report_never_an_error_and_registers_nothing`, `mcp_registry_and_agent_wiring`; `bisa-core` `mcp.rs` (`masking_hides_every_value…`); `bisa-store` `usage::an_edit_that_keeps_a_masked_value_keeps_the_stored_one`; the journey (the platform's own server dialled) |
 | An install is transitive and idempotent | `bisa-store` `catalog.rs`; `bisa-engine` `core_agent::installing_a_catalog_entry_is_transitive_idempotent_and_journalled`; the journey |
+| An update from the catalog is a person's act and restates one skill, agent or team — its words, an agent's skills, a team's agents — keeping what the person chose, and refuses a kind installed once or an id that is not this entry's | `bisa-store` `tests/it/catalog.rs` (`updating_an_installed_agent_restates_the_bundles_words_and_keeps_what_the_person_chose` and its three neighbours); `bisa-node` `node::an_update_from_the_catalog_restates_one_entry_and_the_listing_says_when_a_copy_differs`; `bisa-cli` `catalog_install_update_restates_an_installed_entry_and_is_honest_when_nothing_changed` |
 | Every core-only op refuses any other session | `bisa-engine` `core_agent::every_core_agent_op_refuses_any_other_session`, `intake_scope.rs` |
 | The assignment union: nearest wins, teams expand one level, humans take no work, a parent cycle ends | `bisa-engine` `assign.rs` (`explicit_beats_project_beats_goal_beats_ancestor`, `teams_expand_and_humans_never_take_work`, `a_parent_cycle_terminates`, `an_explicit_item_assignee_wins_alone`) |
 | The core agents are in every room and in no work queue | `bisa-engine` `assign::the_core_agent_is_never_offered_work_it_was_not_asked_for_by_name`, `the_core_agent_is_a_principal_of_every_team` |

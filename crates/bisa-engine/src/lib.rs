@@ -27,6 +27,7 @@ pub mod content;
 pub mod conversation;
 pub mod conversations;
 pub mod decider;
+pub mod design;
 pub mod directory;
 pub mod documents;
 pub mod drawings;

@@ -21,6 +21,8 @@ import {
   asked,
   closeAll,
   closeBrowser,
+  conceal,
+  emulated,
   focusBrowser,
   navigated,
   openBrowser,
@@ -31,7 +33,7 @@ import {
   titled,
   urlWords,
 } from "./browsersModel.mjs";
-import type { BrowserHistory, BrowserSession, BrowserTarget, BrowsersState } from "./browsersModel.mjs";
+import type { BrowserHistory, BrowserScheme, BrowserSession, BrowserTarget, BrowsersState, TabViewport } from "./browsersModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 /**
@@ -154,9 +156,19 @@ export function focusBrowserTab(key: string): void {
   set(focusBrowser(state, key));
 }
 
-/** Show a tab kept out of sight — the person's act, never an agent's — and bring it to the front. */
+/** Show a tab kept out of sight — the person's act, or the agent's own `headless: false` on a tab it holds — and bring it to the front. */
 export function revealBrowserTab(key: string): void {
   set(reveal(state, key));
+}
+
+/** Put a seen tab out of sight — an agent's `browser_open` with `headless: true` on a tab it holds (ide/18 §Headless tabs). */
+export function concealBrowserTab(key: string): void {
+  set(conceal(state, key));
+}
+
+/** An agent emulated a device on a tab (ide/18 §Emulation): a viewport for one kept out of sight — the layer re-places its webview on this word — and a scheme for any. */
+export function emulateBrowserTab(key: string, facts: { viewport?: TabViewport | null; scheme?: BrowserScheme }): void {
+  set(emulated(state, key, facts));
 }
 
 /** The bar asked for a URL: the tab shows it loading until the webview says otherwise, or the grace runs out. */

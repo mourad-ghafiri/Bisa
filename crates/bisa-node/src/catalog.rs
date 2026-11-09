@@ -10,8 +10,10 @@
 //!
 //! An install is the store's, including its transitivity (a team brings its
 //! agents, an agent its skills), its idempotence, and its refusal to overwrite
-//! an id it did not create. This module's job is to name a kind and a slug and
-//! to let those decisions reach the caller intact: a collision is a 400
+//! an id it did not create; an **update from the catalog** — the same route
+//! with `update: true` — is the store's too, the one act that changes an
+//! installed copy, at a person's asking. This module's job is to name a kind
+//! and a slug and to let those decisions reach the caller intact: a collision is a 400
 //! carrying the store's message, which names the id and what holds it, because
 //! "install failed" leaves the owner to guess whether their own work is at
 //! risk.
@@ -125,11 +127,27 @@ fn localized(entry: CatalogEntry, locale: &bisa_i18n::Locale) -> CatalogEntryDto
 /// produced, and an owner who cannot see them cannot undo them. Installing
 /// something already present is a 200 with every list empty — idempotence is
 /// the contract, not an error condition.
+///
+/// With `update: true` the same call is a person's **update from the
+/// catalog**: an installed skill, agent or team is brought back to the
+/// catalog's definition — the store's rule on what is replaced and what is
+/// kept — after what it needs and is missing has been installed, and the
+/// answer adds `updated: {restated}`. A kind that is installed once and is
+/// then the person's, and an id held by something that is not this entry,
+/// are the store's refusals, as a 400 in its words.
 async fn install(
     State(state): State<Shared>,
     crate::Body(body): crate::Body<CatalogInstallBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let kind = parse_kind(&body.kind)?;
+    if body.update {
+        let updated =
+            bisa_engine::admin::update_catalog_entry(state.engine.inner(), kind, &body.slug)?;
+        return Ok(Json(json!({
+            "installed": InstalledDto::from(updated.installed),
+            "updated": UpdatedDto { restated: updated.restated },
+        })));
+    }
     let installed =
         bisa_engine::admin::install_catalog_entry(state.engine.inner(), kind, &body.slug)?;
     Ok(Json(json!({"installed": InstalledDto::from(installed)})))
@@ -147,7 +165,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/catalog/install",
-        summary: "Install one entry and everything it needs: `{kind, slug}`.",
+        summary: "Install one entry and everything it needs: `{kind, slug}`. With `update: true`, bring an installed skill, agent or team back to the catalog's definition as well — the words the catalog owns replaced, the harness, plan, keys, switch and the people on a team kept — and answer `updated: {restated}` beside `installed`.",
     },
     RouteDoc {
         method: "GET",

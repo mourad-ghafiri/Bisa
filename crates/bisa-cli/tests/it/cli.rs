@@ -1292,6 +1292,33 @@ fn a_catalog_install_with_a_running_node_goes_through_it_and_is_announced() {
                 .any(|s| s.as_str().is_some_and(|s| s.contains("clock")))),
             "the CLI reports what landed, in the store's shape: {installed}"
         );
+        // An update through the same node: the flag rides the body, and the
+        // node's `updated` word comes back in the CLI's own shape — an
+        // entry that was not here is installed, and nothing was restated.
+        let data_dir = dir.path().to_path_buf();
+        let out = tokio::task::spawn_blocking(move || {
+            bisa(
+                &data_dir,
+                &[
+                    "--json",
+                    "catalog",
+                    "install",
+                    "skill",
+                    "plain-voice",
+                    "--update",
+                ],
+            )
+        })
+        .await
+        .unwrap();
+        assert_ok(&out, "catalog install --update via node");
+        let v = json(&out);
+        assert_eq!(v["updated"], serde_json::json!({"restated": false}), "{v}");
+        assert_eq!(
+            v["installed"]["skills"],
+            serde_json::json!(["plain-voice"]),
+            "{v}"
+        );
         announced
     });
     drop(node);
@@ -7307,4 +7334,80 @@ fn notes_are_made_edited_and_removed_with_and_without_a_node() {
             .contains(&format!("goal:{goal}"))
     );
     drop(node);
+}
+
+/// `catalog install --update` is a person's update from the catalog: an
+/// installed entry whose words were edited goes back to the catalog's
+/// definition and the verb says so; one that already matches says nothing
+/// changed; a plain install keeps its own words; a kind installed once is
+/// refused by kind.
+#[test]
+fn catalog_install_update_restates_an_installed_entry_and_is_honest_when_nothing_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    assert_ok(
+        &bisa(dir.path(), &["catalog", "install", "skill", "plain-voice"]),
+        "catalog install",
+    );
+    let shipped = json(&bisa(
+        dir.path(),
+        &["--json", "skill", "show", "plain-voice"],
+    ))["skill"]["name"]
+        .clone();
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &["skill", "edit", "plain-voice", "--name", "Our voice"],
+        ),
+        "skill edit",
+    );
+    let out = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "catalog",
+            "install",
+            "skill",
+            "plain-voice",
+            "--update",
+        ],
+    );
+    assert_ok(&out, "catalog install --update");
+    let v = json(&out);
+    assert_eq!(v["updated"], serde_json::json!({"restated": true}), "{v}");
+    assert_eq!(v["installed"]["skills"], serde_json::json!([]), "{v}");
+    assert_eq!(
+        json(&bisa(
+            dir.path(),
+            &["--json", "skill", "show", "plain-voice"]
+        ))["skill"]["name"],
+        shipped,
+        "the catalog's name is back"
+    );
+    let out = bisa(
+        dir.path(),
+        &["catalog", "install", "skill", "plain-voice", "--update"],
+    );
+    assert_ok(&out, "a second update");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("already matches the catalog's definition"),
+        "{text}"
+    );
+    let out = bisa(dir.path(), &["catalog", "install", "skill", "plain-voice"]);
+    assert_ok(&out, "a plain install");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("were already here"),
+        "a plain install says what it always said"
+    );
+    let out = bisa(
+        dir.path(),
+        &["catalog", "install", "channel", "product", "--update"],
+    );
+    assert!(!out.status.success(), "a channel is installed once");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("cannot update") && err.contains("channel"),
+        "{err}"
+    );
 }

@@ -1,0 +1,681 @@
+# Built-in skill: UI/UX Design — the standard for anything that changes what a person sees or does
+# on a screen, judged on the real page in the embedded browser at a phone's width and a desk's, light
+# and dark. The UI/UX Designer and the Developer carry it; who else follows it is the workspace's word
+# (`design.agents`, *everyone* by default). The body is the procedure and rides every carrier's prompt;
+# the `## Reference:` sections after it are read on demand.
+
+[skill]
+name = "UI/UX Design"
+description = "Use when work changes what a person sees or does on a screen: design, review or fix it with evidence from the embedded browser, phone and desk, light and dark."
+tags = ["design", "product"]
+content = """
+# UI/UX Design
+
+Use this whenever the work changes what a person sees or does on a screen: a page, a view, a dialog,
+a form, a component, a flow, an empty state, the words on a button. It is the standard the workspace
+holds screen work to — designing it, building it, reviewing it or fixing it — and it rests on one
+habit: **look at the real page before you judge it and after you change it**, in the platform's
+embedded browser, the way a person on a phone and a person at a desk would see it, in light and in
+dark.
+
+This body is the procedure. The reference sections after it are read on demand, one at a time, with
+`skill_read` (this skill's id is `ui-ux-design`; name a section by its title or its slug); on Claude
+Code they are also the files under `reference/` beside this one. Read **Craft floor** right before
+the first edit of any screen, and **Review protocol and report** before any review. Nothing here
+outranks the brief or the workspace's policy: a tool that refuses you has said why, and that is final.
+
+## Stance
+
+- **The brief wins.** What the person asked for, in their words, is the measure. Taste is not a
+  finding; a reason tied to the person's goal is.
+- **Refinement preserves; redesign replaces.** Asked to fix or polish, keep every decision you were
+  not asked to change — layout, palette, type, voice. Asked to redesign, say what you are replacing
+  and why before you do.
+- **Evidence or nothing.** Every finding names what was seen: the screenshot's path, the ref from
+  the outline, the value measured. "Looks cramped" is a feeling; "the gap between the card rows is
+  4 px at 390 wide, see the shot" is a finding.
+- **Whole paths, not screens.** A screen has four states — populated, empty, loading, error — and a
+  path has a keyboard route and words at every step. Delivering the populated state alone is
+  delivering a quarter.
+- **Bounded verification.** One batched look at every width and scheme, one batch of fixes, one
+  confirming look. Two rounds is the ceiling; what the second round still shows goes to the person,
+  not into a third round.
+
+## The surface's mode
+
+Decide, before anything else, what the surface is for. The mode sets how much expression the work
+may carry, and the report's first line names it.
+
+| Mode | The surface is for | What earns its place |
+|---|---|---|
+| **Operate** | a task someone does often — settings, a form, a dashboard, a tool | familiarity, consistency, density, speed; expression only where it helps someone find or do |
+| **Persuade** | a decision — a landing page, a pricing page, a store listing | one message, one path; the page is the product, and expression serves the message |
+| **Read** | understanding — documentation, an article, a report | structure, measure, rhythm; nothing competes with the text |
+| **Experience** | the work itself leads — a portfolio, a launch moment, a game | expression leads, and the craft floor still holds |
+
+Most product work is Operate. A screen that mixes modes is two surfaces; design each.
+
+## The procedure
+
+### 1. Brief
+
+Write down, in a few lines, before you touch anything: the task and the person doing it, the moment
+they arrive at this screen, the four states of every screen in scope, what must not change, and what
+"done" looks like in the person's words. Read the design record if the checkout has one (`DESIGN.md`
+at the root or under `docs/design/` — see **The design record**) and follow it; where there is none
+and the work is more than a fix, say so and propose one. Ask with `ask_human` once, for the things a
+wrong guess would make expensive — who the person is, which flow matters most, whether a redesign is
+wanted — and never for what the page or the code can tell you.
+
+### 2. Look first
+
+Get the page up: `browser_serve` for files on disk, the project's run command for a dev server, or
+the URL the brief names. Open one review tab with `browser_open`: in a goal, kept out of sight; in a
+conversation where the person is watching, shown — and say what you are about to look at. Then the
+matrix, on that one tab:
+
+1. `browser_emulate` **390×844** (a phone) and `browser_screenshot` with `full_page: true`; then
+   `browser_emulate` **1440×900** (a desk) and the same. Add **768×1024** when the brief names
+   tablets, and the person's own width when you know it.
+2. Each width in `light` and in `dark` — `browser_emulate` with the `scheme` — unless the brief says
+   the product has one scheme; then say so and shoot that one.
+3. `browser_snapshot` for the outline: headings, controls, labels, what has a name and what does not.
+   `browser_console` after the load for what the page complained about. `browser_scroll` to `bottom`
+   for what the page shows late.
+4. `browser_eval` for the facts a screenshot cannot give — contrast pairs, target sizes, focus order,
+   overflow — with the recipes in **Accessibility checks**, where the workspace allows scripts
+   (`browser.agents.scripts`). Where it does not, say which checks were not measured.
+5. Open and read every screenshot you took before you write a word about the page. A shot you did
+   not open is not evidence.
+
+A shown tab refuses a viewport: its size is the person's pane. Open a second tab out of sight for the
+matrix and keep the shown one for the walk-through.
+
+### 3. Judge
+
+Hold what you saw against the **Craft floor** and the mode's rules (**Modes in depth**). Write
+findings, not impressions: each one an observation, why it matters to the person, the fix, and the
+evidence — ordered by severity, P0 to P3 (**Review protocol and report** has the scale). Say what
+works, too, in one line: a review that only lists faults is one nobody can calibrate.
+
+### 4. Change
+
+When the work is to build or fix, read **Craft floor** right before the first edit, then build the
+whole path: every state, the keyboard route, the words. Keep to what the brief opened and never
+touch what it fenced. When the question is the flow rather than the pixels, draw it first — the
+screens as boxes, the paths as arrows, on the canvas with `drawing_mermaid` or `drawing_draw` — and
+let the person react to the drawing before the code. Build in the stack the project uses
+(**Stacks**): its components, its tokens and its conventions before anything new.
+
+### 5. Verify
+
+Recapture the same matrix — same widths, same schemes, full page — and read every file. Compare
+with the first round: what you fixed, what you broke, what you missed. Fix everything the look shows
+in one batch, then take one confirming look. Two rounds is the ceiling. Close with one of three
+words: **ship** (the floor holds everywhere you looked), **fix** (named items remain and you are out
+of rounds), or **needs the person** (a decision only they can make — name it).
+
+### 6. Record and hand off
+
+In a work item the result is the report (**Review protocol and report** has its shape), handed
+through `yield_result`, with `report_progress` at the boundaries that matter: the matrix captured,
+the fixes in, the confirming look done. When the owner wants a design record, write or update
+`DESIGN.md` as **The design record** describes — from what was built, not from what was intended.
+Open questions go to the person through `ask_human`, each with the options and your recommendation.
+A design question nobody answers is no reason to invent an answer silently: take the conservative
+option and say so in the report.
+
+## When a tool refuses
+
+- A refusal by the workspace's policy is final. Say what was refused and why, and go on with what
+  you can — judge from the screenshots and the outline, build from the record. Never work around it.
+- The embedded browser is not available: review from the source, and say in the report's first line
+  that the rendered check did not run.
+- A shown tab refuses a viewport or a full page: open a tab out of sight for the matrix.
+- Scripts are refused: the measured checks become visual ones; name each check you could not measure.
+- A page that never settles, or a console full of errors from somebody else's script: report it,
+  shoot what rendered, judge that.
+
+## Failure modes
+
+- **Judging from the source.** A stylesheet says what it meant, not what rendered. Look.
+- **One width, one scheme.** The screen that works at 1440 wide in light is the one most people
+  never see.
+- **The unread screenshot.** A file path in a report is not evidence the file supports.
+- **Findings as feelings.** "Cluttered", "modern", "clean" — without a measure, a ref or a shot these
+  are the reviewer's taste.
+- **Redesigning a fix.** Asked to close a gap, the font changed too.
+- **The endless round.** A third round of fixes means the brief was never understood. Stop and ask.
+- **The happy path alone.** Empty, loading and error states left to the browser's defaults.
+- **Narrating instead of recording.** A thousand words of process where the report wants findings.
+
+## Done when
+
+The mode is named; the matrix was captured and every screenshot read; each finding has its evidence
+and its fix; what was built covers every state and the keyboard; the confirming look holds; the
+report closes with ship, fix or needs the person; and the record, where one is wanted, says what was
+built.
+
+## Reference: Craft floor
+
+Read this right before the first edit of any screen, and hold every look to it. The verify list is
+what must be true; the refuse list is the defaults that must be earned by the brief or the record
+before they appear.
+
+### Verify
+
+1. **Contrast, in both schemes.** Body text against its background at least 4.5:1; large text —
+   at least 18 pt, or 14 pt bold — at least 3:1; controls and the graphics that carry meaning at
+   least 3:1 against what is next to them (WCAG 2.2 1.4.3 and 1.4.11, both AA:
+   https://www.w3.org/TR/WCAG22/#contrast-minimum, https://www.w3.org/TR/WCAG22/#non-text-contrast).
+   Apple's guidance says the same and adds: check it in light and in dark
+   (https://developer.apple.com/design/human-interface-guidelines/accessibility).
+2. **One spacing scale.** Steps of 4 or 8 px; the gaps inside a group smaller than the gaps between
+   groups; nothing touching an edge by accident; the page at 320 CSS px wide reflowing with no
+   horizontal scroll (1.4.10 AA, https://www.w3.org/TR/WCAG22/#reflow).
+3. **Type with a purpose.** At most five sizes, each with a job; body text in a measure of 45 to 75
+   characters; a line height near 1.5 for body text; the heading is where the eye lands first.
+4. **One depth story.** Tone, border or shadow — not all three on one surface. Elevation means
+   something: a sheet over a page, a menu over a sheet.
+5. **Every state, visibly.** Populated, empty, loading, error for the screen; hover, focus, active,
+   disabled, selected for its controls; none told by colour alone (1.4.1 A,
+   https://www.w3.org/TR/WCAG22/#use-of-color).
+6. **The keyboard route.** Every act reachable with Tab in reading order, focus visible, focus never
+   hidden under a sticky bar, no trap (2.1.1, 2.1.2, 2.4.3 A; 2.4.7, 2.4.11 AA — see
+   **Accessibility checks**).
+7. **Targets a finger finds.** At least 24×24 CSS px on the web, or spaced so a 24 px disc centred
+   on each touches no other target (2.5.8 AA, https://www.w3.org/TR/WCAG22/#target-size-minimum); on Apple
+   platforms a button's hit region of at least 44×44 pt as the general rule
+   (https://developer.apple.com/design/human-interface-guidelines/buttons).
+8. **The browser's own surfaces.** Native selects, date inputs, scrollbars and the focus ring are
+   styled on purpose or left alone on purpose — the same choice across the page.
+9. **The words.** Every label, button, error and empty state specific and in the product's voice:
+   "Save changes", not "Submit"; "No projects yet — create one", not "No data".
+10. **Coverage.** Everything the brief named is there; nothing the brief fenced has moved.
+
+### Refuse unless the brief or the record asks for it
+
+- An eyebrow label over every heading.
+- A grid of identical cards, each an icon, a title and two lines.
+- Gradient text.
+- Glass or blur as decoration: a blurred layer belongs over something it is above.
+- A coloured stripe down a card's side to mean a status — use a word, a badge or a border.
+- Glyphs or emoji standing in for words a person needs.
+- A display face from the system stack for headings; the body's face at a heavier weight carries
+  most products.
+- A modal where a page, a sheet or an inline edit would do.
+- Light and dark out of habit. One scheme by decision is fine; two schemes means both are checked.
+- Motion that plays by itself and tells nothing (see **Motion**).
+- A placeholder as the only label.
+- Colour as the only carrier of meaning.
+
+## Reference: Modes in depth
+
+The mode is a decision about what the surface is for, taken before any other. Name it in the report's
+first line; when two fit, the person's goal decides, and a screen that truly needs two is two
+surfaces.
+
+### Operate
+
+A task someone does often: settings, a form, a list and its detail, a dashboard, a tool. What earns
+its place is what helps a person find and do — familiar controls in familiar places, one density
+across the screen, the primary act obvious, the destructive act asked about, keyboard first for the
+frequent acts. Expression is a tax here: a flourish on a screen used fifty times a day is fifty taxes.
+Judge it by the time to the task, the errors a person can make, and whether the empty and error
+states tell them what to do next.
+
+### Persuade
+
+A decision: a landing page, a pricing page, a store listing, a sign-up. One message above everything,
+one path to one act, proof close to the claim, the act repeated where the eye rests. Expression
+serves the message: a strong headline, a real picture of the product, white space that lets the claim
+breathe. Judge it by whether a stranger can say what this is and why it matters within the first
+screenful at 390 wide, and whether the next step is the only thing that looks like a next step.
+
+### Read
+
+Understanding: documentation, an article, a report, a long email. Structure first — headings that
+scan, a measure of 45 to 75 characters, a line height near 1.5, a type scale with two or three
+steps, code and tables that do not escape the column. Nothing competes with the text: no sticky
+sidebar that eats the measure on a phone, no motion. Judge it by whether a person can find the part
+they need from the headings alone and read a paragraph without losing the line.
+
+### Experience
+
+The work itself leads: a portfolio, a launch moment, a game, a brand page. Expression leads — type,
+colour and motion make the argument — and the craft floor still holds: contrast, targets, a keyboard
+route, an honest reduced-motion path. Judge it by whether the expression says one thing and whether
+the floor holds everywhere the eye is not.
+
+### Choosing
+
+Ask what the person is there to do. Done often → Operate. Decide once → Persuade. Understand →
+Read. Feel → Experience. When the brief names a mode, it wins. When the product's design record names
+one for this kind of surface, it wins over your reading.
+
+## Reference: Review protocol and report
+
+### The matrix
+
+| Look | Width × height | Scheme | Shot |
+|---|---|---|---|
+| phone | 390×844 | light and dark | full page |
+| desk | 1440×900 | light and dark | full page |
+| tablet, when the brief names tablets | 768×1024 | light and dark | full page |
+| the person's own, when known | theirs | theirs | full page |
+
+One tab kept out of sight, `browser_emulate` for each cell, `browser_screenshot` with `full_page: true`
+for each, plus one viewport shot of the first screenful at 390 wide — the screenful is what a person
+sees first and the full page is what the review needs.
+
+### Capture validity
+
+A capture that lies is worse than none. Before each shot: `browser_wait` for `idle` so motion has
+settled; `browser_scroll` to `top`, so the page is shot from where a person starts. After the matrix:
+open every file and confirm each shows what its name claims — a shot named dark that shows a light
+page is a failed capture, not a finding; recapture it (give the page a moment after
+`browser_emulate` changes the scheme, then `browser_reload` if it still has not followed). A page
+that renders differently on each load is reported as such, with two shots.
+
+### The finding
+
+Four parts, in this order, every time: what was observed (where — the screenshot's path, the ref, the
+width and scheme), why it matters to the person, the fix (concrete enough to act on), the evidence
+(the measured value where there is one). One finding per defect; the same defect at two widths is
+one finding that names both.
+
+### Severity
+
+- **P0** — a person cannot complete the task, or cannot perceive something they need: an act with no
+  keyboard route, text under 3:1, a control with no name, content lost at 320 wide, a trap.
+- **P1** — the task is completed with real cost: a target under 24 px, an error with no instruction,
+  focus hidden under a bar, a state missing (empty, loading, error), hover-only content.
+- **P2** — the craft floor is broken but the task survives: contrast between 3:1 and 4.5:1 on body
+  text, a spacing scale broken, two depth stories, copy that is generic, a refused default present.
+- **P3** — polish: optical alignment, a tighter type scale, a kinder word.
+
+A review's verdict is set by its worst finding. Say what works in one line, so the reader knows the
+P2s are not the whole picture.
+
+### The rounds
+
+One look — the matrix. One batch — every fix the look showed, together. One confirming look — the
+same matrix again, every file read. Two rounds is the ceiling. What remains after the second look is
+reported, not fixed in a third.
+
+### The report
+
+```
+Mode: Operate — the settings screen for a daily task.
+Looked at: phone 390×844 light/dark, desk 1440×900 light/dark, full page; scripts allowed.
+Verdict: fix.
+
+P0 · The Save button has no keyboard route at 390 wide (shot: screens/phone-light.png, ref e41)
+    — the sticky footer traps focus under it. Fix: …; measured: focus lands on e41, bottom 812 > 780.
+P1 · …
+P2 · …
+
+What works: one density across the page; the empty state names the next act.
+Not measured: contrast (scripts refused) — judged by eye only.
+Open question for the owner: …
+```
+
+Three dispositions, one word each: **ship**, **fix**, **needs the person**.
+
+### What a review is not
+
+Not a redesign proposal (unless asked), not a list of preferences, not a tour of the process. The
+report holds findings, evidence, fixes and the verdict.
+
+## Reference: Accessibility checks
+
+Each check has a name you can cite, the criterion it rests on (WCAG 2.2, the W3C Recommendation at
+https://www.w3.org/TR/WCAG22/, with the fragment that holds it), the threshold, and how to look.
+The recipes run through `browser_eval` where the workspace allows scripts; where it does not, each
+check is made by eye from the screenshots and the outline, and the report says so.
+
+- **contrast-text** — 1.4.3 Contrast (Minimum), AA, `#contrast-minimum`: text 4.5:1; large text
+  (at least 18 pt, or 14 pt bold) 3:1. Read the pairs, then compute the ratio as the glossary
+  defines it, (L1 + 0.05) / (L2 + 0.05) with L the relative luminance of the lighter and the darker
+  colour (`#dfn-contrast-ratio`):
+
+  ```js
+  (()=>{const bg=e=>{for(let n=e;n;n=n.parentElement){const c=getComputedStyle(n).backgroundColor;if(c&&c!=="rgba(0, 0, 0, 0)"&&c!=="transparent")return c}return "rgb(255, 255, 255)"};return [...document.querySelectorAll("p,li,a,button,label,h1,h2,h3,td,th,span")].filter(e=>e.textContent.trim()).slice(0,150).map(e=>({t:e.textContent.trim().slice(0,30),fg:getComputedStyle(e).color,bg:bg(e),size:getComputedStyle(e).fontSize,weight:getComputedStyle(e).fontWeight}))})()
+  ```
+
+- **contrast-nontext** — 1.4.11 Non-text Contrast, AA, `#non-text-contrast`: the parts of a
+  control a person must perceive, and graphics that carry meaning, 3:1 against adjacent colour.
+  Read borders and icons the same way (`borderColor`, `fill`, `stroke`).
+- **reflow-320** — 1.4.10 Reflow, AA, `#reflow`: at 320 CSS px wide no two-dimensional scroll for
+  vertical content. `browser_emulate` 320×568 and ask what overflows:
+
+  ```js
+  ({page:document.documentElement.scrollWidth,window:innerWidth,wide:[...document.querySelectorAll("body *")].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,12).map(e=>e.tagName+(e.id?"#"+e.id:"")+(e.className?"."+String(e.className).split(" ")[0]:""))})
+  ```
+
+- **resize-200** — 1.4.4 Resize Text, AA, `#resize-text`: text up to 200 percent with nothing lost.
+  A page at 768 wide is a page at 1440 wide zoomed to 200 percent, so the tablet cell of the matrix
+  is this check for a desk page; for a phone page, 320 wide is close to 390 at 125 percent.
+- **text-spacing** — 1.4.12 Text Spacing, AA, `#text-spacing`: nothing lost when line height is
+  1.5× the font size, paragraph spacing 2×, letter spacing 0.12×, word spacing 0.16×. Apply the
+  four with a style on `document.body` through `browser_eval`, shoot, then remove it.
+- **hover-content** — 1.4.13 Content on Hover or Focus, AA, `#content-on-hover-or-focus`: a tooltip
+  or menu that appears on hover or focus can be dismissed without moving the pointer, hovered
+  itself, and stays until dismissed. `browser_hover` the trigger, shoot, `browser_press` Escape.
+- **keyboard-reach** — 2.1.1 Keyboard, A, `#keyboard`; **no-trap** — 2.1.2, A, `#no-keyboard-trap`;
+  **focus-order** — 2.4.3 Focus Order, A, `#focus-order`: every act by keyboard, in an order that
+  keeps meaning, and focus always able to leave. List the order, then walk it with `browser_press`
+  Tab and compare with the reading order of the outline:
+
+  ```js
+  [...document.querySelectorAll("a[href],button,input,select,textarea,[tabindex]:not([tabindex='-1'])")].filter(e=>!e.disabled&&e.getBoundingClientRect().width).map(e=>(e.getAttribute("aria-label")||e.textContent||e.getAttribute("placeholder")||e.tagName).trim().slice(0,40))
+  ```
+
+- **focus-visible** — 2.4.7 Focus Visible, AA, `#focus-visible`; **focus-not-obscured** — 2.4.11,
+  AA, `#focus-not-obscured-minimum`: the focused control shows it, and is not hidden under
+  author content such as a sticky bar. Tab to each control and shoot; compare the focused
+  element's rectangle with any fixed bar's. **focus-appearance** — 2.4.13, AAA,
+  `#focus-appearance` — is the aim, not the floor: an indicator at least the area of a 2 CSS px
+  perimeter, 3:1 between focused and unfocused.
+- **target-size** — 2.5.8 Target Size (Minimum), AA, `#target-size-minimum`: 24×24 CSS px, except
+  when spaced (a 24 px disc centred on the target touches no other), equivalent elsewhere, inline in text,
+  a user-agent control, or essential. List what is under:
+
+  ```js
+  [...document.querySelectorAll("a[href],button,input,select,textarea,[role=button],[tabindex]")].map(e=>{const r=e.getBoundingClientRect();return {t:(e.getAttribute("aria-label")||e.textContent||e.id||e.tagName).trim().slice(0,30),w:Math.round(r.width),h:Math.round(r.height)}}).filter(x=>x.w&&x.h&&(x.w<24||x.h<24))
+  ```
+
+- **dragging** — 2.5.7 Dragging Movements, AA, `#dragging-movements`: anything done by dragging can
+  be done with a single pointer without dragging, unless dragging is essential. A sortable list has
+  move buttons; a slider has a field.
+- **moving-content** — 2.2.2 Pause, Stop, Hide, A, `#pause-stop-hide`: anything that moves, blinks
+  or scrolls by itself for more than five seconds beside other content has a pause, stop or hide.
+  **motion-from-interaction** — 2.3.3, AAA, `#animation-from-interactions` — is the aim: motion
+  triggered by interaction can be turned off. The recipe in **Motion** lists what animates and
+  whether the page honours the reduced-motion preference.
+- **color-alone** — 1.4.1 Use of Color, A, `#use-of-color`: no meaning, act or state told by colour
+  alone — a word, an icon with a name, a shape beside it.
+- **structure** — 1.3.1 Info and Relationships, A, `#info-and-relationships`: headings are headings,
+  lists are lists, a table is a table, a label is bound to its field. The outline from
+  `browser_snapshot` is the first read; the heading order is the second:
+
+  ```js
+  [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")].map(h=>h.tagName+" "+h.textContent.trim().slice(0,40))
+  ```
+
+- **name-role-value** — 4.1.2 Name, Role, Value, A, `#name-role-value`: every control has a name
+  and a role a reader can read, and its state is exposed. Unnamed controls and images without an
+  alternative:
+
+  ```js
+  ({unnamed:[...document.querySelectorAll("button,a[href],input:not([type=hidden]),select,textarea,[role=button]")].filter(e=>!(e.getAttribute("aria-label")||e.getAttribute("aria-labelledby")||e.textContent.trim()||(e.labels&&e.labels.length)||e.getAttribute("title"))).map(e=>e.outerHTML.slice(0,80)),images:[...document.images].filter(i=>!i.hasAttribute("alt")).map(i=>i.currentSrc.slice(-40))})
+  ```
+
+- **status-messages** — 4.1.3 Status Messages, AA, `#status-messages`: a message that appears
+  without taking focus ("Saved", "3 results") is announced through a role or a live region.
+- **labels** — 3.3.2 Labels or Instructions, A, `#labels-or-instructions`; **error-identification**
+  — 3.3.1, A, `#error-identification`: every input has a label (a placeholder is not one), and an
+  error names the field and says in words what is wrong. Submit the form empty with `browser_click`
+  and shoot.
+- **redundant-entry** — 3.3.7 Redundant Entry, A, `#redundant-entry`: nothing asked twice in one
+  process unless essential; what was given is prefilled or offered. **accessible-auth** — 3.3.8
+  Accessible Authentication (Minimum), AA, `#accessible-authentication-minimum`: no step of signing in
+  requires remembering or transcribing, unless there is another way or help. **consistent-help** —
+  3.2.6, A, `#consistent-help`: help that repeats across pages is in the same relative place.
+
+Cite the check's name and the criterion in the finding ("target-size, 2.5.8 AA: the row's menu
+button is 18×18 at 390 wide"). What the recipes answer is a list to judge, not a verdict: a 20 px
+icon button inside a 44 px row is a spacing exception, and a 3:1 pair on a 22 px bold heading passes.
+
+## Reference: Responsive and viewports
+
+- **The tiers.** 390×844 is a phone, 768×1024 a tablet, 1440×900 a desk; 320 wide is the reflow
+  floor. Look at the person's own width when you know it. Emulate, never guess from the CSS: the
+  breakpoints in a stylesheet are a claim, the screenshot is the fact.
+- **No horizontal scroll, ever,** at any width from 320 up. The usual culprits: a fixed width on an
+  image, a table, a code block or a flex child; `100vw` on a page that has a scrollbar; a long word
+  or URL with nowhere to break; a negative margin that reaches past the edge. The reflow recipe in
+  **Accessibility checks** names the element.
+- **Fluid, not fixed.** Percentages, `minmax()` and `clamp()` over pixel widths; a grid that drops
+  columns on its own (`repeat(auto-fit, minmax(16rem, 1fr))`) over a breakpoint per column count.
+  A breakpoint is for a change of layout — the sidebar becomes a sheet — not for every width.
+- **Height is not reliable.** On phones the browser's own bars come and go: `dvh` or `svh` over
+  `vh` for anything that must fit the first screenful. Never put the only act below a fold that
+  depends on the bars.
+- **200 percent.** A desk page zoomed to 200 percent is the tablet width; the matrix's 768 cell is
+  that check. What breaks there breaks for a person who zooms.
+- **Touch and pointer.** On a phone there is no hover: anything a hover reveals needs a tap route
+  too, and targets grow (24 px is the floor; 44 pt is Apple's general rule for a button). A
+  pointer page may be denser, and still honours the floor.
+- **Orientation and safe areas.** A phone turned sideways is 844 wide and 390 tall: the first
+  screenful must still carry the task. Content under a notch or a home indicator is content
+  nobody sees; honour the safe-area insets where the stack exposes them.
+- **Tables and code on a phone.** A table either stacks its rows into cards or scrolls inside its
+  own box — the page itself never scrolls sideways. A code block scrolls inside its box.
+- **Text wraps, it does not truncate.** A name cut to "Sh…" on a phone is a name nobody can read.
+  Truncate only where the full text is one tap away and say so.
+- **Navigation.** What collapses on a phone keeps its order and its names; a menu behind an icon has
+  the word "Menu" for a reader and a name a finger can hit. The current place is marked on every
+  width.
+- **Images.** Sized to the slot (`max-width: 100%; height: auto`), with the right source for the
+  width, and never the only carrier of text.
+- **Check, do not assume.** The matrix is the check. A width you did not emulate is a width you
+  did not design.
+
+## Reference: Type, colour, space
+
+### Type
+
+- One family for the product, two weights at most for most screens (a regular and a bold); a
+  second family only where the record names it. The system stack is a fine body face and a poor
+  display face.
+- A scale of at most five sizes with a job each — caption, body, lead, heading, title — built on one
+  ratio; the body size set first (16 px is the floor on a phone, so a form's fields are not zoomed
+  on focus), the rest from it.
+- A measure of 45 to 75 characters for running text; 65 is comfortable. A line that runs the width
+  of a 1440 page is not a line anyone can follow.
+- Line height near 1.5 for body text, tighter for headings (1.1 to 1.25); paragraph spacing larger
+  than the line gap and smaller than a section gap, so the hierarchy reads without rules.
+- Tabular numerals in columns of numbers; the same number format everywhere; dates and amounts in
+  the person's locale where the stack can tell.
+- Hierarchy by size and weight, rarely by colour alone; an eyebrow above a heading is a refused
+  default (see **Craft floor**).
+
+### Colour
+
+- A role palette, not a colour list: surface, raised surface, text, muted text, border, accent,
+  danger, success, warning. Every colour in the product has a role, and the role is the token's
+  name (`--color-text-muted`, not `--grey-500`).
+- **Accent means attention.** One accent carries the primary act and the thing that needs the
+  person; a second accent on the same screen is a second primary act, and there is only one.
+- Dark is not inverted light. Lower the saturation of the accents a step, lift the raised surfaces
+  with a lighter tone rather than a shadow, keep text off pure white (contrast too high glows),
+  and check every pair again — the ratios differ. `color-scheme: light dark` on the root lets the
+  browser's own surfaces follow.
+- Tokens in CSS custom properties, redefined once under `prefers-color-scheme: dark`, and wherever
+  the product offers a manual switch; a colour written inline is a colour nobody can change later.
+- Contrast is measured, not felt — the pairs and the formula are in **Accessibility checks** — and
+  never carried by colour alone.
+
+### Space
+
+- One scale (4 px steps or 8 px steps) for every gap, padding and margin; a value off the scale is
+  a decision the record names.
+- Gaps inside a group smaller than gaps between groups, so grouping reads without boxes. Padding
+  proportional to the thing: a button's horizontal padding about twice its vertical, a card's
+  padding larger than the gap between its lines.
+- Align to a grid and then by eye: an icon beside text sits on the text's optical centre, not its
+  box's; a heading's left edge lines up with the body's letters, not its box.
+- Density follows the mode — Operate may be dense, Read must not be — and stays one density per
+  screen.
+- White space is a tool with a cost: in Persuade it lets the claim breathe; in Operate it pushes the
+  next act below the fold.
+
+## Reference: Motion
+
+- **Motion has a job** or it is not there: to show where something came from or went (a sheet rising
+  from the edge it returns to), to confirm an act (a row settling after a drop), to hold attention
+  for a moment (a new item highlighted, then fading). Decoration that plays by itself is a refused
+  default.
+- **Durations.** 100 to 200 ms for small things (a toggle, a hover state), 200 to 300 ms for
+  elements (a menu, a card), 300 to 500 ms for views (a sheet, a page). Longer feels slow; shorter
+  reads as a flicker.
+- **Easing.** Ease out for what enters (fast start, soft landing), ease in for what leaves, ease
+  in-out for what moves across. Linear only for things that are themselves linear — a progress bar,
+  a spinner's rotation.
+- **Animate `transform` and `opacity`,** not layout: width, height, top and margin animations stutter
+  on a phone and shift everything around them.
+- **Nothing loops by itself,** and nothing that moves, blinks or scrolls for more than five seconds
+  beside other content lacks a pause, stop or hide (WCAG 2.2 2.2.2, A,
+  https://www.w3.org/TR/WCAG22/#pause-stop-hide).
+- **Honour the reduced-motion preference.** Under `prefers-reduced-motion: reduce`, zooming, scaling,
+  parallax and peripheral motion are cut — Apple's accessibility guidance names those three
+  (https://developer.apple.com/design/human-interface-guidelines/accessibility) — and a transition
+  becomes a fade or nothing. Motion triggered by interaction that can be turned off is the aim
+  (2.3.3, AAA, https://www.w3.org/TR/WCAG22/#animation-from-interactions).
+- **Loading.** A skeleton in the shape of what is coming when the shape is known; a spinner only
+  when it is not, and never alone for long — after a second, a sentence; after the budget, an error
+  state with a way out.
+- **Check it.** What animates and whether the page listens:
+
+  ```js
+  ({reduced:matchMedia("(prefers-reduced-motion: reduce)").matches,animated:[...document.querySelectorAll("body *")].filter(e=>{const s=getComputedStyle(e);return s.animationName!=="none"||(s.transitionDuration!=="0s"&&s.transitionDuration!=="")}).length})
+  ```
+
+  Then `browser_wait` for `idle` before every screenshot, so a capture never catches a frame
+  mid-flight.
+
+## Reference: States and copy
+
+### The four states of a screen
+
+- **Populated** is the hard one at scale. Design it with one item, ten and a thousand; with the
+  longest name the data allows and the shortest; with a missing optional field; with a number that
+  has grown a digit. A list that looks fine with three sample rows is a list nobody tested.
+- **Empty** says what this is, why it is empty, and the one act that fills it — "No projects yet.
+  Create one to start a workstream." — never a bare "No data" and never a blank. First-run empty
+  (never had any) and filtered empty (none match) are two states with two sentences.
+- **Loading** shows the shape of what is coming (a skeleton) when the shape is known; after about a
+  second it says so in words; after its budget it becomes the error state. A spinner with no
+  timeout is a screen that can hang forever politely.
+- **Error** says what happened in the person's terms, what they can do now, and where help is;
+  the field in error is named and the error is text, not a red border alone (WCAG 2.2 3.3.1 and
+  3.3.2, A). Keep what the person typed. "Oops" is not a sentence.
+
+### The states of a control
+
+Hover, focus, active, disabled, selected, loading — each visible without colour alone, each on the
+scale of the control (a disabled button is dimmed, not vanished; a selected row carries a mark and
+a tone). A destructive act is asked about once, in a sentence that says what is lost and that it
+cannot be undone, with the act's own word on the confirming button ("Delete 3 files", not "OK").
+
+### Copy
+
+- Labels name things with nouns and acts with verbs: "Projects", "Create project". A button says
+  what happens when it is pressed, in the product's voice, with the object when it is not obvious
+  ("Save changes", "Send to Reviewer").
+- One term for one concept, everywhere: a thing called a workstream on one screen is not a branch
+  on the next.
+- A placeholder shows the shape of an answer ("name@example.com"); it is never the field's only
+  label.
+- Errors say what to do, in words a person outside the team understands, without blame; messages
+  that confirm an act say what was done ("Saved" beats "Success").
+- Do not ask twice: what the person gave in this process is prefilled or offered, unless asking
+  again is essential (3.3.7, A). Help sits in the same place on every screen that offers it
+  (3.2.6, A).
+- Numbers, dates and units in the person's format; a time says its zone when it is not theirs.
+- Read every sentence aloud in the voice of the product's record; a sentence that sounds like a
+  machine wrote it is rewritten.
+
+## Reference: The design record
+
+A design record is the product's memory of what it looks like and why, written down where the code
+lives so the next change — by a person or an agent — starts from decisions rather than from taste.
+It is derived from what shipped, never from what was intended: when the record and the screen
+disagree, the screen is the truth and the record is corrected.
+
+### Where
+
+`DESIGN.md` at the checkout's root, or under `docs/design/` when the project keeps its documents
+there. In a workstream it lands in the same commit as the design change it records; in a goal's
+scratch, with no project, it is handed over as part of the result and the owner decides where it
+lives. Read it in the brief, every time, before any screen work.
+
+### The shape
+
+```
+# Design record — <product>
+
+## Purpose and mode
+What the product is for; the mode of each kind of surface (Operate for the app, Persuade for the site).
+
+## People and moments
+Who uses it and when; what they are in the middle of when they arrive.
+
+## Voice
+How it speaks: register, person, the words it uses and the ones it refuses.
+
+## Type
+The family, the scale (sizes and jobs), the measure, the line heights.
+
+## Colour
+The role tokens with their values in light and dark; what the accent means; the pairs checked.
+
+## Space and layout
+The scale; the grid; the breakpoints and what changes at each.
+
+## Components
+Each component the product owns, its states, and where it is used; what is borrowed from the stack.
+
+## Motion
+Durations, easings, what moves and why; the reduced-motion path.
+
+## Accessibility
+The floor the product holds to (the checks by name) and the exceptions, each with its reason.
+
+## Deliberately not
+Patterns the product refuses and why — the refused defaults it has decided about.
+
+## Decisions
+Dated entries: what changed, why, what it replaced.
+```
+
+### When
+
+Write it after the first real build, from the screens as they are; update it in the same change as
+any decision that touches it; add a dated line under *Decisions* whenever a refinement replaces a
+previous choice. A record nobody updates is a record that lies, and a lying record is worse than
+none — so keep it short enough to keep.
+
+## Reference: Stacks
+
+The procedure is the same everywhere; where the page lives decides how it is served, looked at and
+built.
+
+- **A web page or app** (plain HTML, React, Vue, Svelte, a static site). Serve it with
+  `browser_serve` (a folder of the checkout) or run the project's dev server with its run command,
+  then the matrix. Build with the project's own components and tokens before anything new; tokens
+  as CSS custom properties; `color-scheme: light dark` on the root when the product has both; the
+  reduced-motion media query honoured. Judge both the first screenful and the full page.
+- **The platform's own desktop (a Tauri shell with a web view).** What is web is judged in the
+  embedded browser the same way; what is native — the window's appearance, menus, the web view's
+  default controls and scrollbars — follows the system and is judged in a screenshot of the running
+  app. The window's scheme follows the system unless the product says otherwise, so both schemes are
+  real.
+- **A Flutter app.** The Flutter Development skill is the loop; the screen is read back with
+  `mobile_development_screenshot` from a booted device, on each platform that is on. Theme both
+  light and dark; let text scale with the system's setting and look at the largest step; honour the
+  platform's own floors — Apple's 44×44 pt hit region as the general rule for a button, its minimum
+  control sizes per platform (https://developer.apple.com/design/human-interface-guidelines/accessibility).
+  A web build of the app is read through the browser tools.
+- **A flow, before pixels.** When the question is the path — which screens, in what order, with what
+  decisions — draw it on the canvas first: `drawing_mermaid` for a flowchart of the screens and the
+  choices, `drawing_draw` for a board of the screens as boxes with their four states as notes,
+  arrows for the paths. `drawing_snapshot` and read it before showing it. Let the person react to
+  the drawing; build after.
+- **An email or a document meant to be read.** Read mode: structure and measure; tables for layout
+  only where the medium demands it; no scripts, no motion; judged in the browser through
+  `browser_serve` at 390 and 1440 wide.
+- **A page you cannot render.** Review from the source, name what was not looked at in the report's
+  first line, and keep the verdict to what the source can show.
+"""

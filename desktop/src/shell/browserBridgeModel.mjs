@@ -6,7 +6,8 @@
  * engine decides where a tab is at home (`scope.home`); this only reads it.
  */
 
-import { BLANK_URL, BROWSER_SCOPES, atHome, browsersRootedAt, normalizeUrl, sessionOf } from "./browsersModel.mjs";
+import { BLANK_URL, BROWSER_SCOPES, SCHEMES, atHome, browsersRootedAt, normalizeUrl, sessionOf } from "./browsersModel.mjs";
+import { MAX_VIEWPORT, MIN_VIEWPORT, viewportOf } from "./browserPlacementModel.mjs";
 import { clickMessage, consoleMessage, evalMessage, fillMessage, findTextMessage, pointMessage, pressMessage, readMessage, scrollMessage, selectMessage, snapshotMessage, typeMessage, waitMessage } from "../ui/artifact/pageInspector.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
@@ -25,6 +26,9 @@ export const WAIT_ANSWER_MS = MAX_WAIT_MS + 2_000;
 export const LOAD_MS = 15_000;
 /** How long after an act the bridge listens for the navigation it may have started. */
 export const NAVIGATE_GRACE_MS = 300;
+/** How long a tab out of sight gets to render at a viewport it was given before the bridge answers with the last size the page said, and how often the page is asked meanwhile (ide/18 §Emulation). */
+export const MEASURE_MS = 2_000;
+export const MEASURE_POLL_MS = 100;
 
 /**
  * Where a new tab is at home for a request: where the engine said the
@@ -73,11 +77,11 @@ export function waitBound(ms) {
 
 /**
  * The plan for one request.
- * @param {{action: string, tab?: string | null, url?: string | null, target?: string | null, query?: string | null, text?: string | null, format?: string | null, all?: boolean | null, until?: string | null, timeout_ms?: number | null, key?: string | null, modifiers?: readonly string[] | null, clear?: boolean | null, submit?: boolean | null, value?: string | null, label?: string | null, to?: string | null, by_x?: number | null, by_y?: number | null, clear_console?: boolean | null, expression?: string | null}} request
+ * @param {{action: string, tab?: string | null, url?: string | null, headless?: boolean | null, target?: string | null, query?: string | null, text?: string | null, format?: string | null, all?: boolean | null, until?: string | null, timeout_ms?: number | null, key?: string | null, modifiers?: readonly string[] | null, clear?: boolean | null, submit?: boolean | null, value?: string | null, label?: string | null, to?: string | null, by_x?: number | null, by_y?: number | null, clear_console?: boolean | null, expression?: string | null, width?: number | null, height?: number | null, scheme?: string | null, full_page?: boolean | null}} request
  * @param {{home?: {scope: string, id: string} | null} | null | undefined} scope
  * @param {{sessions: readonly object[]}} state
  * @param {{scope: string, id: string} | null} current
- * @param {boolean} [headless] the engine's decision: a tab this request opens is kept out of sight
+ * @param {boolean} [headless] the engine's decision: a tab this request opens is kept out of sight — for a tab the agent already holds, the request's own word counts (`headless`), or nothing
  * @returns {import("./browserBridgeModel.mjs").BridgePlan}
  */
 export function planRequest(request, scope, state, current, headless = false) {
@@ -104,13 +108,35 @@ export function planRequest(request, scope, state, current, headless = false) {
       const norm = normalizeUrl(request.url ?? "");
       if ("error" in norm) return { kind: "refuse", error: norm.error };
       if (request.tab && !sessionOf(state, request.tab)) return { kind: "refuse", error: tr("shell-browser-bridge-tab-browser-tabs-lists-open-ones", { tab: request.tab }) };
-      return { kind: "open", url: norm.url, tab: request.tab ?? null, home: request.tab ? null : rootFor(scope, current), headless: !!headless };
+      // The policy's word is for a tab this request opens; a tab the agent holds hears the request's own — shown on `false`, put out of sight on `true` — or nothing.
+      const sight = request.tab ? (typeof request.headless === "boolean" ? request.headless : null) : !!headless;
+      return { kind: "open", url: norm.url, tab: request.tab ?? null, home: request.tab ? null : rootFor(scope, current), headless: sight };
     }
     case "tabs":
       return { kind: "tabs" };
     case "screenshot": {
       const page = withPage();
-      return page.refuse ?? { kind: "screenshot", key: page.key };
+      if (page.refuse) return page.refuse;
+      const fullPage = !!request.full_page;
+      // A full page is drawn by growing the tab's box to its document: a seen tab's box is the person's.
+      if (fullPage && !sessionOf(state, page.key).headless) return { kind: "refuse", error: tr("shell-browser-bridge-full-page-shown-tab", { key: page.key }) };
+      return { kind: "screenshot", key: page.key, fullPage };
+    }
+    case "emulate": {
+      const t = tabOf();
+      if (!t) return refuseTab(request);
+      const wantsViewport = request.width != null || request.height != null;
+      const scheme = request.scheme == null ? null : String(request.scheme);
+      if (!wantsViewport && scheme === null) return { kind: "refuse", error: tr("shell-browser-bridge-browser-emulate-needs-viewport-or-scheme") };
+      if (scheme !== null && !SCHEMES.includes(scheme)) return { kind: "refuse", error: tr("shell-browser-bridge-browser-emulate-scheme-light-dark-system", { scheme }) };
+      let viewport = null;
+      if (wantsViewport) {
+        viewport = viewportOf(request.width, request.height);
+        if (!viewport) return { kind: "refuse", error: tr("shell-browser-bridge-browser-emulate-viewport-bounds", { min: MIN_VIEWPORT, max: MAX_VIEWPORT }) };
+        // A seen tab's box is a host's — the pane the person sized; only a tab out of sight renders at a box of the agent's choosing.
+        if (!t.session.headless) return { kind: "refuse", error: tr("shell-browser-bridge-browser-emulate-viewport-shown-tab", { key: t.key }) };
+      }
+      return { kind: "emulate", key: t.key, viewport, scheme };
     }
     case "back":
     case "forward":
@@ -277,6 +303,18 @@ export function screenshotResult(session, screenshot, size) {
   return { ...tabResult(session), screenshot, width: size.width, height: size.height };
 }
 
+/**
+ * The answer for an emulation: the tab as it stands, the viewport it renders
+ * in — measured from the page when it could be, else the box asked — and
+ * the scheme its page is shown under.
+ * @param {{key: string, url: string, title: string}} session
+ * @param {{width: number, height: number} | null} viewport
+ * @param {string} scheme
+ */
+export function emulateResult(session, viewport, scheme) {
+  return { ...tabResult(session), ...(viewport ? { viewport } : {}), scheme };
+}
+
 /** A string, else nothing. */
 const word = (v) => (typeof v === "string" ? v : undefined);
 /** A whole number from zero — what the wire's counts, lengths and sizes are — else nothing. */
@@ -308,6 +346,10 @@ const NESTED = Object.freeze({
   attachment: (a) => {
     const sha256 = word(a.sha256), name = word(a.name), mime = word(a.mime), size = whole(a.size);
     return sha256 === undefined || name === undefined || mime === undefined || size === undefined ? null : { sha256, name, mime, size };
+  },
+  viewport: (v) => {
+    const width = whole(v.width), height = whole(v.height);
+    return !width || !height ? null : { width, height };
   },
 });
 
@@ -344,6 +386,10 @@ export function wireResult(result) {
   }
   const scroll = record(r.scroll) ? NESTED.scroll(r.scroll) : null;
   if (scroll) out.scroll = scroll;
+  const viewport = record(r.viewport) ? NESTED.viewport(r.viewport) : null;
+  if (viewport) out.viewport = viewport;
+  const scheme = word(r.scheme);
+  if (scheme !== undefined && SCHEMES.includes(scheme)) out.scheme = scheme;
   if (r.value !== undefined && r.value !== null) out.value = r.value;
   const dialogs = listOf(r.dialogs, NESTED.dialog);
   if (dialogs.length > 0) out.dialogs = dialogs;

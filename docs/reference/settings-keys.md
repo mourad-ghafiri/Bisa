@@ -103,6 +103,12 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 | `events.fires_per_minute` | integer 1–600 | `30` | W | **Start rate** — How many runs one start event may begin per minute — every start but a schedule's, a person's and a hook's, which pace themselves. The backstop for causality the chain cannot see: a runaway is, by definition, fast. |
 | `events.backlog_per_listener` | integer 1–100 | `5` | W | **Backlog per start** — How many occurrences may wait behind the runs a start already began. Past this an occurrence is refused, and the workflow's or the goal's row says so. |
 
+## `design.*`
+
+| Key | Kind | Default | Scopes | What it does |
+|---|---|---|---|---|
+| `design.agents` | `everyone` (Everyone) \| `assigned` (Assigned) \| `nobody` (Nobody) | `"everyone"` | P W | **Agents follow the UI/UX design skill** — Who is held to the UI/UX Design skill when work changes what a person sees or does on a screen. Everyone — the default: every session is told, in one sentence, to read the skill with skill_read before such work, and an agent that carries the skill has it as any skill. Assigned: only agents that carry the skill; nobody else is told. Nobody: the skill is left out of every session. The skill is the catalog's UI/UX Design; until it is installed, nothing is said. Settings › Capabilities › Design. |
+
 ## `mobile_development.*`
 
 | Key | Kind | Default | Scopes | What it does |

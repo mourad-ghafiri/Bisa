@@ -737,6 +737,7 @@ fn main() {
     add!(dto::CatalogKindDto, "CatalogKind");
     add!(dto::CatalogEntryDto, "CatalogEntry");
     add!(dto::InstalledDto, "Installed");
+    add!(dto::UpdatedDto, "Updated");
     add!(dto::InstalledWorkflowDto, "InstalledWorkflow");
     add!(dto::ReferenceKindDto, "ReferenceKind");
     add!(dto::ReferenceDto, "Reference");

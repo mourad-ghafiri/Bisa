@@ -33,6 +33,7 @@ pub const BROWSER_TOOLS: &[&str] = &[
     "browser_console",
     "browser_eval",
     "browser_screenshot",
+    "browser_emulate",
     "browser_close",
     "browser_serve",
 ];
@@ -51,7 +52,10 @@ or quiet before you read again; browser_read the page or one element as text or 
 words in it; browser_back, browser_forward, browser_reload; browser_console for what the page logged \
 and its errors, browser_eval to evaluate an expression in the page when the workspace allows it; \
 browser_screenshot when the text is not enough — the PNG's path is answered, read that file to see \
-the page; browser_close what you opened. An act that moves the page waits for the new page and says \
+the page; full_page: true for the whole page of a tab kept out of sight; browser_emulate a viewport \
+(width and height, for a tab kept out of sight) or a colour scheme (light, dark or system, for any \
+tab) before you look, so a page is seen as a phone shows it or in the dark; browser_close what you \
+opened. An act that moves the page waits for the new page and says \
 so; a dialog the page raises is answered for you and reported. A page on disk is served by the \
 platform: browser_serve the folder of your checkout that holds it (the checkout itself when you name \
 none) and browser_open the URL it answers — or run the project's run command in a terminal and \
@@ -87,7 +91,7 @@ mod tests {
 
     #[test]
     fn the_note_names_every_tool_the_refusal_and_the_one_licence_to_stop() {
-        assert_eq!(BROWSER_TOOLS.len(), 21, "twenty-one tools, each named once");
+        assert_eq!(BROWSER_TOOLS.len(), 22, "twenty-two tools, each named once");
         let mut seen = std::collections::BTreeSet::new();
         for tool in BROWSER_TOOLS {
             assert!(tool.starts_with("browser_"), "{tool}");
@@ -106,6 +110,11 @@ mod tests {
             "acting by ref is said"
         );
         assert!(BROWSER_NOTE.contains("dialog the page raises is answered"));
+        assert!(
+            BROWSER_NOTE.contains("full_page: true")
+                && BROWSER_NOTE.contains("light, dark or system"),
+            "the design matrix is said: a full page, a viewport, a scheme"
+        );
         assert!(
             !BROWSER_NOTE.contains("unless"),
             "no licence to open the machine's browser"

@@ -18,6 +18,7 @@ import {
   MAX_WAIT_MS,
   consoleMessage,
   evalMessage,
+  measureMessage,
   pointMessage,
   pressMessage,
   scrollMessage,
@@ -910,7 +911,7 @@ function storefront() {
   return { page, said, perform, last, events, email, signIn, region, pricing, form, submitted: () => submitted, clicks: () => clicks };
 }
 
-test("a snapshot names every heading, landmark and control with a ref, and the refs drive the other tools until the page loads again", () => {
+test("a snapshot names every heading, landmark and control with a ref, and the refs drive the other tools for the life of the document", () => {
   const s = storefront();
   s.perform(snapshotMessage("s1"));
   const a = s.last();
@@ -933,12 +934,19 @@ test("a snapshot names every heading, landmark and control with a ref, and the r
   assert.equal(s.clicks(), 1);
   s.perform(snapshotMessage("s3", "e3"));
   assert.deepEqual(s.last().text.split("\n").map((l) => l.split(" ")[1]), ["form", "textbox", "button"], "a target outlines that element and what is in it");
+  assert.deepEqual(s.last().text.split("\n").map((l) => l.split(" ")[0]), ["e3", "e4", "e5"], "a snapshot of one target keeps the refs the page already handed out");
   s.perform(clickMessage("c2", "e99"));
   assert.match(s.last().error, /ref e99 is gone — the page changed; browser_snapshot again/);
-  // A load forgets the refs: the new page's elements are not the old ones.
+  // The document's own load event changes nothing: the refs are the document's, and a new document arrives with a fresh program.
   s.page.fire("load", {});
   s.perform(clickMessage("c3", "e5"));
-  assert.match(s.last().error, /ref e5 is gone/);
+  assert.deepEqual([s.last().ok, s.last().selector], [true, "#go"], "a ref outlives the load of the document that gave it");
+  // An element that arrives later takes a number nobody holds; the old ones keep theirs.
+  s.page.body.appendChild(s.page.node("button", { id: "later", text: "Later" }));
+  s.perform(snapshotMessage("s4"));
+  const lines = s.last().text.split("\n");
+  assert.equal(lines[0], 'e0 heading "Welcome" (h1)');
+  assert.equal(lines.at(-1), 'e8 button "Later"', "never a number in use — the all: true snapshot gave the paragraph e7");
   s.perform(clickMessage("c4", ""));
   assert.match(s.last().error, /name a target/);
 });
@@ -1012,11 +1020,29 @@ test("a wait answers at once when its condition already holds, and says what it 
   assert.match(s.last().error, /the words "sold out" in the page/);
 });
 
+test("a measure answers the page's viewport and the size of its document, and a viewport the page misspells is nothing", () => {
+  const s = storefront();
+  s.perform(measureMessage("m1"));
+  assert.deepEqual([s.last().ok, s.last().viewport, s.last().scroll], [true, { width: 800, height: 600 }, { x: 0, y: 0, width: 1280, height: 4800 }]);
+  s.page.window.innerWidth = 390;
+  s.page.window.innerHeight = 844;
+  s.perform(measureMessage("m2"));
+  assert.deepEqual(s.last().viewport, { width: 390, height: 844 }, "the box the webview was drawn in, as the page sees it");
+  const answer = (viewport) => parseInspectorMessage({ type: INSPECTOR_MESSAGES.ANSWER, id: "m", ok: true, url: "http://x/", title: "", viewport });
+  assert.deepEqual(answer({ width: 800, height: 600 }).viewport, { width: 800, height: 600 });
+  assert.deepEqual(answer({ width: 800.4, height: 600 }).viewport, { width: 800, height: 600 }, "rounded");
+  assert.equal(answer({ width: "800", height: 600 }).viewport, null, "numbers, not words");
+  assert.equal(answer({ width: 0, height: 600 }).viewport, null, "a zero is no size");
+  assert.equal(answer(undefined).viewport, null, "an answer without one");
+});
+
 test("the console and the errors are kept for the agent, a dialog is answered and reported with the next answer, and a script's value comes back bounded", () => {
   const s = storefront();
   s.page.window.console.log("ready", { n: 1 });
   s.page.window.console.error(new Error("boom"));
   s.page.fire("error", { message: "x is not a function", filename: "app.js", lineno: 3 });
+  // What the page logged before its load event is still there after it: a resource that failed to load fails before `load`.
+  s.page.fire("load", {});
   s.perform(consoleMessage("l1"));
   let a = s.last();
   assert.equal(a.ok, true);

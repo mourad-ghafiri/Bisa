@@ -125,10 +125,17 @@ export interface InspectorAnswer {
   count: number | null;
   waitedMs: number | null;
   scroll: InspectorScroll | null;
+  /** The page's viewport, as a measure answers it (ide/18 §Emulation). */
+  viewport: InspectorViewport | null;
   /** A script's value, JSON — or a cut string when it was too long. */
   value: unknown;
   dialogs: InspectorDialog[];
   console: InspectorConsoleLine[];
+}
+/** The page's viewport in its own CSS pixels. */
+export interface InspectorViewport {
+  width: number;
+  height: number;
 }
 /** The page said its URL and title — it loaded, or moved. */
 export interface InspectorTitle {
@@ -184,6 +191,7 @@ export declare function scrollMessage(id: string, to?: string | null, byX?: numb
 export declare function waitMessage(id: string, until: "selector" | "text" | "gone" | "idle", target?: string | null, query?: string | null, timeoutMs?: number): { type: "bisa:wait"; id: string; until: string; target: string | null; query: string | null; timeoutMs: number };
 export declare function consoleMessage(id: string, clear?: boolean): { type: "bisa:console"; id: string; clear: boolean };
 export declare function evalMessage(id: string, expression: string): { type: "bisa:eval"; id: string; expression: string };
+export declare function measureMessage(id: string): { type: "bisa:measure"; id: string };
 
 export declare function placeToMessage(place: { top: number; left: number } | null | undefined): { type: "bisa:place-to"; top: number; left: number };
 export declare function findMessage(find: { query: string; regex: boolean; caseSensitive: boolean } | null | undefined, index: number): { type: "bisa:find"; query: string; regex: boolean; caseSensitive: boolean; index: number };

@@ -160,13 +160,28 @@ the library and attaches by id, with a door to Settings › Capabilities › Ski
 form of its own.
 
 Every skill an agent carries is delivered into every session that agent runs: as
-`.claude/skills/<id>/SKILL.md` in the session's own scratch folder for `claude-code`, and as a prompt
-appendix for every other harness. **In a checkout — adopted, or cloned by the platform — skills are
+`.claude/skills/<id>/SKILL.md` in the session's own scratch folder for `claude-code` — with one
+`reference/<slug>.md` file per reference section beside it — and as a prompt appendix for every other
+harness. **In a checkout — adopted, or cloned by the platform — skills are
 always an appendix**: the platform writes no file of its own into a repository, and Claude Code, started
 there on your own settings alone, would not read a project skill anyway.
-A body is capped at 32 KiB;
+
+A skill can carry more than a session should read up front. Open a section with a heading
+`## Reference: <Title>`: everything before the first such heading is the **body**, which every session
+of a carrier reads, and each section is read **on demand** — with `skill_read` (the skill's id, and the
+section's slug or title), which every harness that mounts the platform's servers holds, or from the
+file beside `SKILL.md` on Claude Code. A harness with no platform tools — pi, omp, a custom harness —
+gets the whole text instead, so nothing it is told to read is out of its reach. A skill is capped at
+64 KiB, and a catalog skill's body at 32 KiB;
 a catalog agent carries at most six — four of its own and the two platform skills every one carries, Embedded Browser and Drawing — enforced by a test; a reference that no longer resolves costs
 that skill and nothing else.
+
+One skill the workspace can hold **every** agent to: the catalog's **UI/UX Design**, the UI/UX
+Designer's own, for anything that changes what a person sees or does on a screen. Settings ›
+Capabilities › Design (`design.agents`) says who follows it once it is installed — *everyone*, the
+default, tells every session in one sentence to read it with `skill_read` before such work (an agent
+that carries it has it as any skill); *assigned* keeps it to the agents that carry it; *nobody* leaves
+it out of every session.
 
 ```sh
 bisa skill list [--tag <tag>]
@@ -334,8 +349,19 @@ yourself in a terminal is yours: the platform passes it no model and no effort.
 ```sh
 bisa catalog list [--kind agent|skill|team|channel|connector|workflow|addon] [--tag <tag>] [--match any|all]
 bisa catalog show <kind> <slug>
-bisa catalog install <kind> <slug>
+bisa catalog install <kind> <slug> [--update]
 ```
+
+An install only ever creates: what is already here is left as it is, and a later release never
+changes an installed copy on its own. **Update from the catalog** is the one act that does, and it is
+yours: in Settings › Library a row whose installed copy no longer says what the catalog says — you
+edited its words, or the catalog moved under it — offers *Update from the catalog*, and
+`bisa catalog install <kind> <slug> --update` is the same act. A skill takes the catalog's name,
+description, tags and procedure; an agent its name, description, prompt, tags, respond policy and
+the catalog's skills (a skill you added stays), while its harness, model plan, MCP servers, switch,
+photo and key stay yours; a team its name, purpose, tags and agents, with the people on it kept. What
+the entry needs and is missing is installed first. A channel, a workflow, a connector or an addon is
+installed once and is then yours, and refuses the act by kind.
 
 Two of the catalog's agents exist to make what is already there read as a person wrote it. The
 **Code Humanizer** rewrites code and its comments in the project's own style — behaviour, names,
@@ -355,6 +381,19 @@ Play Publishing** (each a numbered procedure from the account to the release and
 submission always the person's press), and the workstream workflow. It sits in *Engineering*, and
 the **Mobile release** template builds, checks, reviews and puts an approval before anything goes
 to a store.
+
+The **UI/UX Designer** (`ux-designer`) designs, reviews and fixes what a person sees and does on a
+screen, and judges it on the real page. Its **UI/UX Design** skill is the procedure — the task written down first; one
+look in the embedded browser at a phone's width and a desk's, light and dark, full page
+(`browser_emulate`, `browser_screenshot`); findings each with their evidence; the change; one
+confirming look, two rounds the ceiling; a report that closes with *ship*, *fix* or *needs the
+person* — and its ten reference sections are read on demand with `skill_read`: the craft floor read
+before any edit, the modes, the review protocol, the accessibility checks tied to WCAG 2.2 by
+criterion, viewports, type, colour and space, motion, states and copy, the design record, the
+stacks. It carries Structured Brainstorming, the Embedded Browser and Drawing beside it — a flow
+goes on the canvas before pixels — and sits in *Design* and in the `product` channel. The Developer
+carries the skill too, so what one builds the other judges by the same floor, and Settings ›
+Capabilities › Design says who else follows it.
 
 An install is **transitive** (a team brings its agents, an agent brings its skills, a channel brings
 its roster, a workflow brings the agents its steps name), **reported** (the result names everything

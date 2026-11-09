@@ -118,6 +118,7 @@ const GLYPH: Record<SettingsTab, LucideIcon | Mark> = {
   network: ICON.network,
   browser: ICON.page,
   "mobile-development": ICON.simulator,
+  design: ICON.layout,
   "security-redactor": ICON.guard,
   "security-guard": ICON.guard,
   "security-classifier": ICON.guard,
@@ -341,6 +342,7 @@ export default function Settings() {
                   <RegistryPanel group="mobile_development" omit={[MOBILE_DEVELOPMENT_ENABLED_KEY, MOBILE_DEVELOPMENT_PLATFORMS_KEY, MOBILE_DEVELOPMENT_AGENTS_KEY]} intro={t("screens-settings-where-tools-machine-when-search-above")} />
                 </>
               )}
+              {panel.id === "design" && <RegistryPanel group="design" intro={t("screens-settings-design-skill-catalog-install-sentence-prompt")} />}
               {panel.id === "security-redactor" && (
                 <>
                   <RedactorPanel />

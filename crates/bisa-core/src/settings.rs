@@ -670,6 +670,17 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
             json!(5),
             S::W
         ),
+        // --- design ---
+        // The UI/UX Design skill is a catalog skill (`ui-ux-design`); who the
+        // workspace holds to it, once it is installed, is the workspace's
+        // word, per project where a project says so: everyone — every session
+        // told in a sentence — agents that carry it, or nobody.
+        def!(
+            "design.agents",
+            Choice(&["everyone", "assigned", "nobody"]),
+            json!("everyone"),
+            S::WP
+        ),
         // --- mobile ---
         // Mobile development is the machine's: whether this one develops
         // for phones, for which platforms, and where its Flutter and Android

@@ -74,6 +74,7 @@ export const SETTINGS_GROUPS = Object.freeze([
     panel("network", t("screens-settings-network"), t("screens-settings-what-mac-s-network-whether-internet")),
     panel("browser", t("screens-settings-browser"), t("screens-settings-browser-built-into-desktop-app-tab")),
     panel("mobile-development", t("screens-settings-mobile-development"), t("screens-settings-flutter-apps-ios-simulator-android-emulator")),
+    panel("design", t("screens-settings-design"), t("screens-settings-design-skill-who-follows-it-screen-work")),
   ]),
   // What never reaches an agent, what an agent may not run, and who reads
   // the doubtful cases: three panels over one `security.*` group.

@@ -31,18 +31,20 @@ import type { BridgeResult } from "./browserBridgeModel.mjs";
 
 /** What a request is to perform: the parked row, or the frame that announced it. */
 export type BrowserAsk = Pick<BrowserPending, "id" | "request" | "scope" | "headless">;
-import { parseInspectorMessage } from "../ui/artifact/pageInspector.mjs";
+import { measureMessage, parseInspectorMessage } from "../ui/artifact/pageInspector.mjs";
 import type { InspectorAnswer } from "../ui/artifact/pageInspector.mjs";
-import { browserViewBack, browserViewForward, browserViewReload, driveBrowserView, navigateBrowserView } from "../browser/session";
-import { ANSWER_MS, HANDLED_KEPT, LOAD_LATE, LOAD_MS, NAVIGATE_GRACE_MS, NOT_SHOWN, PAGE_SILENT, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, navigatedResult, planRequest, screenshotResult, tabResult, tabsResult, wireResult } from "./browserBridgeModel.mjs";
+import { browserViewBack, browserViewForward, browserViewReload, driveBrowserView, navigateBrowserView, setBrowserViewAppearance } from "../browser/session";
+import { ANSWER_MS, HANDLED_KEPT, LOAD_LATE, LOAD_MS, MEASURE_MS, MEASURE_POLL_MS, NAVIGATE_GRACE_MS, NOT_SHOWN, PAGE_SILENT, PLACEHOLDER_ID, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, emulateResult, navigatedResult, planRequest, screenshotResult, tabResult, tabsResult, wireResult } from "./browserBridgeModel.mjs";
 import { beginBrowserWork, endBrowserWork } from "./browserActivityStore";
 import { showBrowserTab } from "./browserDoors";
 import { inspectorSaid } from "./browserInspectorStore";
+import { OFFSTAGE_VIEWPORT, fullPageHeight } from "./browserPlacementModel.mjs";
 import { NotShownError, takeShot, uploadShot } from "./browserShots";
+import { placementNow, settled } from "./browserShown";
 import { BROWSER_COMMAND, fire, ideRoot } from "./shortcuts";
-import { browserAsked, browserNavigated, browserSessions, browserState, closeBrowserTab, openBrowserIn, whyNotBrowser } from "./useBrowsers";
-import { byAgent, byPage, sessionOf } from "./browsersModel.mjs";
-import type { BrowserHistory, BrowserSession } from "./browsersModel.mjs";
+import { browserAsked, browserNavigated, browserSessions, browserState, closeBrowserTab, concealBrowserTab, emulateBrowserTab, openBrowserIn, revealBrowserTab, whyNotBrowser } from "./useBrowsers";
+import { BLANK_URL, byAgent, byPage, sameViewport, sessionOf } from "./browsersModel.mjs";
+import type { BrowserHistory, BrowserSession, TabViewport } from "./browsersModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 /**
@@ -188,6 +190,62 @@ function reveal(session: BrowserSession): void {
   showBrowserTab(session.key);
 }
 
+/** The page's measure — its viewport and its document's size — or null when it could not say: a blank tab has no page, a silent or gone one says nothing. */
+async function measureOnce(key: string): Promise<{ viewport: TabViewport | null; scroll: { height: number } | null } | null> {
+  const s = sessionOf(browserState(), key);
+  if (!s || s.url === BLANK_URL) return null;
+  const outcome = await askPage(key, measureMessage(PLACEHOLDER_ID));
+  return outcome.kind === "answered" ? { viewport: outcome.message.viewport, scroll: outcome.message.scroll } : null;
+}
+
+/**
+ * Wait for a tab out of sight to render at the viewport it was given
+ * (ide/18 §Emulation): the layer re-places the webview on the store's word,
+ * and the page's own `innerWidth` is the proof it landed. Asked every
+ * `MEASURE_POLL_MS` for up to `MEASURE_MS`; answers the last size the page
+ * said — the one asked, once it landed — or null when the page could not say.
+ */
+async function measureUntil(key: string, want: TabViewport): Promise<TabViewport | null> {
+  const began = Date.now();
+  let last: TabViewport | null = null;
+  for (;;) {
+    const measured = await measureOnce(key);
+    if (!measured) return last;
+    if (measured.viewport) {
+      last = measured.viewport;
+      if (Math.abs(last.width - want.width) <= 1 && Math.abs(last.height - want.height) <= 1) return last;
+    }
+    if (Date.now() - began >= MEASURE_MS) return last;
+    await new Promise((resolve) => window.setTimeout(resolve, MEASURE_POLL_MS));
+  }
+}
+
+/**
+ * Grow a tab out of sight to its document for a full-page shot (ide/18
+ * §Screenshots): its box becomes the document's height, capped, at the
+ * width it had. Answers what to restore, or null when nothing grew — a seen
+ * tab, a page no taller than its viewport, a blank tab.
+ */
+async function growForFullPage(key: string): Promise<{ before: TabViewport | null; grown: TabViewport } | null> {
+  const s = sessionOf(browserState(), key);
+  if (!s?.headless) return null;
+  const before = s.viewport;
+  const base = before ?? OFFSTAGE_VIEWPORT;
+  const measured = await measureOnce(key);
+  const grown = { width: base.width, height: fullPageHeight(measured?.scroll?.height, base) };
+  if (sameViewport(grown, base)) return null;
+  emulateBrowserTab(key, { viewport: grown });
+  await measureUntil(key, grown);
+  await settled();
+  return { before, grown };
+}
+
+/** Put the tab's box back after a full-page shot — unless a `browser_emulate` landed meanwhile and the box is no longer the grown one: requests are not serialised per tab, and a later word is never clobbered. */
+function restoreAfterFullPage(key: string, grew: { before: TabViewport | null; grown: TabViewport }): void {
+  const now = sessionOf(browserState(), key);
+  if (now && sameViewport(now.viewport, grew.grown)) emulateBrowserTab(key, { viewport: grew.before });
+}
+
 /** Perform one parked request and answer it; a request already handled is left alone. */
 export async function performBrowserRequest(pending: BrowserAsk): Promise<void> {
   if (handled.has(pending.id)) return;
@@ -241,6 +299,12 @@ async function perform(pending: BrowserAsk): Promise<BridgeResult> {
       if (plan.tab) {
         const tab = plan.tab;
         return working(tab, async () => {
+          // The agent's own word on sight for a tab it holds: shown on `headless: false`, put out of sight on `true`, left as it is otherwise (ide/18 §Headless tabs).
+          const before = session(tab);
+          if (plan.headless === false && before?.headless) revealBrowserTab(tab);
+          else if (plan.headless === true && before && !before.headless) concealBrowserTab(tab);
+          const standing = session(tab);
+          if (plan.headless === false && standing) reveal(standing);
           browserAsked(tab, plan.url);
           const loaded = untilLoaded(tab);
           await navigateBrowserView(tab, plan.url).catch((e: unknown) => log.warn("browser", "a navigation did not take", { key: tab, ...errorFields(e) }));
@@ -248,7 +312,7 @@ async function perform(pending: BrowserAsk): Promise<BridgeResult> {
           return asIs(tab);
         });
       }
-      const key = openBrowserIn({ home: plan.home, url: plan.url, headless: plan.headless, by: byAgent(pending.scope.agent) });
+      const key = openBrowserIn({ home: plan.home, url: plan.url, headless: plan.headless === true, by: byAgent(pending.scope.agent) });
       if (!key) return refused(whyNotBrowser() ?? t("shell-browser-bridge-tab-could-open"));
       return working(key, async () => {
         const s = session(key);
@@ -343,9 +407,11 @@ async function perform(pending: BrowserAsk): Promise<BridgeResult> {
       return working(key, async () => {
         // A snapshot is of a tab that renders: a seen one is shown for it,
         // since a hidden webview renders nothing worth keeping; a headless
-        // one renders offstage and is snapped there, out of sight. The shot
+        // one renders offstage and is snapped there, out of sight — grown to
+        // its document first for a full page, and put back after. The shot
         // itself waits for the tab to show (`browserShots.takeShot`).
         reveal(s);
+        const grew = plan.fullPage ? await growForFullPage(key) : null;
         try {
           const shot = await takeShot(key);
           const uploaded = await uploadShot(shot);
@@ -354,7 +420,37 @@ async function perform(pending: BrowserAsk): Promise<BridgeResult> {
         } catch (e) {
           if (e instanceof NotShownError) return refused(NOT_SHOWN, { tab: key, url: s.url });
           return refused(`${SHOT_FAILED}: ${e instanceof Error ? e.message : String(e)}`, { tab: key, url: s.url });
+        } finally {
+          if (grew) restoreAfterFullPage(key, grew);
         }
+      });
+    }
+    case "emulate": {
+      const key = plan.key;
+      const s = session(key);
+      if (!s) return refused(t("shell-browser-bridge-tab", { key }));
+      return working(key, async () => {
+        // The scheme first — the webview's appearance, which the page's
+        // `prefers-color-scheme` follows — then the viewport, which the layer
+        // draws on the store's word and the page confirms by its own size.
+        if (plan.scheme) {
+          try {
+            await setBrowserViewAppearance(key, plan.scheme);
+          } catch (e) {
+            log.warn("browser", "a tab's scheme could not be set", { key, scheme: plan.scheme, ...errorFields(e) });
+            return refused(t("shell-browser-bridge-scheme-could-set", { error: e instanceof Error ? e.message : String(e) }), { tab: key, url: s.url });
+          }
+          emulateBrowserTab(key, { scheme: plan.scheme });
+        }
+        let measured: TabViewport | null = null;
+        if (plan.viewport) {
+          emulateBrowserTab(key, { viewport: plan.viewport });
+          measured = await measureUntil(key, plan.viewport);
+        }
+        const now = session(key) ?? s;
+        const box = placementNow(key)?.rect ?? null;
+        const viewport = measured ?? plan.viewport ?? (box ? { width: Math.round(box.width), height: Math.round(box.height) } : null);
+        return { ...emulateResult(now, viewport, now.scheme), tabs: [] };
       });
     }
   }

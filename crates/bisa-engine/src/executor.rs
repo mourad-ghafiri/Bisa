@@ -291,10 +291,19 @@ pub(crate) async fn resolve_and_launch(
         // harness has a skills dir, otherwise as an instructions appendix
         // the caller appends before the first prompt. An adopted root gets
         // the appendix whatever the harness: no file of ours lands there.
+        // A harness that mounts the platform's servers can read a skill's
+        // reference sections with `skill_read`, so it gets the body and an
+        // index; one that cannot gets the whole text.
+        let delivery = bisa_harness::skills::Delivery::for_caps(adapter.caps());
         let mut injection = if launch.skills_in_prompt {
-            bisa_harness::skills::as_appendix(&session_spec.skills) // LCOV_EXCL_LINE skills in the prompt of a checkout's work item; a conversation's turn covers the appendix, a work item of a skilled agent in a checkout is staged by no test; out by decision
+            bisa_harness::skills::as_appendix(&session_spec.skills, delivery) // LCOV_EXCL_LINE skills in the prompt of a checkout's work item; a conversation's turn covers the appendix, a work item of a skilled agent in a checkout is staged by no test; out by decision
         } else {
-            bisa_harness::skills::materialize(&session_spec.skills, &session_spec.cwd, candidate)
+            bisa_harness::skills::materialize(
+                &session_spec.skills,
+                &session_spec.cwd,
+                candidate,
+                delivery,
+            )
         };
         // An installed MCP server rides only where its tools are judged; a
         // harness that is not handed one is told, in the first prompt.
@@ -677,6 +686,7 @@ fn build_session_spec(
     spec: &WorkItemSpec,
     cwd: PathBuf,
     scratch_cwd: bool,
+    project: Option<bisa_core::ProjectId>,
     env: BTreeMap<String, String>,
 ) -> SessionSpec {
     // The proxy the platform follows, handed to the harness as its tools read it.
@@ -712,6 +722,9 @@ fn build_session_spec(
             skills = inner.ws.skill_payloads(&def.id, &def.skills);
         }
     }
+    // The workspace's design policy: under *nobody* the UI/UX Design skill
+    // leaves every session, a carrier's too (`design.agents`).
+    crate::design::filter_skills(inner, project, &mut skills);
     SessionSpec {
         work_item: Some(spec.id),
         cwd,
@@ -885,11 +898,17 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     //    fresh budget; each attempt's timeout is what is *left*.
     //  * `attempts` / `tried` — the bound. Both the launch walk and the
     //    mid-run relaunch draw on the same budget, so a run can never loop.
+    // The project the settings are read for: the checkout's, none in a scratch.
+    let project = match &placement {
+        Placement::Checkout(c) => Some(c.project.id),
+        Placement::Scratch { .. } => None,
+    };
     let base_spec = build_session_spec(
         &inner,
         &spec,
         placement.cwd().to_path_buf(),
         placement.is_scratch(),
+        project,
         env,
     );
     let first_candidate = spec.harness_candidates.first().cloned().unwrap_or_default();
@@ -1203,11 +1222,24 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         }
 
         let events = session.subscribe();
-        // Skills the harness cannot host natively ride the first prompt.
-        let mut first_prompt = match &launched.skill_appendix {
-            Some(appendix) => format!("{}\n\n{appendix}", spec.instructions),
-            None => spec.instructions.clone(),
-        };
+        // The agent's definition, read once for its role and its skills; an
+        // item with no agent, or one whose agent is gone, has neither.
+        let agent_def = spec
+            .agent
+            .as_deref()
+            .and_then(|a| AgentId::new(a).ok())
+            .and_then(|a| inner.ws.get_agent(&a).ok());
+        // The agent's role opens its every work item, as it opens its
+        // conversations (06 § Context injection): the role says who, the
+        // step's instructions say what. Then the skills the harness cannot
+        // host natively ride the first prompt.
+        let mut first_prompt =
+            crate::framing::role_block(agent_def.as_ref().map_or("", |d| d.system_prompt.as_str()));
+        first_prompt.push_str(&spec.instructions);
+        if let Some(appendix) = &launched.skill_appendix {
+            first_prompt.push_str("\n\n");
+            first_prompt.push_str(appendix);
+        }
         // A goal's run is told its goal: what the work is for, whatever the
         // step's own words say. A run of the workspace has none to tell.
         if let Some(note) = home
@@ -1239,12 +1271,19 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         first_prompt.push_str(&crate::framing::browser_note(unattended));
         // Mobile development, when this machine does it: the tools and the
         // run line, said only where they would answer.
-        first_prompt.push_str(&crate::framing::mobile_development_note(
+        first_prompt.push_str(&crate::framing::mobile_development_note(&inner, project));
+        // The UI/UX Design skill, where the workspace holds every agent to
+        // it and this one does not carry it (`design.agents`): a sentence
+        // pointing at the tool, or the skill itself on a harness without one.
+        let platform_tools = inner
+            .catalog
+            .get(&harness_id)
+            .is_some_and(|a| a.caps().contains(bisa_core::HarnessCaps::MCP_SERVERS));
+        first_prompt.push_str(&crate::framing::design_note(
             &inner,
-            match &placement {
-                Placement::Checkout(c) => Some(c.project.id),
-                Placement::Scratch { .. } => None,
-            },
+            project,
+            agent_def.as_ref().map_or(&[], |d| d.skills.as_slice()),
+            platform_tools,
         ));
         // The person's context, when there is any: the documents given to
         // the goal, by their folder. Read, never guessed at.

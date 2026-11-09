@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { NOT_SHOWN as AGENT_NOT_SHOWN } from "./browserBridgeModel.mjs";
-import { CLIPBOARD_REFUSED, DEFAULT_SHOT_WIDTH, MAX_SHOT_WIDTH, MIN_SHOT_WIDTH, NOT_SHOWN_WORDS, pngSize, shotName, shotWidth, shotWords } from "./browserShotModel.mjs";
+import { CLIPBOARD_REFUSED, DEFAULT_SHOT_WIDTH, MAX_SHOT_WIDTH, MIN_SHOT_WIDTH, NOT_SHOWN_WORDS, pngSize, shotName, shotWidth, shotWidthFor, shotWords } from "./browserShotModel.mjs";
 
 /** A PNG header with this size and nothing behind it. */
 function png(width, height) {
@@ -37,6 +37,13 @@ test("the width is the setting within bounds, else the default", () => {
   assert.equal(shotWidth(Number.POSITIVE_INFINITY), DEFAULT_SHOT_WIDTH);
   assert.equal(shotWidth(-50), MIN_SHOT_WIDTH, "a negative number is clamped up");
   assert.equal(shotWidth(0), MIN_SHOT_WIDTH, "a zero someone typed is a number, clamped");
+});
+
+test("an out-of-sight tab with a viewport of its own is shot at that width; every other tab at the setting's", () => {
+  assert.equal(shotWidthFor({ headless: true, viewport: { width: 390, height: 844 } }, 1280), 390, "the PNG is the viewport's truth, never an upscale");
+  assert.equal(shotWidthFor({ headless: true, viewport: null }, 1280), 1280, "no viewport of its own: the setting");
+  assert.equal(shotWidthFor({ headless: false, viewport: { width: 390, height: 844 } }, 1280), 1280, "a seen tab's box is a host's; the setting says how wide the picture is");
+  assert.equal(shotWidthFor(null, 1440), 1440);
 });
 
 test("a screenshot is named after its tab and the moment, as a PNG", () => {

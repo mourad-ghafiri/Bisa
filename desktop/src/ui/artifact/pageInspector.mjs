@@ -144,7 +144,9 @@ export const INSPECTOR_MESSAGES = Object.freeze({
   CONSOLE: "bisa:console",
   /** App → page: evaluate an expression and answer its value. `{id, expression}` */
   EVAL: "bisa:eval",
-  /** Page → app: a driver request's answer. `{id, ok, url, title, text?, error?, selector?, count?, waitedMs?, scroll?, value?, dialogs?, console?}` */
+  /** App → page (the browser tab, ide/18 §Emulation): the page's viewport and the size of its document — what a placement is checked against, and how tall a full-page screenshot grows. `{id}` */
+  MEASURE: "bisa:measure",
+  /** Page → app: a driver request's answer. `{id, ok, url, title, text?, error?, selector?, count?, waitedMs?, scroll?, viewport?, value?, dialogs?, console?}` */
   ANSWER: "bisa:answer",
   /** Page → app: the page loaded or moved — its URL and title. `{url, title}` */
   TITLE: "bisa:title",
@@ -215,6 +217,10 @@ export function consoleMessage(id, clear = false) {
 /** @param {string} id @param {string} expression */
 export function evalMessage(id, expression) {
   return { type: INSPECTOR_MESSAGES.EVAL, id: String(id), expression: String(expression ?? "") };
+}
+/** The app's word to the page's driver: how big its viewport and its document are. @param {string} id */
+export function measureMessage(id) {
+  return { type: INSPECTOR_MESSAGES.MEASURE, id: String(id) };
 }
 
 /** The app's word to the frame: be in this mode. A word off the list is `off`. @param {string} mode */
@@ -288,6 +294,14 @@ function scrollOf(v) {
   const n = (x) => (typeof x === "number" && Number.isFinite(x) ? Math.round(x) : null);
   const x = n(s.x), y = n(s.y), width = n(s.width), height = n(s.height);
   return x === null || y === null || width === null || height === null ? null : { x, y, width, height };
+}
+/** The page's viewport as it said it: two whole numbers above zero, or null. */
+function pageViewportOf(v) {
+  if (!v || typeof v !== "object") return null;
+  const s = /** @type {Record<string, unknown>} */ (v);
+  const n = (x) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? Math.round(x) : null);
+  const width = n(s.width), height = n(s.height);
+  return width === null || height === null ? null : { width, height };
 }
 /** A script's value: JSON as the page said it, cut to a string when it is too long; nothing for nothing. */
 function valueOf(v) {
@@ -414,10 +428,11 @@ export function parseInspectorMessage(data) {
       const count = wholeOf(d.count);
       const waitedMs = wholeOf(d.waitedMs);
       const scroll = scrollOf(d.scroll);
+      const viewport = pageViewportOf(d.viewport);
       const value = valueOf(d.value);
       const dialogs = dialogsOf(d.dialogs);
       const console = consoleOf(d.console);
-      return { type: INSPECTOR_MESSAGES.ANSWER, id, ok, url, title, text, error, selector, count, waitedMs, scroll, value, dialogs, console };
+      return { type: INSPECTOR_MESSAGES.ANSWER, id, ok, url, title, text, error, selector, count, waitedMs, scroll, viewport, value, dialogs, console };
     }
     case INSPECTOR_MESSAGES.TITLE: {
       const url = chars(d.url, MAX_URL_CHARS);
@@ -901,7 +916,7 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
   var READ = "${INSPECTOR_MESSAGES.READ}", FIND_TEXT = "${INSPECTOR_MESSAGES.FIND_TEXT}", SNAPSHOT = "${INSPECTOR_MESSAGES.SNAPSHOT}";
   var CLICK = "${INSPECTOR_MESSAGES.CLICK}", FILL = "${INSPECTOR_MESSAGES.FILL}", TYPE = "${INSPECTOR_MESSAGES.TYPE}", PRESS = "${INSPECTOR_MESSAGES.PRESS}";
   var SELECT = "${INSPECTOR_MESSAGES.SELECT}", POINT = "${INSPECTOR_MESSAGES.POINT}", SCROLL = "${INSPECTOR_MESSAGES.SCROLL}", WAIT = "${INSPECTOR_MESSAGES.WAIT}";
-  var CONSOLE = "${INSPECTOR_MESSAGES.CONSOLE}", EVAL = "${INSPECTOR_MESSAGES.EVAL}";
+  var CONSOLE = "${INSPECTOR_MESSAGES.CONSOLE}", EVAL = "${INSPECTOR_MESSAGES.EVAL}", MEASURE = "${INSPECTOR_MESSAGES.MEASURE}";
   var ANSWER = "${INSPECTOR_MESSAGES.ANSWER}", TITLE = "${INSPECTOR_MESSAGES.TITLE}";
   var MAX_READ = ${MAX_READ_CHARS}, MAX_MATCHES = ${MAX_MATCHES}, MAX_AROUND = ${MAX_AROUND}, MAX_OUTLINE = ${MAX_OUTLINE_LINES};
   var MAX_DIALOGS = ${MAX_DIALOGS}, MAX_CONSOLE = ${MAX_CONSOLE_LINES}, MAX_LINE = ${MAX_LINE_CHARS}, MAX_WAIT = ${MAX_WAIT_MS}, IDLE = ${IDLE_MS}, POLL = ${WAIT_POLL_MS};
@@ -909,8 +924,8 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
   function clock() { return typeof Date.now === "function" ? Date.now() : 0; }
   var later = typeof window.setTimeout === "function" ? function (f, ms) { window.setTimeout(f, ms); } : function (f) { f(); };
   function here() { return { url: String((window.location && window.location.href) || ""), title: String(document.title || "") }; }
-  /** The page loaded again: the refs are the old page's, the console starts over. */
-  function pageLoaded() { refs = []; logs = []; loadedAt = clock(); }
+  /** The document's load event: the clock the console's lines are told by. The refs and the console are the document's, kept for its life — a new document arrives with a fresh program, so a load forgets nothing here (what a page logged before its load event, a resource that failed to load among it, is what browser_console is for). */
+  function pageLoaded() { loadedAt = clock(); }
   function answer(id, extra) {
     var at = here(), out = { type: ANSWER, id: String(id == null ? "" : id), ok: true, url: at.url, title: at.title };
     for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) out[k] = extra[k];
@@ -1059,9 +1074,8 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     if (kids) for (var i = 0; i < kids.length; i++) out = out.concat(elements(kids[i]));
     return out;
   }
-  /** The page's outline: a line per heading, landmark and control, each with a ref the other tools take. */
+  /** The page's outline: a line per heading, landmark and control, each with a ref the other tools take. A ref is the element's for the life of the document: an element numbered by an earlier snapshot keeps its number, a new one takes the next, so e5 means the same thing in every snapshot of this document (the list grows with the elements seen, bounded by the outline's own cap per snapshot). */
   function outlineOf(root, all) {
-    refs = [];
     var lines = [], count = 0, list = elements(root || document.body || document.documentElement);
     for (var i = 0; i < list.length; i++) {
       var el = list[i], tag = tagOf(el);
@@ -1084,8 +1098,8 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
       if (!visible(el) && role !== "option") continue;
       count++;
       if (lines.length >= MAX_OUTLINE) continue;
-      var n = refs.length;
-      refs.push(el);
+      var n = refs.indexOf(el);
+      if (n === -1) { n = refs.length; refs.push(el); }
       var words = "e" + n + " " + role + (name ? " " + quoted(name) : "");
       var state = stateWords(el, role);
       if (state) words += " " + state;
@@ -1417,9 +1431,10 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
       return answer(d.id, { console: out, count: out.length, text: out.length ? "" : "the console is empty — nothing logged, no error raised since the page loaded" });
     }
     if (d.type === EVAL) return evaluate(d);
+    if (d.type === MEASURE) return answer(d.id, { scroll: scrollWords(), viewport: { width: Math.round(Number(window.innerWidth || 0)), height: Math.round(Number(window.innerHeight || 0)) } });
   }
   var DRIVES = {};
-  DRIVES[READ] = DRIVES[FIND_TEXT] = DRIVES[SNAPSHOT] = DRIVES[CLICK] = DRIVES[FILL] = DRIVES[TYPE] = DRIVES[PRESS] = DRIVES[SELECT] = DRIVES[POINT] = DRIVES[SCROLL] = DRIVES[WAIT] = DRIVES[CONSOLE] = DRIVES[EVAL] = 1;
+  DRIVES[READ] = DRIVES[FIND_TEXT] = DRIVES[SNAPSHOT] = DRIVES[CLICK] = DRIVES[FILL] = DRIVES[TYPE] = DRIVES[PRESS] = DRIVES[SELECT] = DRIVES[POINT] = DRIVES[SCROLL] = DRIVES[WAIT] = DRIVES[CONSOLE] = DRIVES[EVAL] = DRIVES[MEASURE] = 1;
   function handle(d) {
     if (!d || typeof d !== "object") return;
     if (d.type === INSPECT) setMode(d.mode);
@@ -1523,9 +1538,10 @@ ${INSPECTOR_CORE}
  * page of this machine and a page of the web reach alike; the desktop
  * bounds every word (`parseInspectorMessage`). The app's words arrive
  * through `window.__bisaBrowser.perform`, which the desktop evaluates; the
- * page says its URL and title as it loads and moves, and a load forgets the
- * refs the last snapshot handed out; the page's console and its errors are
- * kept for `browser_console`, and its dialogs — alert, confirm, prompt — are
+ * page says its URL and title as it loads and moves; the refs a snapshot
+ * hands out hold for the life of the document (a new document runs a fresh
+ * program), as does what the page logged before its load event; the page's
+ * console and its errors are kept for `browser_console`, and its dialogs — alert, confirm, prompt — are
  * answered for the agent and reported with the next answer, so nothing
  * hangs; and a browser chord pressed inside the page — the keymap's browser
  * scope, ⌘L ⌘R ⌘[ ⌘] ⌘T ⌘W by default (Ctrl off a Mac), written into the

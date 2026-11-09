@@ -1588,6 +1588,15 @@ export const api = {
   /// own work is at risk.
   installCatalogEntry: (kind: CatalogKind, slug: string, s?: AbortSignal) =>
     post<{ installed: Installed }>("/catalog/install", { kind, slug }, s),
+  /// Update from the catalog — a person's act, the one that changes an
+  /// installed copy. The same route with `update: true`: an installed skill,
+  /// agent or team goes back to the catalog's definition — the words the
+  /// catalog owns replaced; the harness, plan, keys, switch and the people on
+  /// a team kept — after what it needs and is missing is installed.
+  /// `updated.restated` says whether the copy had to change; a kind that is
+  /// installed once and an id that is not this entry's are the store's 400s.
+  updateCatalogEntry: (kind: CatalogKind, slug: string, s?: AbortSignal) =>
+    post<{ installed: Installed; updated: { restated: boolean } }>("/catalog/install", { kind, slug, update: true }, s),
 
 
   // --- projects -----------------------------------------------------------

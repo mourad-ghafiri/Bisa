@@ -2596,6 +2596,15 @@ pub struct CatalogEntryDto {
     /// taken, not that this entry took it: an id held by something you created
     /// reads as installed and the install refuses it rather than overwriting.
     pub installed: bool,
+    /// Whether this entry's installed copy no longer says what the catalog
+    /// says — somebody edited the words an update restates, or the catalog
+    /// moved under it. Present only for a skill, an agent or a team installed
+    /// from this very entry; absent when it is not installed, when its id is
+    /// held by something else, and for every other kind, which is installed
+    /// once and is then yours. `POST /catalog/install` with `update: true`
+    /// brings the copy back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_differs: Option<bool>,
     /// A workflow template's whole definition — inputs, steps, flows — so a
     /// gallery draws its graph before it is installed; absent for every other
     /// kind. A `spawn` step whose target is not installed names a placeholder
@@ -2627,9 +2636,20 @@ impl From<bisa_store::CatalogEntry> for CatalogEntryDto {
             tags: e.tags,
             requires: e.requires,
             installed: e.installed,
+            installed_differs: e.installed_differs,
             workflow: e.workflow.map(NewWorkflowBody::from),
         }
     }
+}
+
+/// What `POST /catalog/install` with `update: true` did beyond installing:
+/// whether the entry's installed copy was restated to the catalog's
+/// definition. `false` when it already said so, and when the entry was not
+/// here and was installed just now.
+#[derive(Serialize, JsonSchema)]
+#[schemars(rename = "Updated")]
+pub struct UpdatedDto {
+    pub restated: bool,
 }
 
 /// What `POST /catalog/install` created, by kind.
@@ -2806,6 +2826,14 @@ pub struct AddonOffersDto {
 pub struct CatalogInstallBody {
     pub kind: String,
     pub slug: String,
+    /// `true` brings an installed skill, agent or team back to the catalog's
+    /// definition — a person's act: edits to the words the catalog owns are
+    /// replaced, while the harness, the plan, the keys, the switch and the
+    /// people on a team are kept — and installs what the entry needs and is
+    /// missing. Left out, the call only ever creates. The answer then adds
+    /// `updated: {restated}`.
+    #[serde(default)]
+    pub update: bool,
 }
 
 /// One entity kind's share of a tag — a row of [`TagFacet::entities`].

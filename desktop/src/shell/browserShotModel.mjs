@@ -23,6 +23,18 @@ export function shotWidth(value) {
 }
 
 /**
+ * How wide a tab's screenshot is taken: a tab kept out of sight at a
+ * viewport an agent gave it is shot at that width — the PNG is the
+ * viewport's truth, never an upscale of a phone's page to a desktop's
+ * width — and every other tab at the setting's (ide/18 §Emulation).
+ * @param {{headless: boolean, viewport: {width: number, height: number} | null} | null | undefined} session
+ * @param {number} settingWidth the width the setting says, within bounds already
+ */
+export function shotWidthFor(session, settingWidth) {
+  return session?.headless && session.viewport ? session.viewport.width : settingWidth;
+}
+
+/**
  * The file name a screenshot of a tab is kept under, for the person's copy
  * and the upload alike: `browser-<tab>-<stamp>.png`.
  * @param {string} key @param {Date} [at]

@@ -1264,6 +1264,9 @@
     "BrowserReadFormat": {
       "$ref": "#/definitions/BrowserReadFormat"
     },
+    "ColorScheme": {
+      "$ref": "#/definitions/ColorScheme"
+    },
     "BrowserScope": {
       "$ref": "#/definitions/BrowserScope"
     },
@@ -1287,6 +1290,9 @@
     },
     "BrowserResult": {
       "$ref": "#/definitions/BrowserResult"
+    },
+    "BrowserViewport": {
+      "$ref": "#/definitions/BrowserViewport"
     },
     "BrowserScrollPosition": {
       "$ref": "#/definitions/BrowserScrollPosition"
@@ -2163,6 +2169,9 @@
     },
     "InstalledWorkflow": {
       "$ref": "#/definitions/InstalledWorkflow"
+    },
+    "Updated": {
+      "$ref": "#/definitions/Updated"
     },
     "FileEntryKind": {
       "$ref": "#/definitions/FileEntryKind"
@@ -18414,7 +18423,12 @@
         {
           "type": "string",
           "const": "screenshot",
-          "description": "A PNG of the tab as the person sees it, answered by path."
+          "description": "A PNG of the tab as the person sees it, answered by path — or of the\nwhole page of a tab kept out of sight (`full_page`)."
+        },
+        {
+          "type": "string",
+          "const": "emulate",
+          "description": "A viewport for a tab kept out of sight, or a colour scheme for any\ntab (ide/18 §Emulation); answers the tab's viewport and scheme."
         }
       ],
       "description": "What an agent may ask the embedded browser to do."
@@ -18581,6 +18595,41 @@
             "null"
           ],
           "description": "For `open`, the agent's word on whether the tab is kept out of sight;\nabsent, the workspace's policy decides (`headless_for`)."
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "For `emulate`: the viewport a tab kept out of sight renders in, in\nCSS pixels — both, each 320 to 4096."
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "scheme": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ColorScheme"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For `emulate`: the scheme the tab's page is shown under."
+        },
+        "full_page": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "For `screenshot`: the whole page of a tab kept out of sight — its box\ngrown to the document, capped — rather than the viewport alone."
         }
       },
       "required": [
@@ -18605,6 +18654,15 @@
         "html"
       ],
       "description": "How `browser_read` answers an element: its text, or its HTML."
+    },
+    "ColorScheme": {
+      "type": "string",
+      "enum": [
+        "light",
+        "dark",
+        "system"
+      ],
+      "description": "The colour scheme a tab's page is shown under (ide/18 §Emulation): the\nwebview's own appearance, which the page's `prefers-color-scheme` follows;\n`system` is the window's own."
     },
     "BrowserScope": {
       "type": "object",
@@ -18888,12 +18946,55 @@
             "null"
           ],
           "description": "The screenshot's named copy on this machine — set by the engine, never\nby the desktop, which names no path."
+        },
+        "viewport": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserViewport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An emulation's answer: the viewport the tab renders in."
+        },
+        "scheme": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ColorScheme"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An emulation's answer: the scheme the tab's page is shown under."
         }
       },
       "required": [
         "ok"
       ],
       "description": "What the desktop answers: `ok` with the facts, or a refusal in words."
+    },
+    "BrowserViewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "description": "The box a tab renders in, in CSS pixels — an emulation's answer."
     },
     "BrowserScrollPosition": {
       "type": "object",
@@ -27770,6 +27871,11 @@
         },
         "slug": {
           "type": "string"
+        },
+        "update": {
+          "type": "boolean",
+          "description": "`true` brings an installed skill, agent or team back to the catalog's\ndefinition — a person's act: edits to the words the catalog owns are\nreplaced, while the harness, the plan, the keys, the switch and the\npeople on a team are kept — and installs what the entry needs and is\nmissing. Left out, the call only ever creates. The answer then adds\n`updated: {restated}`.",
+          "default": false
         }
       },
       "required": [
@@ -31297,6 +31403,13 @@
           "type": "boolean",
           "description": "Whether an object with this id already exists here. It says the id is\ntaken, not that this entry took it: an id held by something you created\nreads as installed and the install refuses it rather than overwriting."
         },
+        "installed_differs": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether this entry's installed copy no longer says what the catalog\nsays — somebody edited the words an update restates, or the catalog\nmoved under it. Present only for a skill, an agent or a team installed\nfrom this very entry; absent when it is not installed, when its id is\nheld by something else, and for every other kind, which is installed\nonce and is then yours. `POST /catalog/install` with `update: true`\nbrings the copy back."
+        },
         "workflow": {
           "anyOf": [
             {
@@ -31392,6 +31505,18 @@
         "slug",
         "id"
       ]
+    },
+    "Updated": {
+      "type": "object",
+      "properties": {
+        "restated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "restated"
+      ],
+      "description": "What `POST /catalog/install` with `update: true` did beyond installing:\nwhether the entry's installed copy was restated to the catalog's\ndefinition. `false` when it already said so, and when the entry was not\nhere and was installed just now."
     },
     "FileEntryKind": {
       "oneOf": [

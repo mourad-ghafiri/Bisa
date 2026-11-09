@@ -60,6 +60,7 @@ import {
 } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows } from "./loadModel.mjs";
+import { rowAction, updateOutcome } from "./catalogUpdateModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
 
@@ -91,6 +92,17 @@ const KIND_BLURB: Record<CatalogKind, string> = {
 };
 
 /**
+ * What an update from the catalog replaces and what it keeps, per kind that
+ * may be updated — the store's rule, said before the click; every other kind
+ * is installed once and is then yours, and never offers the act.
+ */
+const UPDATE_REPLACES: Partial<Record<CatalogKind, string>> = {
+  skill: t("settings-catalog-panel-update-replaces-skill"),
+  agent: t("settings-catalog-panel-update-replaces-agent"),
+  team: t("settings-catalog-panel-update-replaces-team"),
+};
+
+/**
  * What a kind's `requires` list names.
  *
  * Resolved by the *parent's* kind rather than by looking the slug up
@@ -110,7 +122,7 @@ const REQUIRES_KIND: Record<CatalogKind, CatalogKind | null> = {
 
 const countPhrase = (n: number, kind: CatalogKind): string => t("settings-catalog-panel-count-phrase", { n, kind });
 
-/** "31 agents, 20 skills, 9 teams and 8 channels" — an Oxford-free list; the numbers are the catalog's, never typed here. */
+/** "32 agents, 26 skills, 9 teams and 8 channels" — an Oxford-free list; the numbers are the catalog's, never typed here. */
 function summarize(entries: CatalogEntry[]): string {
   const parts = CATALOG_KINDS.map((k) => {
     const n = entries.filter((e) => e.kind === k).length;
@@ -272,6 +284,7 @@ function CatalogRow({
   busy,
   onToggle,
   onInstall,
+  onUpdate,
 }: {
   e: CatalogEntry;
   plan: InstallPlan;
@@ -279,8 +292,10 @@ function CatalogRow({
   busy: boolean;
   onToggle: () => void;
   onInstall: () => void;
+  onUpdate: () => void;
 }) {
   const brings = plan.entries.length > 1;
+  const action = rowAction(e);
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2">
@@ -303,16 +318,30 @@ function CatalogRow({
         )}
         <code className="truncate font-mono text-2xs text-text-dim">{e.slug}</code>
         <TagChips tags={e.tags} max={4} />
-        <span className="ml-auto shrink-0">
-          {e.installed ? (
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {action === "install" ? (
+            <Button size="sm" disabled={busy} onClick={onInstall}>
+              {busy ? t("settings-catalog-panel-installing") : t("settings-catalog-panel-install")}
+            </Button>
+          ) : (
             <Chip
               tone="ok"
               icon={ICON.ok}
               title={t("settings-catalog-panel-object-already-answers-id-here-may")}
             >{t("settings-catalog-panel-installed")}</Chip>
-          ) : (
-            <Button size="sm" disabled={busy} onClick={onInstall}>
-              {busy ? t("settings-catalog-panel-installing") : t("settings-catalog-panel-install")}
+          )}
+          {/* A copy that no longer says what the catalog says offers the one
+              act that changes an installed copy — a ghost, since it lives in
+              the row; the confirmation names what it replaces. */}
+          {action === "update" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={onUpdate}
+              title={t("settings-catalog-panel-copy-differs-from-catalog")}
+            >
+              {busy ? t("settings-catalog-panel-updating") : t("settings-catalog-panel-update-from-catalog")}
             </Button>
           )}
         </span>
@@ -424,6 +453,7 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
   const [tagFilter, setTagFilter] = useState<TagFilterState>(NO_TAG_FILTER);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<CatalogEntry | null>(null);
+  const [updating, setUpdating] = useState<CatalogEntry | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [report, setReport] = useState<{ entry: CatalogEntry; installed: Installed } | null>(null);
 
@@ -460,6 +490,31 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
     // Every row carries `installed`, so the whole listing is stale the moment
     // this succeeds — including rows of other kinds, which a transitive
     // install may have just filled in.
+    reload();
+  };
+
+  /**
+   * Update from the catalog: the store restates the copy and installs what
+   * the entry needs and is missing; its refusals — a kind installed once, an
+   * id that is not this entry's — arrive in its own words and are shown as
+   * written. The toast says which of the three things happened.
+   */
+  const update = async (entry: CatalogEntry) => {
+    setBusy(`${entry.kind}/${entry.slug}`);
+    let outcome: ReturnType<typeof updateOutcome> | null = null;
+    await attempt(async () => {
+      const res = await api.updateCatalogEntry(entry.kind, entry.slug);
+      outcome = updateOutcome(res.updated, res.installed);
+    }, toast.error);
+    setBusy(null);
+    if (!outcome) return;
+    toast.ok(
+      outcome === "restated"
+        ? t("settings-catalog-panel-updated", { entry: entry.name })
+        : outcome === "created"
+          ? t("settings-catalog-panel-updated-needs-installed", { entry: entry.name })
+          : t("settings-catalog-panel-already-matches-catalog", { entry: entry.name }),
+    );
     reload();
   };
 
@@ -569,6 +624,9 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
                   // item routes across, and none of it is undone by one
                   // button.
                   onInstall={() => (plan.creates.length > 1 ? setConfirming(e) : void install(e))}
+                  // An update replaces words a person may have written: it is
+                  // always asked about, and the question says what is lost.
+                  onUpdate={() => setUpdating(e)}
                 />
               );
             })}
@@ -599,6 +657,26 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
         }
         onConfirm={() => {
           if (confirming) void install(confirming);
+        }}
+      />
+
+      <ConfirmDialog
+        open={updating !== null}
+        danger
+        onClose={() => setUpdating(null)}
+        title={updating ? t("settings-catalog-panel-update-from-catalog-title", { entry: updating.name }) : ""}
+        confirmLabel={t("settings-catalog-panel-update")}
+        body={
+          updating ? (
+            <>
+              {UPDATE_REPLACES[updating.kind]} {t("settings-catalog-panel-update-installs-missing")}
+            </>
+          ) : (
+            ""
+          )
+        }
+        onConfirm={() => {
+          if (updating) void update(updating);
         }}
       />
     </div>

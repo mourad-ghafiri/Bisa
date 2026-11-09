@@ -22,7 +22,7 @@ use crate::ctx::Ctx;
 use crate::output::Out;
 use crate::tags::TagFilterArgs;
 use anyhow::{anyhow, Result};
-use bisa_store::{CatalogEntry, CatalogKind, Installed, Workspace};
+use bisa_store::{CatalogEntry, CatalogKind, Installed, Updated, Workspace};
 use clap::Subcommand;
 use serde_json::json;
 use std::str::FromStr;
@@ -41,7 +41,15 @@ pub enum CatalogCmd {
     Show { kind: String, slug: String },
     /// Install an entry and everything it needs. Installing twice is not an
     /// error: what is already here is left exactly as it is.
-    Install { kind: String, slug: String },
+    Install {
+        kind: String,
+        slug: String,
+        /// Bring an installed skill, agent or team back to the catalog's
+        /// definition: edits to the words the catalog owns are replaced; its
+        /// harness, model plan, keys, switch and the people on a team are kept
+        #[arg(long)]
+        update: bool,
+    },
 }
 
 /// The seven kinds, named in the error rather than left to be guessed.
@@ -223,32 +231,56 @@ pub async fn catalog(ctx: &Ctx, out: &Out, cmd: CatalogCmd) -> Result<()> {
             }
             out.json_value(json!({"entry": entry, "creates": whole}));
         }
-        CatalogCmd::Install { kind, slug } => {
+        CatalogCmd::Install { kind, slug, update } => {
             let kind = catalog_kind(&kind)?;
             // Through the running node when there is one — its registry and
             // bus hear the install, so an open desktop draws what landed —
             // and straight into the store otherwise. A collision is the
             // store's refusal either way; it names the id that is taken and
-            // what holds it, so it travels to the user unwrapped.
-            let installed = match ctx.node_client().await {
+            // what holds it, so it travels to the user unwrapped. `--update`
+            // is the same door with the flag, sent only when asked: an older
+            // node refuses a key it does not know.
+            let Updated {
+                installed,
+                restated,
+            } = match ctx.node_client().await {
                 Some(node) => {
-                    let v = node
-                        .post(
-                            "/catalog/install",
-                            json!({"kind": kind.to_string(), "slug": slug}),
-                        )
-                        .await?;
-                    installed_from_node(&v["installed"])?
+                    let mut body = json!({"kind": kind.to_string(), "slug": slug});
+                    if update {
+                        body["update"] = json!(true);
+                    }
+                    let v = node.post("/catalog/install", body).await?;
+                    Updated {
+                        installed: installed_from_node(&v["installed"])?,
+                        restated: v["updated"]["restated"].as_bool().unwrap_or(false),
+                    }
                 }
-                None => ws.install(kind, &slug)?,
+                None if update => ws.update_entry(kind, &slug)?,
+                None => Updated {
+                    installed: ws.install(kind, &slug)?,
+                    restated: false,
+                },
             };
-            if installed.is_empty() {
+            if restated {
+                out.say(&bisa_core::text!(
+                    "cli-catalog-updated",
+                    kind = kind.to_string(),
+                    slug = slug.to_string()
+                ));
+            }
+            if update && !restated && installed.is_empty() {
+                out.say(&bisa_core::text!(
+                    "cli-catalog-already-matches-catalog",
+                    kind = kind.to_string(),
+                    slug = slug.to_string()
+                ));
+            } else if installed.is_empty() && !update {
                 out.say(&bisa_core::text!(
                     "cli-catalog-everything-needs-were-already-here-nothing",
                     kind = kind.to_string(),
                     slug = slug.to_string()
                 ));
-            } else {
+            } else if !installed.is_empty() {
                 out.say(&bisa_core::text!(
                     "cli-catalog-installed",
                     kind = kind.to_string(),
@@ -271,7 +303,11 @@ pub async fn catalog(ctx: &Ctx, out: &Out, cmd: CatalogCmd) -> Result<()> {
                     }
                 }
             }
-            out.json_value(json!({"installed": installed}));
+            out.json_value(if update {
+                json!({"installed": installed, "updated": {"restated": restated}})
+            } else {
+                json!({"installed": installed})
+            });
         }
     }
     Ok(())

@@ -172,6 +172,12 @@ setting-browser-screenshot-width = Screenshot width
 setting-draw-enabled = Draw
     .help = The canvas built into the desktop app — the Draw panel, its floating dock and the footer switch. Off, nothing opens, and agents are told the canvas is turned off.
 
+setting-design-agents = Agents follow the UI/UX design skill
+    .help = Who is held to the UI/UX Design skill when work changes what a person sees or does on a screen. Everyone — the default: every session is told, in one sentence, to read the skill with skill_read before such work, and an agent that carries the skill has it as any skill. Assigned: only agents that carry the skill; nobody else is told. Nobody: the skill is left out of every session. The skill is the catalog's UI/UX Design; until it is installed, nothing is said. Settings › Capabilities › Design.
+    .choice-everyone = Everyone
+    .choice-assigned = Assigned
+    .choice-nobody = Nobody
+
 setting-draw-agents = Agents may draw
     .help = Which agents may draw into a drawing through the drawing tools. Everyone: any agent — the default, since every catalog agent carries the Drawing skill as its guidance. Assigned: only agents that carry that skill — the platform's own agents always may. Nobody: the tools refuse.
     .choice-everyone = Everyone

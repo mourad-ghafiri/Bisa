@@ -99,6 +99,12 @@
 //!   -> {"ok":true,"workflow":{...},"problems":[...]}
 //! {"op":"validate_workflow","agent":"workflow-agent","workflow":{...},"goal":"<ulid>"|null}
 //!   -> {"ok":true,"problems":[...]}   (staffing judged against `goal`'s roster when given)
+//! {"op":"skill_read","skill":"<id>","section":"<slug or title>"|null,"agent":"..."|absent,
+//!  "work_item":"<ulid>"|absent}
+//!   -> {"ok":true,"skill":"<id>","name","description","body","sections":[{"slug","title"}]}
+//!    | {"ok":true,"skill":"<id>","section":{"slug","title","markdown"}}
+//!   (an installed skill's body and the names of its reference sections, or one section;
+//!   any agent may read any installed skill — a refusal names what this agent carries)
 //! {"op":"list_connectors","agent":"<id>"}
 //!   -> {"ok":true,"connectors":[{"id","name","description","auth","accounts","operations"}],
 //!       "text":"CONNECTORS — ..."}
@@ -318,6 +324,19 @@ enum Op {
         note: Option<String>,
         #[serde(default)]
         scope: Option<String>,
+    },
+    /// Read an installed skill — its body and the names of its reference
+    /// sections, or one section by slug or title. Guidance, not a secret:
+    /// any agent may read any installed skill; `agent`/`work_item` only
+    /// shape the refusal, which names what this agent carries.
+    SkillRead {
+        skill: String,
+        #[serde(default)]
+        section: Option<String>,
+        #[serde(default)]
+        agent: Option<String>,
+        #[serde(default)]
+        work_item: Option<WorkItemId>,
     },
     /// Add a block to the end of a note — the named one, else the
     /// conversation's. Adds under the agent's name and never changes what
@@ -1124,6 +1143,17 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             }
             amend_workflow(inner, &goal, &agent, workflow)
         }
+        Op::SkillRead {
+            skill,
+            section,
+            agent,
+            work_item,
+        } => skill_read(
+            inner,
+            &skill,
+            section.as_deref(),
+            resolve_recall_agent(inner, agent, work_item),
+        ),
         Op::NoteRead { note, scope } => match note_of(inner, note.as_deref(), scope.as_deref()) {
             Err(why) => err(why),
             Ok(id) => match inner.ws.get_note(id) {
@@ -3129,6 +3159,94 @@ pub(crate) fn resolve_recall_agent(
                 .and_then(|spec| spec.agent)
         })
         .and_then(|a| AgentId::new(a).ok())
+}
+
+/// `skill_read`: an installed skill's body with the names of its reference
+/// sections, or one section — the on-demand half of a skill
+/// (`bisa_core::skill::parts`), for a harness whose prompt carried the body
+/// and an index. Guidance is nobody's secret, so any agent reads any
+/// installed skill; a refusal is a sentence that says what to name instead.
+fn skill_read(
+    inner: &Arc<Inner>,
+    skill: &str,
+    section: Option<&str>,
+    agent: Option<AgentId>,
+) -> serde_json::Value {
+    let Ok(id) = bisa_core::SkillId::new(skill) else {
+        return err(format!(
+            "`{skill}` is not a skill id — lower-case words and dashes, as list_catalog spells them"
+        ));
+    };
+    let found = match inner.ws.get_skill(&id) {
+        Ok(found) => found,
+        Err(bisa_store::StoreError::DefinitionNotFound { .. }) => {
+            return err(no_such_skill(inner, skill, agent))
+        }
+        Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE: the store's disk arm — a skill file that cannot be read
+    };
+    let split = bisa_core::skill::parts(&found.markdown);
+    let Some(name) = section else {
+        let sections: Vec<serde_json::Value> = split
+            .sections
+            .iter()
+            .map(|s| json!({"slug": s.slug, "title": s.title}))
+            .collect();
+        return json!({
+            "ok": true,
+            "skill": found.id,
+            "name": found.name,
+            "description": found.description,
+            "body": split.body,
+            "sections": sections,
+        });
+    };
+    match split.section(name) {
+        Some(s) => json!({
+            "ok": true,
+            "skill": found.id,
+            "section": {"slug": s.slug, "title": s.title, "markdown": s.markdown},
+        }),
+        None if split.sections.is_empty() => err(format!(
+            "skill `{}` has no reference sections — read it whole, naming no section",
+            found.id
+        )),
+        None => {
+            let slugs: Vec<&str> = split.sections.iter().map(|s| s.slug.as_str()).collect();
+            err(format!(
+                "skill `{}` has no section `{name}`; its sections are: {}",
+                found.id,
+                slugs.join(" · ")
+            ))
+        }
+    }
+}
+
+/// The sentence for a skill nobody installed: what this agent carries, else
+/// what is installed, else that nothing is.
+fn no_such_skill(inner: &Arc<Inner>, skill: &str, agent: Option<AgentId>) -> String {
+    let carried: Vec<String> = agent
+        .and_then(|a| inner.ws.get_agent(&a).ok())
+        .map(|def| def.skills.iter().map(ToString::to_string).collect())
+        .unwrap_or_default();
+    if !carried.is_empty() {
+        return format!(
+            "no skill `{skill}` is installed in this workspace; this agent carries: {}",
+            carried.join(", ")
+        );
+    }
+    let installed: Vec<String> = inner
+        .ws
+        .list_skills()
+        .map(|all| all.iter().map(|s| s.id.to_string()).collect())
+        .unwrap_or_default();
+    if installed.is_empty() {
+        format!("no skill `{skill}` is installed in this workspace; no skill is installed here")
+    } else {
+        format!(
+            "no skill `{skill}` is installed in this workspace; the installed skills are: {}",
+            installed.join(", ")
+        )
+    }
 }
 
 async fn ask_human(

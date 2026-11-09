@@ -8,6 +8,88 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- **A skill can carry reference sections, read on demand.** A heading `## Reference: <Title>` in a
+  skill's markdown opens a section; what comes before the first is the body every session of a
+  carrier reads, and a section is read when the skill says to — with the new `skill_read` tool, which
+  every harness that mounts the platform's servers holds (a skill by id, a section by slug or title;
+  any agent may read any installed skill), or, on Claude Code in the platform's own folder, from the
+  file written beside `SKILL.md`. A harness with no platform tools gets the whole text, as before. A
+  skill may now be 64 KiB; a catalog skill's body stays under 32 KiB.
+- **Settings › Capabilities › Design — who follows the UI/UX Design skill.** `design.agents`:
+  *everyone* (the default) tells every session, in one sentence, to read the skill with `skill_read`
+  before work that changes what a person sees or does on a screen — an agent that carries it has it as
+  any skill; *assigned* keeps it to the agents that carry it; *nobody* leaves it out of every session.
+  Nothing is said until the skill is installed.
+- **The embedded browser shows a page the way a device does.** `browser_emulate` gives a tab kept
+  out of sight a viewport of the agent's choosing — 390×844 for a phone, 1440×900 for a desktop, any
+  whole size from 320 to 4096 — and any tab a colour scheme, light, dark or the window's own, which
+  the page's `prefers-color-scheme` follows; the answer is the size the page measured and the scheme
+  it is shown under. `browser_screenshot` takes the whole page of a tab kept out of sight with
+  `full_page: true`, growing its box to the document (8192 px at most) for the shot and putting it
+  back after. A shown tab's size stays the person's: a viewport or a full page asked of one is
+  refused in a sentence. A tab out of sight is shot at its own width, so a phone's page is never
+  upscaled to a desktop's. `browser_open` with `headless: true` on a tab the agent holds puts a seen
+  tab out of sight, the reverse of `headless: false`.
+- **The UI/UX Design skill.** The catalog ships `ui-ux-design`: a body that is the procedure — the
+  task written down; one look at the real page in the embedded browser at a phone's width and a desk's, light
+  and dark, full page; findings each with their evidence; the change; one confirming look, two rounds
+  the ceiling; a report that closes with *ship*, *fix* or *needs the person* — and ten reference
+  sections read on demand with `skill_read`: the craft floor, the modes, the review protocol, the
+  accessibility checks tied to WCAG 2.2 by criterion, viewports, type, colour and space, motion,
+  states and copy, the design record, the stacks. The UI/UX Designer carries it, the Developer too,
+  and Settings › Capabilities › Design says who else follows it.
+- **Update from the catalog.** An install still only ever creates; now, when you ask, one installed
+  skill, agent or team is brought back to the catalog's definition — *Update from the catalog* on a
+  Library row whose copy differs, `bisa catalog install <kind> <slug> --update`, or
+  `POST /catalog/install` with `update: true`. A skill takes the catalog's name, description, tags
+  and procedure; an agent its name, description, prompt, tags, respond policy and the catalog's
+  skills (one you added stays), while its harness, model plan, MCP servers, switch, photo and key
+  stay yours; a team its name, purpose, tags and agents, the people on it kept. What the entry needs
+  and is missing is installed first; a channel, a workflow, a connector or an addon refuses the act
+  by kind. The catalog listing says when a copy differs (`installed_differs`).
+
+### Changed
+
+- **Skills reach a harness by what it can do.** A harness that mounts the platform's MCP servers gets
+  a skill's body and one line naming its reference sections; one that cannot gets the whole text. A
+  skill file the platform writes for Claude Code carries its marker in the front matter's `metadata`
+  (`bisa-skill`, `bisa-hash`): a stale copy of the platform's own is rewritten at the next launch, a
+  file you wrote or edited is left alone and the skill rides the prompt instead; nothing under
+  `.claude/skills` is ever deleted.
+- **The UX Designer is the UI/UX Designer.** The same slug (`ux-designer`), a new description and a
+  new prompt: the surface's mode first, evidence from the embedded browser behind every finding, the
+  whole path designed — four states, the keyboard, the words — what the person asked for winning and refinement
+  preserving, verification bounded. Its skills are UI/UX Design, Structured Brainstorming, the
+  Embedded Browser and Drawing; the Developer gains UI/UX Design; the Design team's purpose says
+  what was built is judged on the real page.
+- **A catalog skill's shape refuses a key it does not name.** A reference section written as a TOML
+  table of its own instead of a `## Reference:` heading inside `content` no longer parses to a skill
+  with no sections; the bundle test names the key.
+
+### Fixed
+
+- **The Library's note on skills said *at most five*.** The bundled agents carry at most six — four of
+  their own and the two platform skills, Embedded Browser and Drawing — and the note now says so.
+- **An agent's role prompt never reached its work items.** The system prompt opened conversations
+  and guided wakes alone; a workflow step's first prompt was the step's instructions and nothing of
+  who the agent is, although the architecture notes promised it always rides along. Every work
+  item's first prompt now opens with the agent's role, then the step.
+- **An edited skill loaded twice on Claude Code.** The platform mistook its own stale skill file for
+  yours, left it in place and appended the new text to the prompt, so the harness read the old file
+  natively and the new one appended. The marker tells the two apart now.
+- **`browser_console` lost what a page logged before its load event** — a resource that failed to
+  load, a script's first line — because the page's program forgot its lines at `load`; it keeps them
+  for the life of the document now.
+- **A ref changed numbers between snapshots**: a `browser_snapshot` of one element numbered from
+  `e0` again, so an older ref could point at another element while the tool promised refs hold until
+  the page loads again. An element numbered once keeps its number in every later snapshot of the same
+  document.
+- **`browser_open` on a tab the agent already held ignored `headless`**: `headless: false` never
+  showed a hidden tab although the tool said it asks either way. It shows the tab now; for a tab
+  already open only the agent's own word counts, never the policy's.
+
 ## [0.7.0] - 2026-11-06
 
 ### Security

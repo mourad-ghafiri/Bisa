@@ -14,8 +14,12 @@ export const PROJECT_GIT_KEYS = Object.freeze(["git.default_branch", "git.merge_
 /** About › Settings — *Workstreams*: how this project's checkouts are made and cleaned up (the scripts are their own card). */
 export const PROJECT_WORKSTREAM_KEYS = Object.freeze(["workstreams.cleanup", "workstreams.after_merge"]);
 
-/** The Browser & devices card: where a tab opens, what an agent may do in one, and who may drive a device (ide/18, ide/19). */
-export const PROJECT_BROWSER_KEYS = Object.freeze(["browser.home", "browser.agents", "browser.agents.reach", "browser.agents.headless", "browser.agents.scripts", "mobile_development.agents", "draw.agents"]);
+/**
+ * The Browser & devices card: where a tab opens, what an agent may do in one,
+ * who may drive a device or draw, and who follows the UI/UX Design skill
+ * (ide/18, ide/19, 06 § Skills).
+ */
+export const PROJECT_BROWSER_KEYS = Object.freeze(["browser.home", "browser.agents", "browser.agents.reach", "browser.agents.headless", "browser.agents.scripts", "mobile_development.agents", "draw.agents", "design.agents"]);
 
 /** About — *Editor & terminal*: how files in this project are edited and which harness a terminal opens with. */
 export const PROJECT_EDITOR_KEYS = Object.freeze(["editor.tab_size", "editor.insert_spaces", "editor.word_wrap", "editor.format_on_save", "terminal.default_harness"]);

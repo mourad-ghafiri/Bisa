@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { HOSTS, OFFSTAGE_VIEWPORT, PLACEMENT_TOLERANCE, isShown, offstageRect, placedAsAsked, placementOf, shownTab } from "./browserPlacementModel.mjs";
+import { HOSTS, MAX_FULL_PAGE_HEIGHT, MAX_VIEWPORT, MIN_VIEWPORT, OFFSTAGE_VIEWPORT, PLACEMENT_TOLERANCE, fullPageHeight, isShown, offstageRect, placedAsAsked, placementOf, shownTab, viewportOf } from "./browserPlacementModel.mjs";
 
 const box = { left: 10, top: 20, width: 800, height: 600 };
 const pane = { left: 900, top: 20, width: 380, height: 600 };
@@ -42,6 +42,29 @@ test("a headless tab draws offstage — wholly outside the view, a page's viewpo
   assert.deepEqual(placementOf("b1", { center: slot("b1"), aux: null, mayShow: true, headless: true }), { host: "center", rect: box }, "a host that stands for it — the person revealed it — wins");
   assert.equal(placementOf("b1", { center: null, aux: null, mayShow: true, headless: false }), null, "a seen tab nobody shows is hidden");
   assert.ok(isShown("b1", { center: null, aux: null, mayShow: true, headless: true }), "a screenshot of a headless tab is taken where it renders");
+});
+
+test("an out-of-sight tab draws offstage at its own viewport and never a pixel on screen; a viewport is whole pixels within the shot's bounds; a full page grows to the document, capped", () => {
+  const phone = { width: 390, height: 844 };
+  assert.deepEqual(placementOf("b1", { center: null, aux: null, mayShow: true, headless: true, viewport: phone }), { host: "offstage", rect: { left: -454, top: -908, width: 390, height: 844 } });
+  const off = offstageRect(phone);
+  assert.ok(off.left + off.width < 0 && off.top + off.height < 0, "never a pixel on screen");
+  assert.deepEqual(placementOf("b1", { center: null, aux: null, mayShow: true, headless: true, viewport: null }), { host: "offstage", rect: offstageRect() }, "no viewport of its own: a desktop page's");
+  assert.deepEqual(placementOf("b1", { center: slot("b1"), aux: null, mayShow: true, headless: true, viewport: phone }), { host: "center", rect: box }, "a host that stands for it wins, whatever viewport it had out of sight");
+  assert.deepEqual([MIN_VIEWPORT, MAX_VIEWPORT], [320, 4096], "the shot's bounds, so the shell never re-clamps an emulated width");
+  assert.deepEqual(viewportOf(390, 844), phone);
+  assert.deepEqual(viewportOf(4096, 320), { width: 4096, height: 320 });
+  assert.equal(viewportOf(319, 800), null, "narrower than a shot may be");
+  assert.equal(viewportOf(1280, 4097), null, "taller than a shot may be");
+  assert.equal(viewportOf(1280.5, 800), null, "whole pixels");
+  assert.equal(viewportOf("390", 844), null, "numbers, not words");
+  assert.equal(viewportOf(390, undefined), null, "both or nothing");
+  assert.equal(MAX_FULL_PAGE_HEIGHT, 8192);
+  assert.equal(fullPageHeight(4800, { width: 1280, height: 800 }), 4800, "the document's height");
+  assert.equal(fullPageHeight(300, { width: 1280, height: 800 }), 800, "never shorter than the viewport");
+  assert.equal(fullPageHeight(20000, { width: 1280, height: 800 }), MAX_FULL_PAGE_HEIGHT, "capped");
+  assert.equal(fullPageHeight(null, { width: 390, height: 844 }), 844, "no height known: the viewport");
+  assert.equal(fullPageHeight(1200.6, { width: 390, height: 844 }), 1201);
 });
 
 test("a placement is as asked when the box read back sits within a pixel of it and shows; a hidden or strayed box is not", () => {

@@ -5,8 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { EMPTY_BROWSERS, PERSON, openBrowser, titled } from "./browsersModel.mjs";
-import { ANSWER_MS, DEFAULT_WAIT_MS, LOAD_LATE, LOAD_MS, MAX_WAIT_MS, NAVIGATE_GRACE_MS, NAVIGATING, NOT_SHOWN, PAGE_SILENT, PLACEHOLDER_ID, PRESENCE_LAPSE_AFTER, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, presenceLapsed, navigatedResult, planRequest, revealPlan, rootFor, screenshotResult, tabResult, tabsResult, waitBound, wireResult } from "./browserBridgeModel.mjs";
+import { EMPTY_BROWSERS, PERSON, byAgent, openBrowser, titled } from "./browsersModel.mjs";
+import { ANSWER_MS, DEFAULT_WAIT_MS, LOAD_LATE, LOAD_MS, MAX_WAIT_MS, MEASURE_MS, MEASURE_POLL_MS, NAVIGATE_GRACE_MS, NAVIGATING, NOT_SHOWN, PAGE_SILENT, PLACEHOLDER_ID, PRESENCE_LAPSE_AFTER, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, emulateResult, presenceLapsed, navigatedResult, planRequest, revealPlan, rootFor, screenshotResult, tabResult, tabsResult, waitBound, wireResult } from "./browserBridgeModel.mjs";
 
 const here = { scope: "workstream", id: "w9" };
 let state = openBrowser(EMPTY_BROWSERS, { by: PERSON, home: { scope: "workstream", id: "w1" }, url: "http://localhost:5173/" });
@@ -98,9 +98,45 @@ test("a wait for the load is the bridge's own, bounded; a wait for an element, s
   assert.match(LOAD_LATE, /still loading/);
 });
 
+test("browser_open on a tab the agent holds carries its own word on sight and nothing else; a new tab takes the engine's", () => {
+  const into = (request, engine = false) => planRequest({ action: "open", url: "http://localhost:5173/pricing", ...request }, {}, state, here, engine);
+  assert.equal(into({ tab: "b1", headless: false }).headless, false, "headless: false on a held tab shows it");
+  assert.equal(into({ tab: "b1", headless: true }).headless, true, "headless: true on a held tab puts it out of sight");
+  assert.equal(into({ tab: "b1" }).headless, null, "nothing said: nothing changes");
+  assert.equal(into({ tab: "b1" }, true).headless, null, "the policy's word is for a tab this request opens, never for one already open");
+  assert.equal(into({}, true).headless, true, "a new tab: the engine's word");
+  assert.equal(into({ headless: false }, true).headless, true, "… which the request does not override here — the engine already weighed the agent's ask");
+});
+
+test("an emulation takes a viewport only for a tab out of sight and a scheme for any tab; a full-page shot is of a tab out of sight", () => {
+  const hidden = openBrowser(state, { by: byAgent("designer"), home: { scope: "goal", id: "g1" }, url: "http://localhost:5173/", headless: true });
+  const plan = (request) => planRequest({ action: "emulate", ...request }, {}, hidden, here);
+  assert.match(plan({ tab: "b1", width: 390, height: 844 }).error, /shown to the person/, "a seen tab's box is the person's");
+  assert.deepEqual(plan({ tab: "b4", width: 390, height: 844 }), { kind: "emulate", key: "b4", viewport: { width: 390, height: 844 }, scheme: null });
+  assert.deepEqual(plan({ tab: "b1", scheme: "dark" }), { kind: "emulate", key: "b1", viewport: null, scheme: "dark" }, "a scheme for any tab");
+  assert.deepEqual(plan({ tab: "b4", width: 1440, height: 900, scheme: "light" }), { kind: "emulate", key: "b4", viewport: { width: 1440, height: 900 }, scheme: "light" });
+  assert.match(plan({ tab: "b1", scheme: "sepia" }).error, /light, dark or system/);
+  assert.match(plan({ tab: "b4", width: 100, height: 800 }).error, /320/, "within the shot's bounds");
+  assert.match(plan({ tab: "b4", width: 390 }).error, /320/, "a width alone is no viewport");
+  assert.match(plan({ tab: "b4" }).error, /needs a viewport/);
+  assert.equal(plan({ tab: "b3", scheme: "dark" }).kind, "emulate", "a blank tab takes a scheme — there is no page to ask");
+  assert.match(plan({ tab: "b9", scheme: "dark" }).error, /no tab b9/);
+  assert.match(plan({ scheme: "dark" }).error, /name a tab/);
+  assert.match(planRequest({ action: "screenshot", tab: "b1", full_page: true }, {}, hidden, here).error, /full-page screenshot is of a tab kept out of sight/);
+  assert.deepEqual(planRequest({ action: "screenshot", tab: "b4", full_page: true }, {}, hidden, here), { kind: "screenshot", key: "b4", fullPage: true });
+  assert.deepEqual(planRequest({ action: "screenshot", tab: "b4" }, {}, hidden, here), { kind: "screenshot", key: "b4", fullPage: false });
+  // The answer, and the wire: the viewport and the scheme ride by their own keys, and nothing malformed does.
+  const tab = hidden.sessions[3];
+  assert.deepEqual(emulateResult(tab, { width: 390, height: 844 }, "dark"), { ok: true, tab: "b4", url: "http://localhost:5173/", title: "", viewport: { width: 390, height: 844 }, scheme: "dark" });
+  assert.deepEqual(emulateResult(tab, null, "system"), { ok: true, tab: "b4", url: "http://localhost:5173/", title: "", scheme: "system" }, "no viewport measured: none said");
+  assert.deepEqual(wireResult({ ...emulateResult(tab, { width: 390, height: 844 }, "dark"), tabs: [] }), { ok: true, tab: "b4", url: "http://localhost:5173/", title: "", viewport: { width: 390, height: 844 }, scheme: "dark" });
+  assert.deepEqual(wireResult({ ok: true, tab: "b4", viewport: { width: 1.5, height: 844 }, scheme: "sepia" }), { ok: true, tab: "b4" }, "a fraction is no viewport, a word off the list no scheme");
+  assert.deepEqual(wireResult({ ok: true, tab: "b4", viewport: { width: 0, height: 844 } }), { ok: true, tab: "b4" }, "a zero is no width");
+});
+
 test("a screenshot is of a tab with a page, on any page; the tab is shown in the IDE when it is on the tab's home and its centre shows documents, else in the pane", () => {
-  assert.deepEqual(planRequest({ action: "screenshot", tab: "b1" }, {}, state, here), { kind: "screenshot", key: "b1" });
-  assert.deepEqual(planRequest({ action: "screenshot", tab: "b2" }, {}, state, here), { kind: "screenshot", key: "b2" }, "the web too: pixels need no door into the page");
+  assert.deepEqual(planRequest({ action: "screenshot", tab: "b1" }, {}, state, here), { kind: "screenshot", key: "b1", fullPage: false });
+  assert.deepEqual(planRequest({ action: "screenshot", tab: "b2" }, {}, state, here), { kind: "screenshot", key: "b2", fullPage: false }, "the web too: pixels need no door into the page");
   assert.match(planRequest({ action: "screenshot", tab: "b3" }, {}, state, here).error, /no page yet/);
   assert.match(planRequest({ action: "screenshot" }, {}, state, here).error, /name a tab/);
   assert.match(planRequest({ action: "screenshot", tab: "b9" }, {}, state, here).error, /no tab b9/);
@@ -215,6 +251,7 @@ test("an act that may move the page: a move wins over any answer, and past the g
   assert.deepEqual(driveOutcome({ asked: null, started: false, movedLate: false }), { kind: "silent" }, "nothing asked and nothing moved is silence, never a throw");
   assert.ok(WAIT_ANSWER_MS > MAX_WAIT_MS, "a wait the agent may ask for at its longest is still answered");
   assert.ok(NAVIGATE_GRACE_MS < ANSWER_MS && ANSWER_MS <= LOAD_MS, "the grace is short; a load is the longest wait");
+  assert.ok(MEASURE_POLL_MS < MEASURE_MS && MEASURE_MS < ANSWER_MS, "a tab out of sight renders at its viewport within a couple of seconds, polled often");
 });
 
 test("a gone tab and a silent page are two sentences, each saying what to do", () => {

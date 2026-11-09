@@ -664,6 +664,7 @@ error-store-invalid-cannot-address-not-pubkey-agent-id-team = cannot address { $
 error-store-invalid-cannot-address-team-disabled = cannot address { $token }: that team is disabled
 error-store-invalid-cannot-be-used-as-file-name = { $what } { $s } cannot be used as a file name: { $why }
 error-store-invalid-cannot-install-workspace-already-has-with-id = cannot install { $kind } { $slug }: this workspace already has a { $kind }  with that id, and it is { $holder }. Remove or rename it first.
+error-store-invalid-catalog-kind-cannot-be-updated = cannot update { $kind } { $slug } from the catalog: only a skill, an agent or a team is restated to the catalog's definition; a { $kind } is installed once and is then yours.
 error-store-invalid-cannot-rename-project-here-folder-must-move = cannot rename project { $a0 } -> { $a1 } here: the folder must move first
 error-store-invalid-cannot-reply-not-message-conversation = cannot reply to { $parent }: it is not a message in this conversation
 error-store-invalid-catalog-agent = catalog agent { $slug }: { $e }

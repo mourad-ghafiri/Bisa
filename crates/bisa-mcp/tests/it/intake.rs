@@ -520,6 +520,13 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         // words: the shapes are the engine's (`intake.rs`), the words the
         // server's.
         Some("note_read") => json!({"ok": true, "title": "Plan", "body": "# Plan\n", "hash": "n1"}),
+        Some("skill_read") => {
+            if req["section"].is_string() {
+                json!({"ok": true, "skill": "ui-ux-design", "name": "UI/UX Design", "section": {"slug": "craft-floor", "title": "Craft floor", "markdown": "Contrast 4.5:1."}})
+            } else {
+                json!({"ok": true, "skill": "ui-ux-design", "name": "UI/UX Design", "description": "Use when work changes a screen.", "body": "# UI/UX Design\n\nLook first.", "sections": [{"slug": "craft-floor", "title": "Craft floor"}, {"slug": "modes-in-depth", "title": "Modes in depth"}]})
+            }
+        }
         Some("note_append") => json!({"ok": true, "title": "Plan"}),
         Some("note_write") => {
             if req["base_hash"] == "same" {
@@ -1890,8 +1897,11 @@ fn plain_arguments_for(name: &str, core: bool, conversation: bool) -> Option<Val
         "browser_wait" => {
             json!({"tab": tab, "until": "text", "target": "#x", "query": "done", "timeout_ms": 10})
         }
-        "browser_back" | "browser_forward" | "browser_reload" | "browser_close"
-        | "browser_screenshot" => json!({"tab": tab}),
+        "browser_back" | "browser_forward" | "browser_reload" | "browser_close" => {
+            json!({"tab": tab})
+        }
+        "browser_screenshot" => json!({"tab": tab, "full_page": true}),
+        "browser_emulate" => json!({"tab": tab, "width": 390, "height": 844, "scheme": "dark"}),
         "browser_console" => json!({"tab": tab, "clear": true}),
         "browser_eval" => json!({"tab": tab, "expression": "1+1"}),
         "drawing_list" => json!({"scope": "goal", "id": GOAL}),
@@ -1924,6 +1934,7 @@ fn plain_arguments_for(name: &str, core: bool, conversation: bool) -> Option<Val
             json!({"slug": "web", "name": "Web", "assignees": ["agent:developer"]})
         }
         "note_read" => json!({"note": "01NOTE"}),
+        "skill_read" => json!({"skill": "ui-ux-design", "section": "craft-floor"}),
         "note_append" => json!({"text": "more", "note": "01NOTE"}),
         "note_write" => json!({"text": "all", "base_hash": "n1", "note": "01NOTE"}),
         "review_notes_list" => json!({"project": "01P", "include_resolved": true}),
@@ -2288,6 +2299,25 @@ async fn the_tool_core_refuses_at_its_own_edges_and_words_what_it_reads() {
     assert!(unchanged.contains("Nothing changed"), "{unchanged}");
     let read = worker.note_read(Some("01NOTE")).await.unwrap();
     assert!(read.starts_with("# Plan\nhash: n1"), "{read}");
+    // Skills: the body with its sections named — the index line a prompt
+    // carries, word for word — or one section under its own heading.
+    let whole = worker.skill_read("ui-ux-design", None).await.unwrap();
+    assert!(
+        whole.starts_with(
+            "# UI/UX Design\n_Use when work changes a screen._\n\n# UI/UX Design\n\nLook first."
+        ),
+        "{whole}"
+    );
+    assert!(
+        whole.ends_with("Reference sections, read with skill_read: craft-floor · modes-in-depth"),
+        "{whole}"
+    );
+    let one = worker
+        .skill_read("ui-ux-design", Some("craft-floor"))
+        .await
+        .unwrap();
+    assert_eq!(one, "# UI/UX Design — Craft floor\n\nContrast 4.5:1.");
+    assert!(refusal(worker.skill_read("refuse me", None).await).contains("refused on purpose"));
     let appended = worker.note_append(Some("01NOTE"), "more").await.unwrap();
     assert!(appended.contains("Appended"), "{appended}");
     let none = worker.review_notes_list(None, false).await.unwrap();

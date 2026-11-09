@@ -196,7 +196,7 @@ chips a person can remove:
 | the prompt says | *This project is attached to 2 goals: Dark mode, SSO rollout. You are not running a work item for any of them, so no workflow step is judging this session and no result is owed here.* | *This project is not attached to any goal.* — and nothing more about goals |
 | a judging step, an owed result | **explicitly stated as absent** | not mentioned |
 | tool tier | the conversation's mode ceiling (manual `Write` · auto `Exec` · plan `Read`) | same |
-| skills | as files in a managed root; **as an appendix in an adopted root** | same |
+| skills | native files in the platform's own folder for Claude Code; **an appendix in any checkout, adopted or cloned** — the body and an index of its reference sections where the harness mounts the platform's servers (`skill_read` opens one), the whole text where it cannot | same |
 | placement | the project tree, or the active workstream | same |
 | always | system prompt, skills, MCP servers, model plan, signing keys, what kind of directory it is in | same |
 

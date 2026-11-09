@@ -302,8 +302,12 @@ the envelope names the workflow and the Inbox and the feed file the run's facts 
    fitted to what the harness takes for it (`effort::fitted`); an empty list sends nothing
    ([06 § Effort](06-agents-and-teams.md#effort)).
 7. `build_session_spec` injects the MCP server (`bisa mcp --socket … --work-item <id>`) and
-   materialises skills (`crates/bisa-harness/src/skills.rs`); `record_run_event(StepStarted {
-   step, work_item })`.
+   resolves the agent's skills (dropping the UI/UX Design skill under `design.agents = nobody`);
+   `resolve_and_launch` materialises them per harness (`crates/bisa-harness/src/skills.rs`: native
+   files in the platform's own folder for Claude Code, an appendix elsewhere — the body and an index
+   of the reference sections where the harness mounts the platform's servers, the whole text where
+   it cannot); the first prompt opens with the agent's role (`framing::role_block`);
+   `record_run_event(StepStarted { step, work_item })`.
 8. `drive_session` consumes `SessionEvent`s, re-broadcast as `EnginePayload::Session`; every
    prompt went out through `security::RedactedSession`, so a secret the rules recognise reached the
    harness as a placeholder. A permission request goes to `inputs::decide`: the Tool & Commands

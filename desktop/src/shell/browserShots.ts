@@ -18,8 +18,10 @@ import type { AttachmentRef } from "../types";
 import { screenshotBrowserView } from "../browser/session";
 import { copyImage } from "../ui/clipboard";
 import { browserPrefs } from "./browserPrefsStore";
-import { CLIPBOARD_REFUSED, NOT_SHOWN_WORDS, pngSize, shotName } from "./browserShotModel.mjs";
+import { CLIPBOARD_REFUSED, NOT_SHOWN_WORDS, pngSize, shotName, shotWidthFor } from "./browserShotModel.mjs";
 import { untilShown } from "./browserShown";
+import { sessionOf } from "./browsersModel.mjs";
+import { browserState } from "./useBrowsers";
 
 export interface Shot {
   readonly bytes: Uint8Array;
@@ -39,11 +41,11 @@ export class NotShownError extends Error {
   }
 }
 
-/** Snapshot a tab at the workspace's width, once it shows; {@link NotShownError} when it does not. */
+/** Snapshot a tab once it shows — at the workspace's width, or at its own for a tab out of sight with a viewport of its own (`shotWidthFor`); {@link NotShownError} when it does not show. */
 export async function takeShot(key: string): Promise<Shot> {
   if (!(await untilShown(key))) throw new NotShownError();
   const bytes = await Promise.race([
-    screenshotBrowserView(key, browserPrefs().shotWidth),
+    screenshotBrowserView(key, shotWidthFor(sessionOf(browserState(), key), browserPrefs().shotWidth)),
     new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("the snapshot took too long")), SHOT_MS)),
   ]);
   const size = pngSize(bytes);

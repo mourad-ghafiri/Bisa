@@ -87,6 +87,21 @@ export const BROWSER_SCOPES = Object.freeze(["workstream", "goal", "work_item", 
 /** A new tab with nothing typed yet. */
 export const BLANK_URL = "about:blank";
 
+/** The colour schemes a tab's page may be shown under: the page's `prefers-color-scheme` follows the webview's appearance (ide/18 §Emulation). `system` is the window's own. */
+export const SCHEMES = Object.freeze(["light", "dark", "system"]);
+export const DEFAULT_SCHEME = "system";
+
+/**
+ * Whether two viewports are one — by value, since a viewport is an object
+ * and the store's `patch` compares by identity; none and none are one too.
+ * @param {{width: number, height: number} | null | undefined} a
+ * @param {{width: number, height: number} | null | undefined} b
+ */
+export function sameViewport(a, b) {
+  if (a == null || b == null) return a == null && b == null;
+  return a.width === b.width && a.height === b.height;
+}
+
 export const EMPTY_BROWSERS = Object.freeze({ sessions: Object.freeze([]), active: null, seq: 0 });
 
 /**
@@ -173,17 +188,56 @@ export function openBrowser(state, target) {
     canForward: false,
     headless: !!headless,
     pane,
+    // An agent's emulation (ide/18 §Emulation): the box a tab kept out of sight renders in, when it chose one, and the scheme its page is shown under.
+    viewport: null,
+    scheme: DEFAULT_SCHEME,
   };
   // A tab kept out of sight takes no host from the one a person is looking at.
   return { sessions: [...state.sessions, session], active: headless ? state.active : session.key, seq: state.seq + 1 };
 }
 
-/** Bring a tab kept out of sight into view: it takes a host from now on, and comes to the front. */
+/** Bring a tab kept out of sight into view: it takes a host from now on — the host's box, not a viewport of its own — and comes to the front. */
 export function reveal(state, key) {
   const s = sessionOf(state, key);
   if (!s) return state;
-  const next = s.headless ? patch(state, key, { headless: false }) : state;
+  const next = s.headless ? patch(state, key, { headless: false, viewport: null }) : state;
   return focusBrowser(next, key);
+}
+
+/**
+ * Put a seen tab out of sight — an agent's `browser_open` with `headless:
+ * true` on a tab it holds, the reverse of {@link reveal}: no host draws it
+ * from now on, and the active tab falls to a seen neighbour — the right one,
+ * then the left — or to nothing.
+ */
+export function conceal(state, key) {
+  const idx = state.sessions.findIndex((s) => s.key === key);
+  if (idx === -1 || state.sessions[idx].headless) return state;
+  const next = patch(state, key, { headless: true });
+  if (next.active !== key) return next;
+  const seen = (s) => !s.headless;
+  const neighbour = next.sessions.slice(idx + 1).find(seen) ?? next.sessions.slice(0, idx).reverse().find(seen) ?? null;
+  return { ...next, active: neighbour ? neighbour.key : null };
+}
+
+/**
+ * An agent emulated a device on a tab (ide/18 §Emulation): a viewport —
+ * the box a tab kept out of sight renders in — and a colour scheme its page
+ * is shown under. Either alone; the other stays. A word off the schemes'
+ * list is no scheme. Whether a viewport may be given to a seen tab is the
+ * bridge's word (the pane's size is the person's); the store keeps what it
+ * is told.
+ * @param {{sessions: readonly object[], active: string | null, seq: number}} state
+ * @param {string} key
+ * @param {{viewport?: {width: number, height: number} | null, scheme?: string}} facts
+ */
+export function emulated(state, key, facts = {}) {
+  const s = sessionOf(state, key);
+  if (!s) return state;
+  const fields = {};
+  if (facts.viewport !== undefined && !sameViewport(s.viewport, facts.viewport)) fields.viewport = facts.viewport ? { width: facts.viewport.width, height: facts.viewport.height } : null;
+  if (facts.scheme !== undefined && SCHEMES.includes(facts.scheme) && facts.scheme !== s.scheme) fields.scheme = facts.scheme;
+  return Object.keys(fields).length ? patch(state, key, fields) : state;
 }
 
 /** The tabs a person can look at: the ones not kept out of sight. @param {readonly object[]} sessions */
@@ -339,9 +393,11 @@ export function parseBrowsers(raw) {
       loading: false,
       canBack: false,
       canForward: false,
-      // Only a tab in sight is ever remembered.
+      // Only a tab in sight is ever remembered — so never a viewport of its own; a scheme is a webview's for its life, and a restart opens a new one.
       headless: false,
       pane: typeof s.pane === "string" ? s.pane : null,
+      viewport: null,
+      scheme: DEFAULT_SCHEME,
     }));
   const seq = Math.max(Number(r.seq) || 0, ...sessions.map((s) => Number(s.key.slice(1)) || 0));
   const active = sessions.some((s) => s.key === r.active) ? String(r.active) : (sessions.at(-1)?.key ?? null);

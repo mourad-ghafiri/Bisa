@@ -25,7 +25,10 @@ test("the five cards and the two hand-written editors together cover every proje
   assert.ok(PROJECT_GIT_KEYS.every((k) => k.startsWith("git.")));
   assert.ok(PROJECT_WORKSTREAM_KEYS.every((k) => k.startsWith("workstreams.") && !k.startsWith("workstreams.script.")), "the scripts have their own card");
   assert.ok(PROJECT_EDITOR_KEYS.every((k) => k.startsWith("editor.") || k === "terminal.default_harness"));
-  assert.ok(PROJECT_BROWSER_KEYS.every((k) => k.startsWith("browser.") || k === "mobile_development.agents" || k === "draw.agents"), "the browser card takes the browser keys, who may drive a device and who may draw");
+  assert.ok(
+    PROJECT_BROWSER_KEYS.every((k) => k.startsWith("browser.") || k === "mobile_development.agents" || k === "draw.agents" || k === "design.agents"),
+    "the browser card takes the browser keys, who may drive a device, who may draw and who follows the design skill",
+  );
   assert.ok(PROJECT_KEYS_ELSEWHERE.includes("workstreams.script.run"), "the run command is the scripts card's fourth text");
   assert.ok(PROJECT_AGENT_KEYS.every((k) => k.startsWith("agents.") || k.startsWith("decisions.")), "the agents card takes how agents start and what the Decision-Making Agent decides");
   assert.deepEqual(PROJECT_AGENT_KEYS.slice(0, 2), ["agents.conversation.mode", "agents.effort"], "how hard a model works sits beside the other agent key");

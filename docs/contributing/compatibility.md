@@ -45,7 +45,14 @@ Two consequences that surprise people:
   a built-in addon, refreshed to the release's version when the workspace opens
   ([18 — Addons](../architecture/18-addons.md)), and the two core agents, whose shipped description,
   prompt and respond policy the store restates at every open, their harness, plan, switch and key kept
-  ([06 — Agents and teams](../architecture/06-agents-and-teams.md)).
+  ([06 — Agents and teams](../architecture/06-agents-and-teams.md)). And, when a person asks —
+  *Update from the catalog* in Settings › Library, `bisa catalog install <kind> <slug> --update`,
+  `POST /catalog/install` with `update: true` — one installed skill, agent or team is restated to the
+  build's definition: the person's edits of that one definition's words are replaced (a skill's
+  name, description, tags and markdown; an agent's name, description, prompt, tags, respond policy
+  and the catalog's skills; a team's name, purpose, tags and agents), and its harness, plan, MCP
+  servers, keys, photo, switch and the people on a team are kept. The listing says when a copy differs
+  (`installed_differs`), so nobody is asked to replace what already matches.
 
 ## Deprecating something
 

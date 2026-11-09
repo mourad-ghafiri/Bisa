@@ -566,6 +566,7 @@ fn main() {
             browser::browser_bounds,
             browser::browser_close,
             browser::browser_screenshot,
+            browser::browser_appearance,
             browser::browser_drive,
             browser::browser_clear,
             browser::browser_focus_main,

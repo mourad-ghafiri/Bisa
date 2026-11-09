@@ -30,7 +30,7 @@ browser in its place.
 |---|---|
 | `browser_open` | open an http(s) URL in a new tab, or navigate a tab you name; answers the tab's key, URL and title once it has loaded. `headless: true` keeps the tab out of sight, `headless: false` shows it; left out, the workspace decides |
 | `browser_tabs` | the open tabs: key, URL, title |
-| `browser_snapshot` | the page's outline as a person sees it — every heading, link, button, field, select, checkbox and menu item, one line each with a **ref** (`e12 button "Sign in"`, `e13 textbox "Email" value="…"`, `e14 link "Pricing" → /pricing`, `[disabled]`, `[checked]`); `target` outlines one element, `all` adds every element with text. Refs hold until the page loads again |
+| `browser_snapshot` | the page's outline as a person sees it — every heading, link, button, field, select, checkbox and menu item, one line each with a **ref** (`e12 button "Sign in"`, `e13 textbox "Email" value="…"`, `e14 link "Pricing" → /pricing`, `[disabled]`, `[checked]`); `target` outlines one element, `all` adds every element with text. A ref holds for the document that gave it, whatever you snapshot next; a navigation hands out new ones |
 | `browser_read` | a tab's URL, title and text — the page, or the element `target` names, as `text` or `html`; with a target, its role, name and attributes first; cut at 16 KiB |
 | `browser_find` | the matches of some words in the page, each with its surroundings and the selector holding it |
 | `browser_click` | click the element `target` names — a ref or a CSS selector; a click that moves the page waits for the new page and says `navigated` |
@@ -44,7 +44,8 @@ browser in its place.
 | `browser_back` · `browser_forward` · `browser_reload` | the tab's own history, each answered once the page has loaded |
 | `browser_console` | what the page logged and the errors it raised since it loaded — the newest hundred lines; `clear` forgets them |
 | `browser_eval` | evaluate a JavaScript expression in the page and read its value as JSON — a store, a data attribute, a computed style; the workspace may refuse scripts (`browser.agents.scripts`), and the refusal says so |
-| `browser_screenshot` | a PNG of the tab as it renders, on any page, out of sight or not; answers the file's path — read the file to see the page |
+| `browser_screenshot` | a PNG of the tab as it renders, on any page, out of sight or not; answers the file's path — read the file to see the page. `full_page: true` takes the whole page of a tab kept out of sight: its box grows to the document (8192 px tall at most) for the shot and shrinks back after; a shown tab's size is the person's, so a full page of one is refused in a sentence |
+| `browser_emulate` | see the page the way a device shows it: a viewport — `width` and `height` in CSS pixels, 320 to 4096 — for a tab kept out of sight, whose box becomes that size (a shown tab's size is the person's pane), and a `scheme` — `light`, `dark` or `system` — for any tab, the appearance the page's prefers-color-scheme follows; either alone, or both. Answers the viewport the page measured and the scheme; then screenshot or snapshot to look. 390×844 is a phone, 768×1024 a tablet, 1440×900 a desktop |
 | `browser_close` | close a tab |
 | `browser_serve` | serve a folder of your checkout — the checkout itself when you name none — on a loopback port of this machine through the platform's own static server, and answer the URL to `browser_open`; a page on disk never opens by path |
 
@@ -84,8 +85,11 @@ end-to-end suite is the person's to run; asked, they decide.
 In a goal in auto mode your tabs are headless by policy (`browser.agents.headless`): nobody is
 watching, so nothing opens beside anyone, and every tool — the screenshot too — works as it does on
 a shown tab. Ask `headless: false` only when a person should watch the page, and say so; ask
-`headless: true` in a conversation when the person need not see what you look at. The person can
-show any headless tab from the footer's Browser count.
+`headless: true` in a conversation when the person need not see what you look at — on a tab you
+already hold, `browser_open` with either word shows it or puts it out of sight. The person can
+show any headless tab from the footer's Browser count. A tab out of sight is also the one that takes
+a viewport of your choosing and a full-page screenshot (`browser_emulate`, `browser_screenshot`
+with `full_page: true`): a shown tab is the size of the pane the person gave it.
 
 ## What you must not do
 

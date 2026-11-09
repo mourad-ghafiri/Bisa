@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { BLANK_URL, BROWSER_SCOPES, BROWSER_SESSIONS_KEY, EMPTY_BROWSERS, OPENERS, PERSON, asked, atHome, browserLabel, browserTitle, browsersRootedAt, closeAll, closeBrowser, draftScopeOf, focusBrowser, byAgent, byPage, homeOf, navigated, normalizeUrl, openBrowser, openerOf, openerWords, parseBrowsers, reveal, seenRootedAt, seenSessions, serializeBrowsers, sessionOf, titled, urlWords, visibilityWords,
+import { BLANK_URL, BROWSER_SCOPES, BROWSER_SESSIONS_KEY, DEFAULT_SCHEME, EMPTY_BROWSERS, OPENERS, PERSON, SCHEMES, asked, atHome, browserLabel, browserTitle, browsersRootedAt, closeAll, closeBrowser, conceal, draftScopeOf, emulated, focusBrowser, byAgent, byPage, homeOf, navigated, normalizeUrl, openBrowser, openerOf, openerWords, parseBrowsers, reveal, sameViewport, seenRootedAt, seenSessions, serializeBrowsers, sessionOf, titled, urlWords, visibilityWords,
   workbenchHomeOf,
 } from "./browsersModel.mjs";
 
@@ -112,6 +112,43 @@ test("a headless tab opens out of sight — not active, not seen — until it is
   assert.deepEqual(raw.sessions.map((x) => x.key), ["b1", "b2"], "only the tabs a person can look at are remembered");
   assert.ok(parseBrowsers(raw).sessions.every((x) => x.headless === false), "and what is remembered is in sight");
   assert.equal(parseBrowsers(raw).seq, 3, "the unseen tab's key is never minted again");
+});
+
+test("a tab out of sight takes a viewport and a scheme, drops the viewport when revealed, keeps the scheme, and a seen tab can be put out of sight", () => {
+  assert.deepEqual([...SCHEMES], ["light", "dark", "system"]);
+  assert.equal(DEFAULT_SCHEME, "system");
+  let s = openBrowser(EMPTY_BROWSERS, { by: PERSON, home: { scope: "goal", id: "g1" }, url: "http://localhost:5173/" });
+  s = openBrowser(s, { by: byAgent("designer"), home: { scope: "goal", id: "g1" }, url: "http://localhost:5173/admin", headless: true });
+  assert.deepEqual([sessionOf(s, "b2").viewport, sessionOf(s, "b2").scheme], [null, "system"], "a tab is born with no viewport of its own and the system's scheme");
+  s = emulated(s, "b2", { viewport: { width: 390, height: 844 } });
+  assert.deepEqual(sessionOf(s, "b2").viewport, { width: 390, height: 844 });
+  assert.equal(emulated(s, "b2", { viewport: { width: 390, height: 844 } }), s, "the same viewport again is no change — compared by value, never by identity");
+  assert.equal(sessionOf(s, "b2").scheme, "system", "a viewport alone leaves the scheme");
+  s = emulated(s, "b2", { scheme: "dark" });
+  assert.equal(sessionOf(s, "b2").scheme, "dark");
+  assert.deepEqual(sessionOf(s, "b2").viewport, { width: 390, height: 844 }, "a scheme alone leaves the viewport");
+  assert.equal(emulated(s, "b2", { scheme: "sepia" }), s, "a word off the list is no scheme");
+  assert.equal(emulated(s, "b2", {}), s);
+  assert.equal(emulated(s, "nope", { scheme: "light" }), s);
+  assert.ok(sameViewport({ width: 390, height: 844 }, { width: 390, height: 844 }));
+  assert.ok(sameViewport(null, undefined), "none is none");
+  assert.ok(!sameViewport({ width: 390, height: 844 }, { width: 390, height: 800 }));
+  assert.ok(!sameViewport(null, { width: 390, height: 844 }));
+  s = reveal(s, "b2");
+  assert.deepEqual([sessionOf(s, "b2").headless, sessionOf(s, "b2").viewport, sessionOf(s, "b2").scheme], [false, null, "dark"], "revealed: the host's box is its box, the scheme stays the webview's");
+  // The reverse door: a seen tab put out of sight, the active one falling to a seen neighbour.
+  s = focusBrowser(s, "b2");
+  s = conceal(s, "b2");
+  assert.ok(sessionOf(s, "b2").headless);
+  assert.equal(s.active, "b1", "the active tab falls to a seen neighbour");
+  assert.equal(conceal(s, "b2"), s, "already out of sight is no change");
+  assert.equal(conceal(s, "nope"), s);
+  const alone = conceal(openBrowser(EMPTY_BROWSERS, { by: PERSON, url: "http://x/" }), "b1");
+  assert.equal(alone.active, null, "no seen tab left, nothing active");
+  // Neither fact is remembered: a viewport belongs to a tab out of sight, which is never remembered, and a scheme to a webview that ends with the window.
+  const raw = JSON.parse(JSON.stringify(serializeBrowsers(emulated(reveal(s, "b2"), "b2", { scheme: "light" }))));
+  assert.ok(raw.sessions.every((x) => !("viewport" in x) && !("scheme" in x)));
+  assert.ok(parseBrowsers(raw).sessions.every((x) => x.viewport === null && x.scheme === "system"));
 });
 
 test("what is remembered survives a round trip and a wrong shape reads as nothing", () => {

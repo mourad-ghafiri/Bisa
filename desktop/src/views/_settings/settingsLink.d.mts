@@ -32,6 +32,7 @@ export type SettingsTab =
   | "network"
   | "browser"
   | "mobile-development"
+  | "design"
   | "security-redactor"
   | "security-guard"
   | "security-classifier"

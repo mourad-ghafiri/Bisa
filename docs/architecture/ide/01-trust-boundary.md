@@ -189,7 +189,10 @@ edits through the IDE, and an agent session the person launched there, are the p
 consequences are enforced rather than hoped for:
 
 1. **Skills are delivered as a prompt appendix, never as files**, when a session's placement is an
-   adopted root. The materialiser checks the root kind, not the harness.
+   adopted root. The materialiser checks the root kind, not the harness. Where the platform does
+   write a skill file — its own scratch, for Claude Code — the file carries the platform's marker in
+   its front matter (`metadata`: `bisa-skill`, `bisa-hash`), so a stale copy of ours is rewritten at
+   the next launch, a file a person wrote or edited is never touched, and nothing is ever deleted.
 2. **Recovery refs** (`refs/bisa/safety/*`, [04](04-git.md)) are written into a repository's
    own `.git` only by a human-consented operation, are listed in the UI, and are pruned only by a
    human running a `just` target.

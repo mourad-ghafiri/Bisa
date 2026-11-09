@@ -403,12 +403,13 @@ const WIRE_WORDS: &[&str] = &[
     "starts_failing", // its default word
     "by_x",           // `browser_scroll`'s two pixel offsets, named in the browser skill
     "by_y",
-    "output_schema",      // a step's result schema, when quoted in prose
+    "full_page", // `browser_screenshot`'s whole-page switch, named in the browser skill
+    "output_schema", // a step's result schema, when quoted in prose
     "statement_template", // a spawn step's field
-    "for_each",           // the loop step kind
-    "max_iterations",     // a loop step's bound
+    "for_each",  // the loop step kind
+    "max_iterations", // a loop step's bound
     "mobile_development", // a settings group, quoted as `mobile_development.agents`
-    "pull_request",       // a project change the Workflow Agent names
+    "pull_request", // a project change the Workflow Agent names
 ];
 
 fn snake_tokens(text: &str) -> Vec<String> {
@@ -471,4 +472,243 @@ fn every_snake_case_word_in_the_catalog_prose_is_a_real_tool() {
         "prose names something that is not a tool — rename it, or add a wire word:\n{}",
         offenders.join("\n")
     );
+}
+
+// ---------------------------------------------------------------------------
+// Update from the catalog — a person's act, the one that changes an installed
+// copy (06 § Skills; the guide's catalog section)
+// ---------------------------------------------------------------------------
+
+fn differs(ws: &Workspace, kind: CatalogKind, slug: &str) -> Option<bool> {
+    ws.catalog_entry(kind, slug).unwrap().installed_differs
+}
+
+/// A plan a person pinned, which an update never touches.
+fn pinned_plan() -> ModelPlan {
+    ModelPlan {
+        strategy: bisa_core::ModelStrategy::Weighted,
+        effort: None,
+        models: vec![bisa_core::ModelChoice {
+            model: "pinned-model".into(),
+            weight: 2,
+            enabled: true,
+            suited_for: None,
+            effort: None,
+        }],
+    }
+}
+
+#[test]
+fn updating_an_installed_agent_restates_the_bundles_words_and_keeps_what_the_person_chose() {
+    let (_d, ws) = ws();
+    let dev = AgentId::new("developer").unwrap();
+    assert_eq!(
+        differs(&ws, CatalogKind::Agent, "developer"),
+        None,
+        "not installed: nothing to compare"
+    );
+    let created = ws.update_entry(CatalogKind::Agent, "developer").unwrap();
+    assert!(
+        !created.restated && created.installed.agents == vec!["developer".to_string()],
+        "an update of an agent that is not here installs it, with its skills: {created:?}"
+    );
+    assert!(!created.installed.skills.is_empty(), "{created:?}");
+    assert_eq!(
+        differs(&ws, CatalogKind::Agent, "developer"),
+        Some(false),
+        "freshly installed, the copy is the bundle's"
+    );
+    let shipped = ws.get_agent(&dev).unwrap();
+
+    // The person's edits: the words the bundle owns, and the choices that are
+    // theirs to make.
+    ws.create_skill(bisa_store::NewSkill {
+        id: SkillId::new("house-style").unwrap(),
+        name: "House style".into(),
+        description: "ours".into(),
+        tags: Tags::default(),
+        markdown: "# ours".into(),
+    })
+    .unwrap();
+    let mut mine = shipped.clone();
+    mine.name = "Dev".into();
+    mine.description = Some("mine".into());
+    mine.system_prompt = "You are mine.".into();
+    mine.respond = bisa_core::RespondPolicy::Members;
+    mine.tags = Tags::default();
+    mine.harness = "codex".into();
+    mine.models = pinned_plan();
+    mine.decision_making = true;
+    mine.enabled = false;
+    mine.skills.retain(|s| s.as_str() != "test-strategy");
+    mine.skills.push(SkillId::new("house-style").unwrap());
+    let mine = ws.update_agent(mine).unwrap();
+    // A skill the agent no longer carries can go — and the update brings it
+    // back, since the bundle's agent needs it.
+    ws.remove_skill(&SkillId::new("test-strategy").unwrap())
+        .unwrap();
+    assert_eq!(differs(&ws, CatalogKind::Agent, "developer"), Some(true));
+
+    let updated = ws.update_entry(CatalogKind::Agent, "developer").unwrap();
+    assert!(updated.restated, "{updated:?}");
+    assert_eq!(
+        updated.installed.skills,
+        vec!["test-strategy".to_string()],
+        "what the entry needs and was missing is installed: {updated:?}"
+    );
+    assert!(updated.installed.agents.is_empty(), "{updated:?}");
+    let after = ws.get_agent(&dev).unwrap();
+    assert_eq!(after.name, shipped.name);
+    assert_eq!(after.description, shipped.description);
+    assert_eq!(after.system_prompt, shipped.system_prompt);
+    assert_eq!(after.respond, shipped.respond);
+    assert_eq!(after.tags, shipped.tags);
+    // The skill the person added stays where it was; the bundle's missing one
+    // follows, in the bundle's order.
+    let mut want: Vec<SkillId> = mine.skills.clone();
+    for s in &shipped.skills {
+        if !want.contains(s) {
+            want.push(s.clone());
+        }
+    }
+    assert_eq!(after.skills, want);
+    // What the person chose stands.
+    assert_eq!(after.harness, "codex");
+    assert_eq!(after.models, pinned_plan());
+    assert!(after.decision_making);
+    assert!(!after.enabled, "the switch is the person's");
+    assert_eq!(after.pubkey, shipped.pubkey);
+    assert_eq!(after.created_at, shipped.created_at);
+    assert_eq!(after.origin, shipped.origin);
+    assert_eq!(differs(&ws, CatalogKind::Agent, "developer"), Some(false));
+    let again = ws.update_entry(CatalogKind::Agent, "developer").unwrap();
+    assert!(
+        !again.restated && again.installed.is_empty(),
+        "nothing to restate twice: {again:?}"
+    );
+}
+
+#[test]
+fn updating_an_installed_skill_takes_the_bundles_markdown_and_keeps_its_birth() {
+    let (_d, ws) = ws();
+    let id = SkillId::new("plain-voice").unwrap();
+    let created = ws.update_entry(CatalogKind::Skill, "plain-voice").unwrap();
+    assert!(
+        !created.restated && created.installed.skills == vec!["plain-voice".to_string()],
+        "an update of an entry that is not here installs it: {created:?}"
+    );
+    let shipped = ws.get_skill(&id).unwrap();
+    assert_eq!(differs(&ws, CatalogKind::Skill, "plain-voice"), Some(false));
+    let mut mine = shipped.clone();
+    mine.name = "Our voice".into();
+    mine.markdown = "# ours\n\nShort.".into();
+    mine.tags = Tags::default();
+    ws.update_skill(mine).unwrap();
+    assert_eq!(differs(&ws, CatalogKind::Skill, "plain-voice"), Some(true));
+    let updated = ws.update_entry(CatalogKind::Skill, "plain-voice").unwrap();
+    assert!(
+        updated.restated && updated.installed.is_empty(),
+        "{updated:?}"
+    );
+    assert_eq!(
+        ws.get_skill(&id).unwrap(),
+        shipped,
+        "the bundle's words, its origin and its birth"
+    );
+}
+
+#[test]
+fn updating_a_team_restores_its_agents_and_keeps_the_people_on_it() {
+    let (_d, ws) = ws();
+    let created = ws.update_entry(CatalogKind::Team, "design").unwrap();
+    assert!(
+        !created.restated && created.installed.teams == vec!["design".to_string()],
+        "an update of a team that is not here installs it, with its agents: {created:?}"
+    );
+    let id = TeamId::new("design").unwrap();
+    let shipped = ws.get_team(&id).unwrap();
+    let person = bisa_core::PrincipalId::new("f".repeat(64)).unwrap();
+    let mut mine = shipped.clone();
+    mine.purpose = Some("ours".into());
+    mine.members
+        .retain(|m| !matches!(m, Assignee::Agent(a) if a == "content-strategist"));
+    mine.members.push(Assignee::Human(person.clone()));
+    mine.enabled = false;
+    ws.update_team(mine).unwrap();
+    assert_eq!(differs(&ws, CatalogKind::Team, "design"), Some(true));
+    let updated = ws.update_entry(CatalogKind::Team, "design").unwrap();
+    assert!(
+        updated.restated && updated.installed.is_empty(),
+        "{updated:?}"
+    );
+    let after = ws.get_team(&id).unwrap();
+    assert_eq!(after.purpose, shipped.purpose);
+    let mut want = shipped.members.clone();
+    want.push(Assignee::Human(person));
+    assert_eq!(
+        after.members, want,
+        "the bundle's agents in its order, then the people"
+    );
+    assert!(!after.enabled, "the switch is the person's");
+    assert_eq!(after.created_at, shipped.created_at);
+    assert_eq!(differs(&ws, CatalogKind::Team, "design"), Some(false));
+}
+
+#[test]
+fn an_update_of_an_id_that_is_not_this_entrys_or_of_a_kind_installed_once_is_refused_by_name() {
+    let (_d, ws) = ws();
+    // A channel is installed once and is then the person's.
+    ws.install(CatalogKind::Channel, "engineering").unwrap();
+    let err = ws
+        .update_entry(CatalogKind::Channel, "engineering")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("channel") && err.contains("cannot update"),
+        "{err}"
+    );
+    assert_eq!(differs(&ws, CatalogKind::Channel, "engineering"), None);
+    // A skill of the person's own under a catalog id: the entry is not theirs
+    // to restate, and nothing of theirs moves.
+    let (_d2, mine) = self::ws();
+    mine.create_skill(bisa_store::NewSkill {
+        id: SkillId::new("code-review-checklist").unwrap(),
+        name: "mine".into(),
+        description: "mine".into(),
+        tags: Tags::default(),
+        markdown: "# mine".into(),
+    })
+    .unwrap();
+    let err = mine
+        .update_entry(CatalogKind::Skill, "code-review-checklist")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("code-review-checklist") && err.contains("one you created here"),
+        "{err}"
+    );
+    assert_eq!(
+        mine.get_skill(&SkillId::new("code-review-checklist").unwrap())
+            .unwrap()
+            .name,
+        "mine",
+        "nothing moved"
+    );
+    assert_eq!(
+        differs(&mine, CatalogKind::Skill, "code-review-checklist"),
+        None,
+        "an id held by something else is not this entry's copy"
+    );
+    // An agent one of whose skills is somebody else's: refused before anything
+    // is created, as an install is.
+    let err = mine
+        .update_entry(CatalogKind::Agent, "code-reviewer")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("code-review-checklist"), "{err}");
+    assert_eq!(mine.list_agents().unwrap().len(), 2, "nothing was created");
+    // A slug the build does not ship.
+    assert!(mine
+        .update_entry(CatalogKind::Skill, "no-such-skill")
+        .is_err());
 }

@@ -11710,3 +11710,137 @@ async fn a_capture_may_name_its_own_budget_and_an_empty_one_lifts_every_ceiling(
     );
     node.shutdown().await;
 }
+
+/// Update from the catalog over HTTP — a person's act: the listing says when
+/// this entry's installed copy differs from the catalog, `update: true` on
+/// the install route brings it back and says whether it had to, and the
+/// store's refusals — a kind installed once, an id that is not this entry's —
+/// travel as a 400 in its words. A plain install answers as it always did.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_from_the_catalog_restates_one_entry_and_the_listing_says_when_a_copy_differs() {
+    let node = Node::start().await;
+    let v = node
+        .post(
+            "/catalog/install",
+            json!({"kind": "skill", "slug": "plain-voice"}),
+        )
+        .await;
+    assert_eq!(v["installed"]["skills"], json!(["plain-voice"]));
+    assert!(
+        v.get("updated").is_none(),
+        "a plain install answers as it always did: {v}"
+    );
+    let row = node.get("/catalog/skill/plain-voice").await;
+    assert_eq!(row["entry"]["installed_differs"], json!(false), "{row}");
+    let shipped = node.get("/skills/plain-voice").await["skill"]["markdown"].clone();
+    assert!(shipped.is_string(), "the installed copy is the bundle's");
+
+    let (code, v) = node
+        .req(
+            "PATCH",
+            "/skills/plain-voice",
+            Some(json!({"markdown": "# ours\n\nShort."})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let row = node.get("/catalog/skill/plain-voice").await;
+    assert_eq!(row["entry"]["installed_differs"], json!(true), "{row}");
+
+    let v = node
+        .post(
+            "/catalog/install",
+            json!({"kind": "skill", "slug": "plain-voice", "update": true}),
+        )
+        .await;
+    assert_eq!(v["updated"], json!({"restated": true}), "{v}");
+    assert_eq!(
+        v["installed"]["skills"],
+        json!([]),
+        "nothing was missing: {v}"
+    );
+    assert_eq!(
+        node.get("/skills/plain-voice").await["skill"]["markdown"],
+        shipped,
+        "the catalog's words are back"
+    );
+    assert_eq!(
+        node.get("/catalog/skill/plain-voice").await["entry"]["installed_differs"],
+        json!(false)
+    );
+    let v = node
+        .post(
+            "/catalog/install",
+            json!({"kind": "skill", "slug": "plain-voice", "update": true}),
+        )
+        .await;
+    assert_eq!(
+        v["updated"],
+        json!({"restated": false}),
+        "already the catalog's: {v}"
+    );
+
+    // A channel is installed once and is then yours: no flag on its row, and
+    // a refusal by kind.
+    node.post(
+        "/catalog/install",
+        json!({"kind": "channel", "slug": "product"}),
+    )
+    .await;
+    let row = node.get("/catalog/channel/product").await;
+    assert_eq!(row["entry"]["installed"], json!(true), "{row}");
+    assert!(
+        row["entry"].get("installed_differs").is_none(),
+        "a channel's row carries no word on differing: {row}"
+    );
+    let (code, v) = node
+        .req(
+            "POST",
+            "/catalog/install",
+            Some(json!({"kind": "channel", "slug": "product", "update": true})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("cannot update") && e.contains("channel")),
+        "{v}"
+    );
+
+    // An id of the person's own under a catalog slug is not this entry's
+    // copy: no flag, and an update is refused by name with nothing moved.
+    let (code, v) = node
+        .req(
+            "POST",
+            "/skills",
+            Some(json!({
+                "id": "scoring-rubric",
+                "name": "ours",
+                "description": "ours",
+                "markdown": "# ours"
+            })),
+        )
+        .await;
+    assert!(code < 300, "{v}");
+    let row = node.get("/catalog/skill/scoring-rubric").await;
+    assert_eq!(row["entry"]["installed"], json!(true));
+    assert!(row["entry"].get("installed_differs").is_none(), "{row}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/catalog/install",
+            Some(json!({"kind": "skill", "slug": "scoring-rubric", "update": true})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("one you created here")),
+        "{v}"
+    );
+    assert_eq!(
+        node.get("/skills/scoring-rubric").await["skill"]["name"],
+        json!("ours")
+    );
+}

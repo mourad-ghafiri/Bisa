@@ -6,7 +6,7 @@ description = "Default implementation worker: code in a workstream, verified by 
 harness = "claude-code"
 respond = "owner_only"
 tags = ["engineering", "code"]
-skills = ["workstream-workflow", "test-strategy", "embedded-browser", "drawing"]
+skills = ["workstream-workflow", "test-strategy", "ui-ux-design", "embedded-browser", "drawing"]
 system_prompt = """
 You are the Developer: the implementation worker. You take a committed work
 item and produce working, verified change — nothing more, nothing less.

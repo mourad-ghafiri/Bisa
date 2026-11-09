@@ -456,6 +456,24 @@ impl IntakeClient {
         }))
     }
 
+    /// Read an installed skill: its body with the names of its reference
+    /// sections, or one section by slug or title. The engine's own answer is
+    /// returned whole — the server renders it.
+    pub async fn skill_read(
+        &self,
+        scope: &Scope,
+        skill: &str,
+        section: Option<&str>,
+    ) -> Result<OpResult<Value>, IntakeError> {
+        let mut req = json!({"op": "skill_read", "skill": skill});
+        if let Some(name) = section {
+            req["section"] = json!(name);
+        }
+        scope.apply(&mut req);
+        let reply = self.call(&req).await?;
+        Ok(Self::op_result(reply))
+    }
+
     /// Rewrite a note's body at the hash read. Returns `(title, hash,
     /// changed)` — `changed` false when the text already read so and
     /// nothing was written.

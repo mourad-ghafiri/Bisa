@@ -1410,6 +1410,47 @@ pub fn clamp_width(width: u32) -> u32 {
     width.clamp(MIN_SHOT_WIDTH, MAX_SHOT_WIDTH)
 }
 
+/// The colour scheme a tab's page is shown under (ide/18 §Emulation): the
+/// webview's own appearance, which the page's `prefers-color-scheme`
+/// follows — light, dark, or the window's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scheme {
+    Light,
+    Dark,
+    System,
+}
+
+impl Scheme {
+    /// One of three words, or why not — the agent's word reaches here as the
+    /// desktop passed it, so a stranger is said rather than guessed.
+    pub fn parse(word: &str) -> Result<Self, String> {
+        match word {
+            "light" => Ok(Self::Light),
+            "dark" => Ok(Self::Dark),
+            "system" => Ok(Self::System),
+            other => Err(format!("a scheme is light, dark or system — not {other:?}")),
+        }
+    }
+}
+
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
+/// The scheme a tab's page is shown under — its webview's appearance, set
+/// apart from the window's: light, dark, or the window's own again
+/// (`system`). AppKit resolves the view's effective appearance from it and
+/// WebKit reads the page's colour scheme from that, so a page that styles
+/// for dark shows dark in this one tab while the app and every other tab
+/// keep theirs.
+#[tauri::command]
+pub fn browser_appearance<R: Runtime>(
+    app: AppHandle<R>,
+    key: String,
+    scheme: String,
+) -> Result<(), String> {
+    let scheme = Scheme::parse(&scheme)?;
+    appearance::set(&view_of(&app, &key)?, scheme)
+}
+// LCOV_EXCL_STOP
+
 // LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// A PNG of a tab as it shows, `width` pixels wide — the webview's own
 /// snapshot, taken on the main thread and answered as raw bytes. The tab
@@ -2242,6 +2283,51 @@ mod snapshot {
     }
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
+/// A tab's appearance, set on its `WKWebView` — an `NSView`: AppKit resolves
+/// the view's effective appearance from it, and WebKit reads the page's
+/// colour scheme from that (ide/18 §Emulation).
+#[cfg(target_os = "macos")]
+mod appearance {
+    use super::{err, Scheme};
+    use objc2_app_kit::{
+        NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+        NSView,
+    };
+    use tauri::{Runtime, Webview};
+
+    pub fn set<R: Runtime>(view: &Webview<R>, scheme: Scheme) -> Result<(), String> {
+        view.with_webview(move |platform| {
+            // SAFETY: `with_webview` runs on the main thread over the live
+            // `WKWebView`, which is an `NSView`; the appearance names are
+            // AppKit's own statics, read where AppKit is.
+            unsafe {
+                let web: &NSView = super::webkit::view(&platform);
+                let named = match scheme {
+                    Scheme::Light => Some(NSAppearanceNameAqua),
+                    Scheme::Dark => Some(NSAppearanceNameDarkAqua),
+                    Scheme::System => None,
+                };
+                let appearance = named.and_then(NSAppearance::appearanceNamed);
+                web.setAppearance(appearance.as_deref());
+            }
+        })
+        .map_err(err)
+    }
+}
+// LCOV_EXCL_STOP
+
+#[cfg(not(target_os = "macos"))]
+mod appearance {
+    use super::Scheme;
+    use tauri::{Runtime, Webview};
+
+    /// No per-view appearance is bound on this platform yet.
+    pub fn set<R: Runtime>(_view: &Webview<R>, _scheme: Scheme) -> Result<(), String> {
+        Err("a tab's colour scheme is set on macOS only in this build".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2251,6 +2337,22 @@ mod tests {
         assert_eq!(clamp_width(0), MIN_SHOT_WIDTH);
         assert_eq!(clamp_width(1280), 1280);
         assert_eq!(clamp_width(1 << 20), MAX_SHOT_WIDTH);
+    }
+
+    #[test]
+    fn a_scheme_is_one_of_three_words_and_anything_else_is_said() {
+        assert_eq!(Scheme::parse("light"), Ok(Scheme::Light));
+        assert_eq!(Scheme::parse("dark"), Ok(Scheme::Dark));
+        assert_eq!(Scheme::parse("system"), Ok(Scheme::System));
+        let refused = Scheme::parse("sepia").unwrap_err();
+        assert!(
+            refused.contains("light, dark or system") && refused.contains("sepia"),
+            "{refused}"
+        );
+        assert!(
+            Scheme::parse("Dark").is_err(),
+            "the desktop sends the word as the agent spelled it, lower-case"
+        );
     }
 
     #[test]

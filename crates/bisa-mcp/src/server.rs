@@ -1210,6 +1210,22 @@ impl ToolCore {
         }
     }
 
+    /// Read an installed skill — the body with its sections named, or one
+    /// section — as the agent reads it: a heading, the description in
+    /// italics, the text, and the index line a prompt carries, so what the
+    /// tool answers and what the prompt said agree word for word.
+    pub async fn skill_read(&self, skill: &str, section: Option<&str>) -> Result<String, McpError> {
+        match self
+            .intake
+            .skill_read(&self.scope, skill, section)
+            .await
+            .map_err(intake_err)?
+        {
+            Ok(r) => Ok(skill_words(&r)),
+            Err(errors) => Err(Self::refused(errors)),
+        }
+    }
+
     /// Review notes as a tool result: what a person wrote on a
     /// diff, with the hunk they wrote it on, for the agent to act on.
     pub async fn review_notes_list(
@@ -1831,6 +1847,39 @@ fn served_words(result: &serde_json::Value) -> String {
     )
 }
 
+/// A skill as the agent reads it: whole — `# Name`, the description in
+/// italics, the body, then the sections named for `skill_read` — or one
+/// section under its own heading.
+fn skill_words(result: &serde_json::Value) -> String {
+    if let Some(section) = result.get("section").filter(|s| s.is_object()) {
+        return format!(
+            "# {} — {}\n\n{}",
+            result["name"]
+                .as_str()
+                .unwrap_or(result["skill"].as_str().unwrap_or("")),
+            section["title"].as_str().unwrap_or(""),
+            section["markdown"].as_str().unwrap_or("")
+        );
+    }
+    let mut out = format!(
+        "# {}\n_{}_\n\n{}",
+        result["name"].as_str().unwrap_or(""),
+        result["description"].as_str().unwrap_or(""),
+        result["body"].as_str().unwrap_or("")
+    );
+    let slugs: Vec<&str> = result["sections"]
+        .as_array()
+        .map(|list| list.iter().filter_map(|s| s["slug"].as_str()).collect())
+        .unwrap_or_default();
+    if !slugs.is_empty() {
+        out.push_str(&format!(
+            "\n\nReference sections, read with skill_read: {}",
+            slugs.join(" · ")
+        ));
+    }
+    out
+}
+
 fn browser_words(result: &serde_json::Value) -> String {
     let mut out = String::new();
     // The content screen's word first (11-security §What an agent reads from
@@ -1856,6 +1905,16 @@ fn browser_words(result: &serde_json::Value) -> String {
     }
     if let Some(ms) = result["waited_ms"].as_u64() {
         out.push_str(&format!("\nwaited {ms} ms"));
+    }
+    if let Some(viewport) = result.get("viewport").filter(|v| v.is_object()) {
+        out.push_str(&format!(
+            "\nviewport: {}×{}",
+            viewport["width"].as_u64().unwrap_or(0),
+            viewport["height"].as_u64().unwrap_or(0)
+        ));
+    }
+    if let Some(scheme) = result["scheme"].as_str() {
+        out.push_str(&format!("\nscheme: {scheme}"));
     }
     if let Some(tabs) = result["tabs"].as_array().filter(|t| !t.is_empty()) {
         out.push_str("open tabs:");
@@ -2485,6 +2544,29 @@ pub struct BrowserEvalParams {
 pub struct BrowserScreenshotParams {
     /// The tab's key, as browser_open or browser_tabs printed it.
     pub tab: String,
+    /// The whole page, not the viewport alone — for a tab kept out of sight,
+    /// whose box grows to its document (8192 px tall at most) for the shot
+    /// and shrinks back after; a shown tab's size is the person's, and the
+    /// ask is refused in a sentence.
+    #[serde(default)]
+    pub full_page: Option<bool>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct BrowserEmulateParams {
+    /// The tab's key, as browser_open or browser_tabs printed it.
+    pub tab: String,
+    /// The viewport's width in CSS pixels, 320 to 4096 — with `height`, for
+    /// a tab kept out of sight (a shown tab's size is the person's).
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// The viewport's height in CSS pixels, 320 to 4096 — with `width`.
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// `light`, `dark` or `system` — the scheme the page is shown under, for
+    /// any tab; the page's `prefers-color-scheme` follows it.
+    #[serde(default)]
+    pub scheme: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -2582,6 +2664,15 @@ pub struct NoteReadParams {
     /// Note ULID. In a conversation about a note, leave it out: that note is chosen.
     #[serde(default)]
     pub note: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct SkillReadParams {
+    /// The skill's id — lower-case words and dashes, as the index at the end of a skill in your prompt or list_catalog spells it.
+    pub skill: String,
+    /// One reference section, by its slug or its title (any case); absent, the body and the names of the sections.
+    #[serde(default)]
+    pub section: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -2923,7 +3014,7 @@ impl BisaServer {
 
     #[tool(
         name = "browser_snapshot",
-        description = "The page's outline, the way a person sees it: its title and URL, then every heading, landmark, link, button, field, select, checkbox and menu item as one line each — `e12 button \"Sign in\"`, `e13 textbox \"Email\" value=\"…\"`, `e14 link \"Pricing\" → /pricing`, `[disabled]`, `[checked]` — with a ref (`e12`) every other tool takes as its `target`. Refs hold until the page loads again; snapshot again after a navigation. `target` outlines one element alone; `all` adds every element with text. Bounded to 16 KiB. Snapshot before you guess a selector."
+        description = "The page's outline, the way a person sees it: its title and URL, then every heading, landmark, link, button, field, select, checkbox and menu item as one line each — `e12 button \"Sign in\"`, `e13 textbox \"Email\" value=\"…\"`, `e14 link \"Pricing\" → /pricing`, `[disabled]`, `[checked]` — with a ref (`e12`) every other tool takes as its `target`. Refs hold for the document that gave them — a navigation hands out new ones; snapshot again after it. `target` outlines one element alone; `all` adds every element with text. Bounded to 16 KiB. Snapshot before you guess a selector."
     )]
     async fn browser_snapshot(
         &self,
@@ -3148,14 +3239,29 @@ impl BisaServer {
 
     #[tool(
         name = "browser_screenshot",
-        description = "A PNG of a tab as the person sees it, on any page, saved on this machine. Answers the file's absolute path and size — read that file with your own tools to look at the page. The tab is shown to the person to take it."
+        description = "A PNG of a tab as it renders, on any page, saved on this machine — a shown tab as the person sees it, a tab kept out of sight at its own viewport. Answers the file's absolute path and size — read that file with your own tools to look at the page. `full_page: true` takes the whole page of a tab kept out of sight: its box grows to the document (8192 px tall at most) and shrinks back after; a shown tab's size is the person's, so a full page of one is refused in a sentence."
     )]
     async fn browser_screenshot(
         &self,
         Parameters(p): Parameters<BrowserScreenshotParams>,
     ) -> Result<String, McpError> {
         self.core
-            .browser(serde_json::json!({"action": "screenshot", "tab": p.tab}))
+            .browser(
+                serde_json::json!({"action": "screenshot", "tab": p.tab, "full_page": p.full_page}),
+            )
+            .await
+    }
+
+    #[tool(
+        name = "browser_emulate",
+        description = "See a page the way a device shows it (ide/18): a viewport — `width` and `height` in CSS pixels, 320 to 4096 — for a tab kept out of sight, whose box becomes that size (a shown tab's size is the person's pane, so a viewport for one is refused in a sentence: browser_open with headless: true for a tab of your own); and a `scheme` — light, dark or system — for any tab, the appearance the page's prefers-color-scheme follows. Either alone, or both. Answers the tab's viewport as the page measured it and the scheme it is shown under; then browser_screenshot or browser_snapshot to look. Typical pairs: 390×844 for a phone, 768×1024 for a tablet, 1440×900 for a desktop."
+    )]
+    async fn browser_emulate(
+        &self,
+        Parameters(p): Parameters<BrowserEmulateParams>,
+    ) -> Result<String, McpError> {
+        self.core
+            .browser(serde_json::json!({"action": "emulate", "tab": p.tab, "width": p.width, "height": p.height, "scheme": p.scheme}))
             .await
     }
 
@@ -3451,6 +3557,17 @@ impl BisaServer {
         Parameters(p): Parameters<NoteReadParams>,
     ) -> Result<String, McpError> {
         self.core.note_read(p.note.as_deref()).await
+    }
+
+    #[tool(
+        name = "skill_read",
+        description = "Read one of the workspace's installed skills by id — the guidance an agent follows for one kind of work. Without `section`: its body and the names of its reference sections. With `section` (a slug or a title, any case): that section alone — the part a skill tells you to read before a particular step, which your prompt carries only by name. Any agent may read any installed skill; a refusal names the skills this agent carries, or the sections the skill has."
+    )]
+    async fn skill_read(
+        &self,
+        Parameters(p): Parameters<SkillReadParams>,
+    ) -> Result<String, McpError> {
+        self.core.skill_read(&p.skill, p.section.as_deref()).await
     }
 
     #[tool(
@@ -3845,6 +3962,11 @@ impl ServerHandler for BisaServer {
         // says both (`bisa_core::mobile`).
         instructions.push(' ');
         instructions.push_str(bisa_core::mobile_development::MOBILE_DEVELOPMENT_HINT);
+        // A skill's reference sections are read with a tool on every menu;
+        // whether the workspace follows the UI/UX Design skill is the prompt's
+        // word, which the MCP server cannot read (`bisa_core::design`).
+        instructions.push(' ');
+        instructions.push_str(bisa_core::design::DESIGN_HINT);
         // The Workflow Agent in a goal's thread holds the shaping tools: asked
         // for changes there, it proposes.
         if agent == Some(WORKFLOW_AGENT_ID)
@@ -3956,6 +4078,9 @@ mod tests {
         "note_read",
         "note_append",
         "note_write",
+        // A skill's reference sections are read on demand, by any session
+        // that carries the body: guidance is nobody's secret.
+        "skill_read",
         // A review note is a person's instruction about the work in front of
         // the session, so every session can read and resolve them.
         "review_notes_list",
@@ -3985,6 +4110,7 @@ mod tests {
         "browser_eval",
         "browser_close",
         "browser_screenshot",
+        "browser_emulate",
         "browser_serve",
         // The Decision-Making Agent's tool is on every menu too; the engine
         // answers only an agent it is switched on for.
@@ -4108,6 +4234,31 @@ mod tests {
     /// The Workflow Agent's instructions follow the scope's write: save in a
     /// conversation about a library workflow, propose on a goal — never a
     /// tool the scope does not mount.
+    /// Every scope's instructions carry the design hint: the reader of a
+    /// skill's sections, and where the workspace says whether the UI/UX
+    /// Design skill is followed — the prompt's word, never the server's.
+    #[test]
+    fn every_scopes_instructions_carry_the_design_hint() {
+        let path = PathBuf::from("/nonexistent/bisa-test.sock");
+        for scope in [
+            Scope::WorkItem("wi".into()),
+            Scope::Goal {
+                goal: "01GOAL".into(),
+                agent: None,
+            },
+            conversation_as(WORKFLOW_AGENT_ID),
+        ] {
+            let instructions = BisaServer::new(path.clone(), scope)
+                .get_info()
+                .instructions
+                .unwrap_or_default();
+            assert!(
+                instructions.contains(bisa_core::design::DESIGN_HINT),
+                "{instructions}"
+            );
+        }
+    }
+
     #[test]
     fn the_workflow_agents_instructions_say_save_in_a_conversation_and_propose_on_a_goal() {
         let path = PathBuf::from("/nonexistent/bisa-test.sock");
@@ -4544,6 +4695,21 @@ mod tests {
         assert!(words.contains("browser_open the page URL"), "{words}");
         let sub = serde_json::json!({"id": "s2", "url": "http://127.0.0.1:4174/", "page": "http://127.0.0.1:4174/", "folder": "site"});
         assert!(served_words(&sub).starts_with("serving `site` at http://127.0.0.1:4174/"));
+    }
+
+    #[test]
+    fn browser_words_name_the_viewport_and_the_scheme_an_emulation_set() {
+        let emulated = serde_json::json!({"ok": true, "tab": "b4", "url": "http://localhost:5173/", "title": "", "viewport": {"width": 390, "height": 844}, "scheme": "dark"});
+        assert_eq!(
+            browser_words(&emulated),
+            "tab b4 · http://localhost:5173/\nviewport: 390×844\nscheme: dark"
+        );
+        let scheme_alone = serde_json::json!({"ok": true, "tab": "b1", "url": "http://localhost:5173/", "scheme": "system"});
+        assert_eq!(
+            browser_words(&scheme_alone),
+            "tab b1 · http://localhost:5173/\nscheme: system",
+            "no viewport measured: none said"
+        );
     }
 
     #[test]

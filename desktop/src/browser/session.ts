@@ -70,6 +70,15 @@ export function browserViewReload(key: string): Promise<void> {
 export function browserViewStop(key: string): Promise<void> {
   return invoke("browser_stop", { key });
 }
+/**
+ * The scheme a tab's page is shown under — light, dark, or the window's own
+ * (ide/18 §Emulation): the webview's appearance, which the page's
+ * `prefers-color-scheme` follows. Refused with a sentence where the shell
+ * cannot set one.
+ */
+export function setBrowserViewAppearance(key: string, scheme: "light" | "dark" | "system"): Promise<void> {
+  return invoke("browser_appearance", { key, scheme });
+}
 /** The main page's viewport in its own CSS pixels — `window.innerWidth` and `window.innerHeight` — sent with every placement so the shell anchors the tab on the page, not on the window (ide/18). */
 export interface BrowserViewport {
   width: number;

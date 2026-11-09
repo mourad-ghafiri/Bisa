@@ -8,7 +8,7 @@
  */
 
 import { layerMayShowNow, subscribeSurfaces } from "../ui/openSurfaces";
-import { isShown } from "./browserPlacementModel.mjs";
+import { isShown, placementOf } from "./browserPlacementModel.mjs";
 import { sessionOf } from "./browsersModel.mjs";
 import { layerSlot, subscribeLayerSlots } from "./layerSlots";
 import { browserState } from "./useBrowsers";
@@ -19,10 +19,32 @@ const SHOW_MS = 5_000;
 const SETTLE_FRAMES = 2;
 const SETTLE_MS = 150;
 
+/** The facts a placement reads of a tab right now: the hosts' slots, whether a surface is over the window, and the tab's own — kept out of sight, and the viewport it chose there (ide/18 §Emulation). */
+function factsNow(key: string) {
+  const s = sessionOf(browserState(), key);
+  return { center: layerSlot("center"), aux: layerSlot("aux"), mayShow: layerMayShowNow(), headless: s?.headless ?? false, viewport: s?.viewport ?? null };
+}
+
 /** Whether the tab renders right now: a host shows it, or it is offstage, and no surface is over the window. */
 export function shownNow(key: string): boolean {
-  const headless = sessionOf(browserState(), key)?.headless ?? false;
-  return isShown(key, { center: layerSlot("center"), aux: layerSlot("aux"), mayShow: layerMayShowNow(), headless });
+  return isShown(key, factsNow(key));
+}
+
+/** Where the tab is drawn right now — a host's box, or its offstage one — or `null` while it is hidden. */
+export function placementNow(key: string) {
+  return placementOf(key, factsNow(key));
+}
+
+/** Two frames for the layer to settle over a new box, then a beat for the page's own paint — what a shot or a measure waits after a tab's box changed. */
+export function settled(): Promise<void> {
+  return new Promise((resolve) => {
+    let frames = SETTLE_FRAMES;
+    const tick = () => {
+      if (frames-- > 0) window.requestAnimationFrame(tick);
+      else window.setTimeout(resolve, SETTLE_MS);
+    };
+    window.requestAnimationFrame(tick);
+  });
 }
 
 /**
@@ -46,12 +68,7 @@ export function untilShown(key: string, ms: number = SHOW_MS): Promise<boolean> 
       if (!shownNow(key)) return;
       window.clearTimeout(timer);
       stop();
-      let frames = SETTLE_FRAMES;
-      const tick = () => {
-        if (frames-- > 0) window.requestAnimationFrame(tick);
-        else window.setTimeout(() => resolve(true), SETTLE_MS);
-      };
-      window.requestAnimationFrame(tick);
+      void settled().then(() => resolve(true));
     };
     offs.push(subscribeLayerSlots(check), subscribeSurfaces(check));
     check();

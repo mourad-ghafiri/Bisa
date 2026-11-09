@@ -104,7 +104,10 @@ back to the earlier release, the backup is the only way: see [Not promised in 0.
   — except a built-in connector, which the engine refreshes to the bundle's revision at start, its
   accounts, secrets and steps kept (a peer on an earlier release sets the refreshed snapshot aside,
   as mixed releases already do), and a built-in addon, refreshed to the release's own version when
-  the workspace opens, its grants held to the manifest.
+  the workspace opens, its grants held to the manifest. When *you* ask — *Update from the catalog* in
+  the Library, `bisa catalog install <kind> <slug> --update` — one installed skill, agent or team is
+  brought back to the build's definition: your edits of that definition's words are replaced, and its
+  harness, model plan, keys, switch and the people on a team are kept.
 
 ## Not promised in 0.x
 

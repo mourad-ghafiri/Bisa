@@ -8,7 +8,9 @@
 use crate::addons::{announce as announce_addons, AddonsChange};
 use crate::{EngineError, Inner};
 use bisa_core::{AddonId, AddonPermission, AttachmentRef, Gate, MemberRole, Pet, PrincipalId};
-use bisa_store::{AddonChange, AddonEntry, CatalogKind, GatePolicy, Governance, Installed};
+use bisa_store::{
+    AddonChange, AddonEntry, CatalogKind, GatePolicy, Governance, Installed, Updated,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -66,6 +68,20 @@ pub fn install_catalog_entry(
         }
     }
     Ok(installed)
+}
+
+/// Bring one installed skill, agent or team back to the catalog's definition
+/// at a person's asking — the one act that changes an installed copy
+/// ([`bisa_store::Workspace::update_entry`]). What the entry needs and was
+/// missing is installed on the way; nothing an update touches is an addon,
+/// so there is nothing to announce — an agent's or a team's switch, the one
+/// change the bus would hear of, is the person's and is kept.
+pub fn update_catalog_entry(
+    inner: &Arc<Inner>,
+    kind: CatalogKind,
+    slug: &str,
+) -> Result<Updated, EngineError> {
+    Ok(inner.ws.update_entry(kind, slug)?)
 }
 
 /// Copy a person's addon folder in, with the grants and the enabled flag

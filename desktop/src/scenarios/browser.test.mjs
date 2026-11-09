@@ -95,10 +95,10 @@ test("the Browser button is the Project IDE's alone, a URL in a message opens he
   assert.deepEqual(homeOfScreen({ kind: "conversation", id: "C1" }, null, { name: "goal", id: "X1" }), { scope: "conversation", id: "C1" }, "beside a conversation on screen, in the conversation");
 });
 
-test("the browser tools are one list everywhere: the engine's note, the skill, the reference and the MCP server name the same twenty-one", () => {
+test("the browser tools are one list everywhere: the engine's note, the skill, the reference and the MCP server name the same twenty-two", () => {
   const core = readFileSync(join(src, "..", "..", "crates", "bisa-core", "src", "browser.rs"), "utf8");
   const listed = [...core.matchAll(/^\s*"(browser_[a-z_]+)",$/gm)].map((m) => m[1]);
-  assert.equal(listed.length, 21, "twenty-one tools in BROWSER_TOOLS");
+  assert.equal(listed.length, 22, "twenty-two tools in BROWSER_TOOLS");
   const skill = readFileSync(join(src, "..", "..", "library", "catalog", "skills", "embedded-browser.toml"), "utf8");
   const reference = readFileSync(join(src, "..", "..", "docs", "reference", "mcp-tools.md"), "utf8");
   const server = readFileSync(join(src, "..", "..", "crates", "bisa-mcp", "src", "server.rs"), "utf8");
@@ -110,7 +110,7 @@ test("the browser tools are one list everywhere: the engine's note, the skill, t
   assert.ok(skill.includes("browser_snapshot") && skill.includes("ref"), "the skill teaches acting by ref");
   assert.ok(skill.includes("dialogs"), "… and that dialogs are answered for the agent");
   const model = read("shell/browserBridgeModel.mjs");
-  for (const action of ["snapshot", "type", "press", "select", "hover", "scroll", "wait", "forward", "reload", "console", "eval"]) {
+  for (const action of ["snapshot", "type", "press", "select", "hover", "scroll", "wait", "forward", "reload", "console", "eval", "emulate"]) {
     assert.ok(model.includes(`case "${action}"`), `the bridge plans ${action}`);
   }
   assert.ok(read("shell/browserBridge.ts").includes("navigatedResult("), "an act that moves the page answers the new page");
@@ -134,6 +134,9 @@ test("agents browse here first: every catalog agent carries the Embedded Browser
   assert.ok(read("views/_settings/BrowserAccessPanel.tsx").includes("HEADLESS_KEY"), "the switch is drawn by hand");
   assert.ok(read("shell/BrowserPanel.tsx").includes("BROWSER_PRESENCE_MS"), "an open desktop keeps the engine's presence fresh");
   assert.ok(!read("shell/browserBridge.ts").includes("browserPrefs().reveal"), "the reveal switch is gone: a headless tab is never revealed by an agent's act");
+  assert.ok(read("shell/browserBridge.ts").includes("revealBrowserTab(") && read("shell/browserBridge.ts").includes("concealBrowserTab("), "… except its own word on a tab it holds: browser_open with headless: false shows it, headless: true puts it out of sight");
+  assert.ok(read("shell/browserBridgeModel.mjs").includes('typeof request.headless === "boolean"'), "and only its own word, never the policy's, for a tab already open");
+  assert.ok(read("shell/browserBridge.ts").includes("growForFullPage(") && read("shell/browserBridge.ts").includes("restoreAfterFullPage("), "a full-page shot grows a tab out of sight to its document and puts it back");
   const shell = read("../src-tauri/src/browser.rs");
   assert.ok(!shell.includes("offstage") && !shell.includes("headless"), "offstage is a placement like any other: no shell change for a headless tab");
 });

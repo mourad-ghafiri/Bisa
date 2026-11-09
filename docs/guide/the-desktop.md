@@ -591,7 +591,9 @@ lists members (the General Agent and the Workflow Agent marked *implicit*). Both
 **Catalog** in their top bar, beside *New agent* and *New team*, which opens the catalog on that kind
 — Settings › Library › Agents or Teams. The **Catalog** (Settings → Library) shows every entry by kind with its install
 plan — what it brings, marked *already here* or *will be created* — and confirms before a
-multi-object install.
+multi-object install. A row whose installed copy differs from the catalog — its words edited here, or
+the catalog moved — offers *Update from the catalog*, which brings the catalog's definition back after
+a confirmation that says what is replaced and what stays.
 
 ## Events and listening
 
