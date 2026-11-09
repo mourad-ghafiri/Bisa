@@ -245,8 +245,10 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
 - **process-wrap** 10.0.0 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
-- **rmcp** 3.4.0 — Apache-2.0
-- **rmcp-macros** 3.4.0 — Apache-2.0
+- **rmcp** 3.9.0 — Apache-2.0
+  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+- **rmcp-macros** 3.9.0 — Apache-2.0
+  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
 - **rustc-hash** 2.1.3 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
 - **rustls** 0.23.46 — Apache-2.0 OR ISC OR MIT — taken as Apache-2.0
@@ -891,7 +893,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) The Rust Project Developers
 - **libredox** 0.1.20 — MIT
   Copyright (c) 2023 4lDO2
-- **libsqlite3-sys** 0.38.2 — MIT
+- **libsqlite3-sys** 0.39.1 — MIT
   Copyright (c) 2014 The rusqlite developers
 - **listeners** 0.2.1 — MIT
   Copyright (c) 2024 Giuliano Bellini
@@ -1150,7 +1152,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **rfd** 0.16.0 — MIT
   Copyright (c) 2022 Bartłomiej Maryńczak
 - **rsqlite-vfs** 0.1.1 — MIT
-- **rusqlite** 0.40.2 — MIT
+- **rusqlite** 0.41.1 — MIT
   Copyright (c) 2014 The rusqlite developers
 - **rustc_version** 0.4.1 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2016 The Rust Project Developers
@@ -1754,7 +1756,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **tinyvec** 1.12.0 — Zlib OR Apache-2.0 OR MIT — taken as Zlib
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2019 Daniel "Lokathor" Gee.
 
-## npm packages — 439 in the desktop
+## npm packages — 435 in the desktop
 
 ### 0BSD
 
@@ -1842,7 +1844,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   Copyright 2010-2015 Mike Bostock
 - **rw** 1.3.3 — BSD-3-Clause
   Copyright (c) 2014-2016, Michael Bostock
-- **source-map-js** 1.2.1 — BSD-3-Clause
+- **source-map-js** 1.2.2 — BSD-3-Clause
   Copyright (c) 2009-2011, Mozilla Foundation and contributors
 - **sprintf-js** 1.0.3 — BSD-3-Clause
   Copyright (c) 2007-2014, Alexandru Marasteanu <hello [at) alexei (dot] ro>
@@ -2356,12 +2358,6 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   Copyright (c) 2014-2018 Calvin Metcalf, Jordan Harband
 - **locate-path** 5.0.0 — MIT
   Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
-- **lodash-es** 4.17.21 — MIT
-  Copyright OpenJS Foundation and other contributors <https://openjsf.org/>; Copyright and related rights for sample code are waived via CC0. Sample
-- **lodash-es** 4.17.21 — MIT
-  Copyright OpenJS Foundation and other contributors <https://openjsf.org/>; Copyright and related rights for sample code are waived via CC0. Sample
-- **lodash-es** 4.17.21 — MIT
-  Copyright OpenJS Foundation and other contributors <https://openjsf.org/>; Copyright and related rights for sample code are waived via CC0. Sample
 - **lodash-es** 4.18.1 — MIT
   Copyright OpenJS Foundation and other contributors <https://openjsf.org/>; Copyright and related rights for sample code are waived via CC0. Sample
 - **lodash.debounce** 4.0.8 — MIT
@@ -2438,9 +2434,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   Copyright (c) 2020 Vercel, Inc.
 - **multimath** 2.0.0 — MIT
   Copyright (C) 2017 by Vitaly Puzrin
-- **nanoid** 3.3.3 — MIT
-  Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- **nanoid** 4.0.2 — MIT
+- **nanoid** 3.3.20 — MIT
   Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - **normalize-path** 3.0.0 — MIT
   Copyright (c) 2014-2018, Jon Schlinkert.
@@ -2591,9 +2585,9 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 
 ### MPL-2.0
 
-- **dompurify** 3.4.14 — (MPL-2.0 OR Apache-2.0) — taken as MPL-2.0
+- **dompurify** 3.4.17 — (MPL-2.0 OR Apache-2.0) — taken as MPL-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; (c) under Patent Claims infringed by Covered Software in the absence of
-  source: https://www.npmjs.com/package/dompurify/v/3.4.14
+  source: https://www.npmjs.com/package/dompurify/v/3.4.17
 
 ### OFL-1.1
 

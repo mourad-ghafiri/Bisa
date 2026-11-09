@@ -232,7 +232,9 @@ fn login_path_within(
                 tracing::info!(target: "bisa_desktop", "the login shell answered late; its PATH is kept for the next launch");
             }
             None => {
+                // LCOV_EXCL_START said on the shell's own thread once it is ended at the cap, after the caller was answered: a test's process is gone by then (one process per test under nextest); a race
                 tracing::warn!(target: "bisa_desktop", "the login shell never said its PATH; the next launch reads the one remembered, if any")
+                // LCOV_EXCL_STOP
             }
         },
     );
@@ -245,12 +247,10 @@ fn login_path_within(
             }
         },
         Deferred::Late => {
-            tracing::warn!(
-                target: "bisa_desktop",
-                budget_s = deadline.as_secs(),
-                remembered = remembered.is_some(),
-                "the login shell outstayed its budget; the node starts with the PATH it built last time, or the inherited one"
-            );
+            // The fields are read only while a subscriber listens, which a
+            // test's own process has none of: said from values taken first.
+            let (budget_s, remembered) = (deadline.as_secs(), remembered.is_some());
+            tracing::warn!(target: "bisa_desktop", budget_s, remembered, "the login shell outstayed its budget; the node starts with the PATH it built last time, or the inherited one");
             None
         }
         Deferred::Unstarted => {

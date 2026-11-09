@@ -889,10 +889,11 @@ pub(crate) fn advance_queue(inner: &Arc<Inner>, goal_id: GoalId) -> Option<Workf
         }
         let next = match inner.ws.next_queued_run(goal_id) {
             Ok(next) => next?,
+            // LCOV_EXCL_START the goal's queue is read from the index, which fails only unreadable (disk-only)
             Err(e) => {
                 tracing::warn!(goal = %goal_id, "cannot read the goal's queue: {e}");
                 return None;
-            }
+            } // LCOV_EXCL_STOP
         };
         match inner.ws.start_queued_run(next.id) {
             Ok((run, effects)) => {

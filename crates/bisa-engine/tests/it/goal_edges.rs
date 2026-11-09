@@ -608,6 +608,12 @@ async fn a_capture_refused_for_its_workflow_or_its_documents_leaves_no_goal_behi
         .unwrap_err()
         .to_string();
     assert!(words.contains("designed"), "{words}");
+    // A workflow nobody recorded is the store's own refusal, as it was.
+    let unknown = engine.submit_goal(bisa_engine::SubmitRequest {
+        workflow: Some("01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()),
+        ..bisa_engine::SubmitRequest::captured("on a workflow nobody recorded")
+    });
+    assert!(matches!(unknown, Err(EngineError::Store(_))), "{unknown:?}");
     let words = engine
         .submit_goal(bisa_engine::SubmitRequest {
             documents: vec![nameless],

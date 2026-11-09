@@ -2311,7 +2311,7 @@ fn assign(
             // (`goal.updated`).
             match ops::set_goal_assignees(inner, goal_id, next) {
                 Ok(i) => (i.assignees, "this goal".to_string()),
-                Err(e) => return err(e.to_string()),
+                Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE the assignees were resolved above, so a refusal here is the store's write failing (disk-only)
             }
         }
     };

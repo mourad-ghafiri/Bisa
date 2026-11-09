@@ -156,6 +156,14 @@ notes (`docs/contributing/release.md`).
   there is a 404.
 - **The MCP reference said `expects` defaults to `decision`** and that every proposal opens the
   Adopt gate; it says `answer`, and by mode, as the tools do.
+- **Two dependencies with published advisories are upgraded.** `rusqlite` 0.41 brings the bundled
+  SQLite past RUSTSEC-2026-0459, and `rmcp` 3.9 is past RUSTSEC-2026-0457 and RUSTSEC-2026-0461;
+  the licence gate is clean on both workspaces.
+- **The desktop's packages with published advisories are upgraded.** `dompurify` and
+  `source-map-js` are raised, `lodash-es` and `nanoid` are pinned to fixed versions under the
+  packages that nested old ones, and `happy-dom`, a test dependency, moves to 21.
+- **`scripts/coverage/measure shell` works with nextest installed.** The shell's own workspace has
+  its `.config/nextest.toml` now, with the `coverage` profile the measurer asks for.
 
 ## [0.7.0] - 2026-11-06
 

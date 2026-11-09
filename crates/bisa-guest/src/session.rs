@@ -269,7 +269,7 @@ impl GuestSession {
                         }
                     } // LCOV_EXCL_LINE a membership word that leaves the claim waiting; a race
                 }
-                Ok(Ok(_)) => {}
+                Ok(Ok(_)) => {} // LCOV_EXCL_LINE a change of another kind arriving under the wait; a race
                 Ok(Err(broadcast::error::RecvError::Lagged(_))) => {} // LCOV_EXCL_LINE the stream lagged under the wait; a race
                 Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
             }

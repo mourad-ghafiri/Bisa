@@ -128,7 +128,7 @@ base64 = "0.22"
 
 # MCP — the platform's own server (`bisa-mcp`) and the client that probes an
 # installed one (`bisa-mcp-probe`); one feature set, unified by hakari.
-rmcp = { version = "3.4", features = ["server", "transport-io", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9", features = ["server", "transport-io", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 
 # HTTP / node
 axum = "0.8"
@@ -151,7 +151,7 @@ getrandom = "0.3"
 aws-lc-rs = "1"
 
 # Storage
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 # Validation
 jsonschema = "0.51"
