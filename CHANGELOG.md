@@ -70,6 +70,10 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **The desktop's generated types had fallen behind the API schema.** `types.gen.ts` is regenerated
+  from the schema, and the replace answer's schema now says `applied` as the literal each arm carries
+  (`false` for a preview, `true` for an apply) instead of a `boolean` on both, so the generated types
+  tell the two apart and the hand-written mirror is gone. The wire is unchanged.
 - **The Library's note on skills said *at most five*.** The bundled agents carry at most six — four of
   their own and the two platform skills, Embedded Browser and Drawing — and the note now says so.
 - **An agent's role prompt never reached its work items.** The system prompt opened conversations

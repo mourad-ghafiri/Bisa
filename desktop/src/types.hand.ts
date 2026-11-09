@@ -1170,28 +1170,6 @@ export interface SearchParams {
   limit?: number;
 }
 
-/**
- * `POST /ide/replace`'s answer (`bisa_node::dto::IdeReplace*`): held here
- * until `just gen-types` runs — a node DTO, generated from then on.
- */
-export interface IdeReplaceChange {
-  /** 1-based. */
-  line: number;
-  before: string;
-  after: string;
-}
-export interface IdeReplacePreview {
-  path: string;
-  /** The file's content hash as the preview read it — `files[].base_hash` on the apply. */
-  base_hash: string;
-  changes: IdeReplaceChange[];
-}
-export type IdeReplaceOutcome =
-  | { outcome: "applied"; path: string; changes: number; hash: string }
-  | { outcome: "skipped_changed"; path: string; current_hash: string }
-  | { outcome: "failed"; path: string; error: string };
-export type IdeReplaceAnswer = { applied: false; files: IdeReplacePreview[] } | { applied: true; files: IdeReplaceOutcome[] };
-
 /** One file of a commit, against its first parent. */
 interface CommitFileChange {
   path: string;

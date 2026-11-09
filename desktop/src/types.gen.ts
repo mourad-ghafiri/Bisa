@@ -56,6 +56,7 @@ export type GoalOrigin =
     }
   | {
       parent: GoalId;
+      step?: StepId | null;
       origin: "spawned";
     }
   | {
@@ -437,16 +438,21 @@ export type BoundaryOn =
        * The conversation it lands in — a channel id, a direct channel's, a
        * conversation's or a goal's thread (a template); absent, anywhere.
        */
-      in?: string | null;
-      from?: MessageFrom & string;
+      in?: StringOrMany | null;
+      from?: MessageFromOrMany & string;
       /**
        * It mentions this agent, team or person.
        */
-      mentions?: AssigneeOrInput | null;
+      mentions?: AssigneeOrInputOrMany | null;
       /**
        * Its text contains this, case-insensitively (a template).
        */
       contains?: string | null;
+      /**
+       * The kind of place it lands in — a direct channel, a standing one, a
+       * goal's thread…; absent, any kind.
+       */
+      kind?: MessagePlaceOrMany | null;
       event: "message";
       [k: string]: unknown;
     }
@@ -475,9 +481,35 @@ export type Uint64OrInput =
     }
   | number;
 /**
- * who wrote a message: `you`, `agents`, or one agent, person or team — or an input of kind `assignee` naming one
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
  */
-export type MessageFrom = ("you" | "agents") | AssigneeOrInput;
+export type StringOrMany = string | string[];
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type MessageFromOrMany = MessageFrom | MessageFrom[];
+/**
+ * who wrote a message: `you`, `agents`, `people`, `anyone`, or one agent, person or team — or an input of kind `assignee` naming one
+ */
+export type MessageFrom = ("you" | "agents" | "people" | "anyone") | AssigneeOrInput;
 /**
  * Either a fixed value or the name of an input that carries it.
  *
@@ -491,6 +523,38 @@ export type AssigneeOrInput =
       [k: string]: unknown;
     }
   | Assignee;
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type AssigneeOrInputOrMany = AssigneeOrInput | AssigneeOrInput[];
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type MessagePlaceOrMany = MessagePlace | MessagePlace[];
+/**
+ * The kind of place a message lands in: a standing channel, a direct
+ * channel, a goal's thread, a conversation in a checkout (`workstream`),
+ * any other conversation.
+ */
+export type MessagePlace = "channel" | "direct" | "goal" | "workstream" | "conversation";
 export type Boundary1 =
   | {
       act: "divert";
@@ -720,16 +784,21 @@ export type StartOn =
        * The conversation it lands in — a channel id, a direct channel's, a
        * conversation's or a goal's thread (a template); absent, anywhere.
        */
-      in?: string | null;
-      from?: MessageFrom & string;
+      in?: StringOrMany | null;
+      from?: MessageFromOrMany & string;
       /**
        * It mentions this agent, team or person.
        */
-      mentions?: AssigneeOrInput | null;
+      mentions?: AssigneeOrInputOrMany | null;
       /**
        * Its text contains this, case-insensitively (a template).
        */
       contains?: string | null;
+      /**
+       * The kind of place it lands in — a direct channel, a standing one, a
+       * goal's thread…; absent, any kind.
+       */
+      kind?: MessagePlaceOrMany | null;
       event: "message";
       [k: string]: unknown;
     }
@@ -748,27 +817,46 @@ export type StartOn =
       /**
        * Absent while the designer has not chosen one: a problem, never `""`.
        */
-      project?: ProjectIdOrInput | null;
-      change?: ProjectChange & string;
+      project?: ProjectIdOrInputOrMany | null;
+      change?: ProjectChangeOrMany & string;
       /**
-       * Only this branch (a template).
+       * Only this branch, or any of these (templates).
        */
-      branch?: string | null;
+      branch?: StringOrMany | null;
       /**
-       * Only files matching this (`*` and `?`), for `files` (a template).
+       * Only files matching this (`*` and `?`), or any of these, for `files`
+       * (templates).
        */
-      glob?: string | null;
+      glob?: StringOrMany | null;
       event: "project";
       [k: string]: unknown;
     }
   | {
-      workflow?: WorkflowId | null;
-      outcome?: RunEnd | null;
+      workflow?: WorkflowIdOrMany | null;
+      change?: RunChangeOrMany;
+      /**
+       * How it ended, for `ended`.
+       */
+      outcome?: RunEndOrMany | null;
+      /**
+       * Which step, for `step`.
+       */
+      step?: StepIdOrMany | null;
+      /**
+       * Which state the step moved into, for `step` — the words of
+       * `step.changed`.
+       */
+      state?: StringOrMany | null;
+      /**
+       * Only a run of this goal, or of any of these (templates: an id, or an
+       * input).
+       */
+      goal?: StringOrMany | null;
       event: "run";
       [k: string]: unknown;
     }
   | {
-      topic: string;
+      topic: StringOrMany;
       /**
        * Exact matches on the event's own fields (templates).
        */
@@ -804,6 +892,33 @@ export type StartOn =
       tz?: string | null;
       event: "check";
       [k: string]: unknown;
+    }
+  | {
+      /**
+       * The goal, or any of these (templates: an id, or `{inputs.<name>}`);
+       * absent, any goal.
+       */
+      goal?: StringOrMany | null;
+      change: GoalChangeOrMany;
+      event: "goal";
+      [k: string]: unknown;
+    }
+  | {
+      workflow?: WorkflowIdOrMany | null;
+      change: WorkflowChangeOrMany;
+      event: "workflow";
+      [k: string]: unknown;
+    }
+  | {
+      agent?: AssigneeOrInputOrMany | null;
+      project?: ProjectIdOrInputOrMany | null;
+      /**
+       * The harness id it runs on (`claude-code`, `codex`, …).
+       */
+      harness?: StringOrMany | null;
+      change: AgentChangeOrMany;
+      event: "agent";
+      [k: string]: unknown;
     };
 /**
  * Either a fixed value or the name of an input that carries it.
@@ -819,6 +934,19 @@ export type StringOrInput =
     }
   | string;
 /**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type ProjectIdOrInputOrMany = ProjectIdOrInput | ProjectIdOrInput[];
+/**
  * Either a fixed value or the name of an input that carries it.
  *
  * The schema is named after what it carries (`AssigneeOrInput`,
@@ -832,13 +960,85 @@ export type ProjectIdOrInput =
     }
   | ProjectId;
 /**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type ProjectChangeOrMany = ProjectChange | ProjectChange[];
+/**
  * What changed in a project.
  */
-export type ProjectChange = "commit" | "push" | "pull_request" | "merge" | "files";
+export type ProjectChange = "commit" | "push" | "pull_request" | "merge" | "files" | "branch" | "pull" | "workstream";
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type WorkflowIdOrMany = WorkflowId | WorkflowId[];
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type RunChangeOrMany = RunChange | RunChange[];
+/**
+ * What a run did, as a run event hears it: it was made behind a live one,
+ * it started, it ended — the one a `run` event meant before the others
+ * were named, so a filter that says nothing hears ends alone — or one of
+ * its steps moved.
+ */
+export type RunChange = "queued" | "started" | "ended" | "step";
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type RunEndOrMany = RunEnd | RunEnd[];
 /**
  * How a run ended, as a run event hears it.
  */
 export type RunEnd = "done" | "failed" | "cancelled";
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type StepIdOrMany = StepId | StepId[];
 /**
  * A operation id: 1-64 chars of a-z, 0-9, '-', '_', '.', ':'
  */
@@ -865,6 +1065,70 @@ export type AccountId = string;
  */
 export type FireOn = "starts_failing" | "failing" | "passing" | "always";
 /**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type GoalChangeOrMany = GoalChange | GoalChange[];
+/**
+ * What moved about a goal, as a goal event hears it: its record, its
+ * projects, its design, its decisions.
+ */
+export type GoalChange =
+  | "deleted"
+  | "created"
+  | "updated"
+  | "closed"
+  | "archived"
+  | "restored"
+  | "attached"
+  | "detached"
+  | "proposed"
+  | "asked"
+  | "decided";
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type WorkflowChangeOrMany = WorkflowChange | WorkflowChange[];
+/**
+ * What moved about a workflow definition in the library.
+ */
+export type WorkflowChange = "deleted" | "saved" | "proposed" | "archived" | "restored";
+/**
+ * One value or a list of them, as a filter field takes it: `project = "…"`
+ * or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+ * "push"]`. A field that takes it hears **any** of the list, each entry
+ * matched exactly as a single value is. A single value reads as `One` and
+ * writes as the bare value, so a definition written before lists existed
+ * reads and re-serializes as it was; a list writes as a list, as written.
+ * An empty list is refused by name on a required field — a filter that
+ * hears nothing is a mistake its author should see — and reads as absent
+ * on an optional one ([`none_when_empty`]), which is how a designer clears
+ * it.
+ */
+export type AgentChangeOrMany = AgentChange | AgentChange[];
+/**
+ * What a harness session did, as an agent event hears it. Churn between
+ * turns — thinking, a tool running, idle — is never an occurrence.
+ */
+export type AgentChange = ("done" | "failed" | "aborted") | "started" | "waiting" | "replied";
+/**
  * What an occurrence does while runs of its listener are still live —
  * counted over live runs, never over dispatches.
  */
@@ -886,6 +1150,7 @@ export type ToolTier = "read" | "write" | "exec";
 export type CheckKind =
   | {
       command: string;
+      project?: ProjectIdOrInput | null;
       check: "command";
     }
   | {
@@ -993,16 +1258,21 @@ export type WaitFor =
        * The conversation it lands in — a channel id, a direct channel's, a
        * conversation's or a goal's thread (a template); absent, anywhere.
        */
-      in?: string | null;
-      from?: MessageFrom & string;
+      in?: StringOrMany | null;
+      from?: MessageFromOrMany & string;
       /**
        * It mentions this agent, team or person.
        */
-      mentions?: AssigneeOrInput | null;
+      mentions?: AssigneeOrInputOrMany | null;
       /**
        * Its text contains this, case-insensitively (a template).
        */
       contains?: string | null;
+      /**
+       * The kind of place it lands in — a direct channel, a standing one, a
+       * goal's thread…; absent, any kind.
+       */
+      kind?: MessagePlaceOrMany | null;
       until: "message";
       [k: string]: unknown;
     }
@@ -1010,27 +1280,46 @@ export type WaitFor =
       /**
        * Absent while the designer has not chosen one: a problem, never `""`.
        */
-      project?: ProjectIdOrInput | null;
-      change?: ProjectChange & string;
+      project?: ProjectIdOrInputOrMany | null;
+      change?: ProjectChangeOrMany & string;
       /**
-       * Only this branch (a template).
+       * Only this branch, or any of these (templates).
        */
-      branch?: string | null;
+      branch?: StringOrMany | null;
       /**
-       * Only files matching this (`*` and `?`), for `files` (a template).
+       * Only files matching this (`*` and `?`), or any of these, for `files`
+       * (templates).
        */
-      glob?: string | null;
+      glob?: StringOrMany | null;
       until: "project";
       [k: string]: unknown;
     }
   | {
-      workflow?: WorkflowId | null;
-      outcome?: RunEnd | null;
+      workflow?: WorkflowIdOrMany | null;
+      change?: RunChangeOrMany;
+      /**
+       * How it ended, for `ended`.
+       */
+      outcome?: RunEndOrMany | null;
+      /**
+       * Which step, for `step`.
+       */
+      step?: StepIdOrMany | null;
+      /**
+       * Which state the step moved into, for `step` — the words of
+       * `step.changed`.
+       */
+      state?: StringOrMany | null;
+      /**
+       * Only a run of this goal, or of any of these (templates: an id, or an
+       * input).
+       */
+      goal?: StringOrMany | null;
       until: "run";
       [k: string]: unknown;
     }
   | {
-      topic: string;
+      topic: StringOrMany;
       /**
        * Exact matches on the event's own fields (templates).
        */
@@ -1042,6 +1331,33 @@ export type WaitFor =
     }
   | {
       until: "release";
+      [k: string]: unknown;
+    }
+  | {
+      /**
+       * The goal, or any of these (templates: an id, or `{inputs.<name>}`);
+       * absent, any goal.
+       */
+      goal?: StringOrMany | null;
+      change: GoalChangeOrMany;
+      until: "goal";
+      [k: string]: unknown;
+    }
+  | {
+      workflow?: WorkflowIdOrMany | null;
+      change: WorkflowChangeOrMany;
+      until: "workflow";
+      [k: string]: unknown;
+    }
+  | {
+      agent?: AssigneeOrInputOrMany | null;
+      project?: ProjectIdOrInputOrMany | null;
+      /**
+       * The harness id it runs on (`claude-code`, `codex`, …).
+       */
+      harness?: StringOrMany | null;
+      change: AgentChangeOrMany;
+      until: "agent";
       [k: string]: unknown;
     };
 /**
@@ -1292,7 +1608,9 @@ export type ProblemKind =
   | "unknown_topic"
   | "spawn_needs_manual_entry"
   | "unsupported_effort"
-  | "spawn_input";
+  | "spawn_input"
+  | "bad_goal_ref"
+  | "idle_filter_field";
 /**
  * One argument a message interpolates.
  */
@@ -1323,7 +1641,19 @@ export type ListenerKey = string;
  * `test` for a run a person started as if an event had happened.
  */
 export type SignalSource =
-  "schedule" | "hook" | "message" | "signal" | "project" | "run" | "platform" | "connector" | "check" | "test";
+  | "schedule"
+  | "hook"
+  | "message"
+  | "signal"
+  | "project"
+  | "run"
+  | "platform"
+  | "connector"
+  | "check"
+  | "goal"
+  | "workflow"
+  | "agent"
+  | "test";
 /**
  * Where a heard event belongs: the whole workspace, or one goal. A goal's
  * run raises its signals on its goal.
@@ -2296,6 +2626,17 @@ export type ConversationAskSubject =
       excerpt: string;
       kind: "content";
       [k: string]: unknown;
+    }
+  | {
+      options?: string[];
+      kind: "question";
+      [k: string]: unknown;
+    }
+  | {
+      provider: string;
+      url?: string | null;
+      kind: "auth";
+      [k: string]: unknown;
     };
 /**
  * What became of one content, on the bus and in the framing.
@@ -2390,6 +2731,10 @@ export type ConversationAskAnswer =
        */
       note?: string | null;
       answer: "deny";
+    }
+  | {
+      text: string;
+      answer: "answer";
     };
 /**
  * One typed question.
@@ -2487,7 +2832,8 @@ export type BrowserAction =
   | "console"
   | "eval"
   | "close"
-  | "screenshot";
+  | "screenshot"
+  | "emulate";
 /**
  * How `browser_read` answers an element: its text, or its HTML.
  */
@@ -2496,6 +2842,12 @@ export type BrowserReadFormat = "text" | "html";
  * What `browser_wait` waits for.
  */
 export type BrowserWaitUntil = "load" | "selector" | "text" | "gone" | "idle";
+/**
+ * The colour scheme a tab's page is shown under (ide/18 §Emulation): the
+ * webview's own appearance, which the page's `prefers-color-scheme` follows;
+ * `system` is the window's own.
+ */
+export type ColorScheme = "light" | "dark" | "system";
 /**
  * Where a tab is at home — the screens the desktop can show one beside,
  * word for word the desktop's `BROWSER_SCOPES`.
@@ -2921,7 +3273,18 @@ export type ErrorCode =
   | "script_failed"
   | "own_pull_request"
   | "nothing_to_stash"
-  | "stash_moved";
+  | "stash_moved"
+  | "connector_not_authenticated"
+  | "connector_not_found"
+  | "connector_refused"
+  | "connector_rate_limited"
+  | "connector_unreachable"
+  | "connector_timeout"
+  | "connector_paused"
+  | "connector_too_large"
+  | "connector_store"
+  | "body_unreadable"
+  | "query_unreadable";
 export type GatePolicy =
   | {
       policy: "owner";
@@ -2935,6 +3298,47 @@ export type GatePolicy =
   | {
       policy: "listed";
       pubkeys: string[];
+    };
+/**
+ * `POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:
+ * false`), or what an apply did to each file it named (`applied: true`).
+ * The schema says `applied` as the literal each arm carries, not as a
+ * `boolean`, so the generated TypeScript tells the two apart by it — the
+ * wire is the same either way.
+ */
+export type IdeReplaceAnswer =
+  | {
+      applied: false;
+      files: IdeReplacePreview[];
+      [k: string]: unknown;
+    }
+  | {
+      applied: true;
+      files: IdeReplaceOutcome[];
+      [k: string]: unknown;
+    };
+/**
+ * What an apply did to one file.
+ */
+export type IdeReplaceOutcome =
+  | {
+      path: string;
+      changes: number;
+      hash: string;
+      outcome: "applied";
+      [k: string]: unknown;
+    }
+  | {
+      path: string;
+      current_hash: string;
+      outcome: "skipped_changed";
+      [k: string]: unknown;
+    }
+  | {
+      path: string;
+      error: string;
+      outcome: "failed";
+      [k: string]: unknown;
     };
 /**
  * How a pull moves the branch once the fetch has landed.
@@ -3470,7 +3874,18 @@ export type StartedBy =
  * start and a test run apart.
  */
 export type EventKind =
-  "schedule" | "hook" | "message" | "signal" | "project" | "run" | "platform" | "connector" | "check";
+  | "schedule"
+  | "hook"
+  | "message"
+  | "signal"
+  | "project"
+  | "run"
+  | "platform"
+  | "connector"
+  | "check"
+  | "goal"
+  | "workflow"
+  | "agent";
 /**
  * Where a signal stands in the queue, as `GET /signals` reports it. Mirrors
  * the store's `SignalState` one variant at a time so the wire contract is a
@@ -3957,15 +4372,33 @@ export interface BisaApi {
   StartOn?: StartOn;
   uint64OrInput?: Uint64OrInput;
   stringOrInput?: StringOrInput;
+  stringOrMany?: StringOrMany;
+  MessageFromOrMany?: MessageFromOrMany;
   MessageFrom?: MessageFrom;
   AssigneeOrInput?: AssigneeOrInput;
+  AssigneeOrInputOrMany?: AssigneeOrInputOrMany;
+  MessagePlaceOrMany?: MessagePlaceOrMany;
+  MessagePlace?: MessagePlace;
+  ProjectIdOrInputOrMany?: ProjectIdOrInputOrMany;
   ProjectIdOrInput?: ProjectIdOrInput;
+  ProjectChangeOrMany?: ProjectChangeOrMany;
   ProjectChange?: ProjectChange;
+  WorkflowIdOrMany?: WorkflowIdOrMany;
+  RunChangeOrMany?: RunChangeOrMany;
+  RunChange?: RunChange;
+  RunEndOrMany?: RunEndOrMany;
   RunEnd?: RunEnd;
+  StepIdOrMany?: StepIdOrMany;
   OperationId?: OperationId;
   AccountIdOrInput?: AccountIdOrInput;
   AccountId?: AccountId;
   FireOn?: FireOn;
+  GoalChangeOrMany?: GoalChangeOrMany;
+  GoalChange?: GoalChange;
+  WorkflowChangeOrMany?: WorkflowChangeOrMany;
+  WorkflowChange?: WorkflowChange;
+  AgentChangeOrMany?: AgentChangeOrMany;
+  AgentChange?: AgentChange;
   Guard?: Guard;
   Overlap?: Overlap;
   EffortChoice?: EffortChoice;
@@ -4300,6 +4733,7 @@ export interface BisaApi {
   BrowserRequest?: BrowserRequest;
   ScriptPhase?: ScriptPhase;
   BrowserReadFormat?: BrowserReadFormat;
+  ColorScheme?: ColorScheme;
   BrowserScope?: BrowserScope;
   BrowserHome?: BrowserHome;
   BrowserHomeScope?: BrowserHomeScope;
@@ -4308,6 +4742,7 @@ export interface BisaApi {
   BrowserConsoleLine?: BrowserConsoleLine;
   BrowserTab?: BrowserTab;
   BrowserResult?: BrowserResult;
+  BrowserViewport?: BrowserViewport;
   BrowserScrollPosition?: BrowserScrollPosition;
   PullRequest?: PullRequest;
   PrState?: PrState;
@@ -4392,6 +4827,10 @@ export interface BisaApi {
   TeamPatch?: TeamPatch;
   IdeReplace?: IdeReplace;
   IdeReplaceFile?: IdeReplaceFile;
+  IdeReplaceAnswer?: IdeReplaceAnswer;
+  IdeReplacePreview?: IdeReplacePreview;
+  IdeReplaceChange?: IdeReplaceChange;
+  IdeReplaceOutcome?: IdeReplaceOutcome;
   OpenInteractiveBody?: OpenInteractiveBody;
   ExitBody?: ExitBody;
   GitFetch?: GitFetch;
@@ -4596,6 +5035,7 @@ export interface BisaApi {
   CatalogEntry?: CatalogEntry;
   Installed?: Installed;
   InstalledWorkflow?: InstalledWorkflow;
+  Updated?: Updated;
   FileEntryKind?: FileEntryKind;
   FileEntry?: FileEntry;
   FileTree?: FileTree;
@@ -5968,6 +6408,16 @@ export interface ConnectorParamDef {
    * What goes in it — the designer's hint and the Workflow Agent's.
    */
   doc?: string;
+  /**
+   * What the call sends when the step leaves it unset — a value of the
+   * parameter's own kind (`default = 100` on a number, `true` on a bool,
+   * an object on `json`), refused at the door when it is not. A required
+   * parameter with a default need not be set by the step. An account's
+   * parameter takes none: its values are the account's own.
+   */
+  default?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * One thing the platform can be asked to do.
@@ -6098,7 +6548,7 @@ export interface ConnectorRow {
   tags: string[];
   origin: Origin;
   /**
-   * The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`.
+   * The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`, `jwt`.
    */
   auth: string;
   hosts: string[];
@@ -8293,6 +8743,12 @@ export interface ScriptStatus {
   phase: ScriptPhase;
   command: string;
   trusted: boolean;
+  /**
+   * The text this machine approved for the phase, when the current text is
+   * another: what a diff is read against before approving again. Absent
+   * for a trusted script, an empty one, or one never approved here.
+   */
+  approved_text?: string | null;
   [k: string]: unknown;
 }
 /**
@@ -8421,6 +8877,21 @@ export interface BrowserRequest {
    * absent, the workspace's policy decides (`headless_for`).
    */
   headless?: boolean | null;
+  /**
+   * For `emulate`: the viewport a tab kept out of sight renders in, in
+   * CSS pixels — both, each 320 to 4096.
+   */
+  width?: number | null;
+  height?: number | null;
+  /**
+   * For `emulate`: the scheme the tab's page is shown under.
+   */
+  scheme?: ColorScheme | null;
+  /**
+   * For `screenshot`: the whole page of a tab kept out of sight — its box
+   * grown to the document, capped — rather than the viewport alone.
+   */
+  full_page?: boolean | null;
   [k: string]: unknown;
 }
 /**
@@ -8537,6 +9008,14 @@ export interface BrowserResult {
    * by the desktop, which names no path.
    */
   path?: string | null;
+  /**
+   * An emulation's answer: the viewport the tab renders in.
+   */
+  viewport?: BrowserViewport | null;
+  /**
+   * An emulation's answer: the scheme the tab's page is shown under.
+   */
+  scheme?: ColorScheme | null;
 }
 /**
  * Where a page is scrolled to, and how big it is.
@@ -8544,6 +9023,13 @@ export interface BrowserResult {
 export interface BrowserScrollPosition {
   x: number;
   y: number;
+  width: number;
+  height: number;
+}
+/**
+ * The box a tab renders in, in CSS pixels — an emulation's answer.
+ */
+export interface BrowserViewport {
   width: number;
   height: number;
 }
@@ -9011,22 +9497,29 @@ export interface Schedule {
  * A message posted into a conversation: where, by whom, mentioning whom,
  * saying what. Heard where conversation dispatch hears a message — after the
  * hold a message from another node waits in — and never an announcement.
+ * Every field but `contains` takes one value or a list, heard as any of
+ * them.
  */
 export interface MessageFilter {
   /**
    * The conversation it lands in — a channel id, a direct channel's, a
    * conversation's or a goal's thread (a template); absent, anywhere.
    */
-  in?: string | null;
-  from?: MessageFrom & string;
+  in?: StringOrMany | null;
+  from?: MessageFromOrMany & string;
   /**
    * It mentions this agent, team or person.
    */
-  mentions?: AssigneeOrInput | null;
+  mentions?: AssigneeOrInputOrMany | null;
   /**
    * Its text contains this, case-insensitively (a template).
    */
   contains?: string | null;
+  /**
+   * The kind of place it lands in — a direct channel, a standing one, a
+   * goal's thread…; absent, any kind.
+   */
+  kind?: MessagePlaceOrMany | null;
 }
 /**
  * A named signal — raised by an `emit` step, a session's `emit_signal`, a
@@ -9043,38 +9536,60 @@ export interface SignalFilter {
   };
 }
 /**
- * A change in one project — never a path on a disk, which would mean
- * nothing on another machine.
+ * A change in one project, or in any of a list — never a path on a disk,
+ * which would mean nothing on another machine.
  */
 export interface ProjectFilter {
   /**
    * Absent while the designer has not chosen one: a problem, never `""`.
    */
-  project?: ProjectIdOrInput | null;
-  change?: ProjectChange & string;
+  project?: ProjectIdOrInputOrMany | null;
+  change?: ProjectChangeOrMany & string;
   /**
-   * Only this branch (a template).
+   * Only this branch, or any of these (templates).
    */
-  branch?: string | null;
+  branch?: StringOrMany | null;
   /**
-   * Only files matching this (`*` and `?`), for `files` (a template).
+   * Only files matching this (`*` and `?`), or any of these, for `files`
+   * (templates).
    */
-  glob?: string | null;
+  glob?: StringOrMany | null;
 }
 /**
- * A run that ended — of one workflow, or of any.
+ * A run that moved — of one workflow or of any, on one goal or any, ending
+ * how, which of its steps into which state. Every field takes one value or
+ * a list; `change` says what of the run is heard and means `ended` when
+ * nothing is said.
  */
 export interface RunFilter {
-  workflow?: WorkflowId | null;
-  outcome?: RunEnd | null;
+  workflow?: WorkflowIdOrMany | null;
+  change?: RunChangeOrMany;
+  /**
+   * How it ended, for `ended`.
+   */
+  outcome?: RunEndOrMany | null;
+  /**
+   * Which step, for `step`.
+   */
+  step?: StepIdOrMany | null;
+  /**
+   * Which state the step moved into, for `step` — the words of
+   * `step.changed`.
+   */
+  state?: StringOrMany | null;
+  /**
+   * Only a run of this goal, or of any of these (templates: an id, or an
+   * input).
+   */
+  goal?: StringOrMany | null;
 }
 /**
  * One of the engine's own bus events, by topic (`goal.closed`,
- * `step.changed`) and exact fields — the advanced door, for what the other
- * events do not name.
+ * `step.changed`) — or any of a list — and exact fields: the advanced
+ * door, for what the other events do not name.
  */
 export interface PlatformFilter {
-  topic: string;
+  topic: StringOrMany;
   /**
    * Exact matches on the event's own fields (templates).
    */
@@ -9119,6 +9634,12 @@ export interface NewGoalBody {
    * capture.
    */
   documents?: AttachmentRef[];
+  /**
+   * The goal's own ceiling — tokens, cost, wall time. Absent takes the
+   * workspace default (`budget.default.*`); given, it is kept as given, an
+   * empty one included: no ceiling, whatever the default says.
+   */
+  budget?: Budget | null;
 }
 /**
  * `POST /workflows`, the body of `POST /goals/{id}/amend`, and
@@ -9341,6 +9862,31 @@ export interface IdeReplace {
 export interface IdeReplaceFile {
   path: string;
   base_hash: string;
+}
+/**
+ * One file a preview would change, with the hash an apply carries back.
+ */
+export interface IdeReplacePreview {
+  path: string;
+  /**
+   * The file's content hash as the preview read it — `files[].base_hash`
+   * on the apply, which skips the file when it has moved on.
+   */
+  base_hash: string;
+  changes: IdeReplaceChange[];
+  [k: string]: unknown;
+}
+/**
+ * One line a replace changes, as its preview read it.
+ */
+export interface IdeReplaceChange {
+  /**
+   * 1-based.
+   */
+  line: number;
+  before: string;
+  after: string;
+  [k: string]: unknown;
 }
 /**
  * `POST /sessions/terminal`: a harness a person is opening in a desktop
@@ -10939,6 +11485,15 @@ export interface EmitSignalBody {
 export interface CatalogInstallBody {
   kind: string;
   slug: string;
+  /**
+   * `true` brings an installed skill, agent or team back to the catalog's
+   * definition — a person's act: edits to the words the catalog owns are
+   * replaced, while the harness, the plan, the keys, the switch and the
+   * people on a team are kept — and installs what the entry needs and is
+   * missing. Left out, the call only ever creates. The answer then adds
+   * `updated: {restated}`.
+   */
+  update?: boolean;
 }
 /**
  * The Workflow Agent's standing over a goal — drives the goal page's
@@ -12041,6 +12596,16 @@ export interface CatalogEntry {
    */
   installed: boolean;
   /**
+   * Whether this entry's installed copy no longer says what the catalog
+   * says — somebody edited the words an update restates, or the catalog
+   * moved under it. Present only for a skill, an agent or a team installed
+   * from this very entry; absent when it is not installed, when its id is
+   * held by something else, and for every other kind, which is installed
+   * once and is then yours. `POST /catalog/install` with `update: true`
+   * brings the copy back.
+   */
+  installed_differs?: boolean | null;
+  /**
    * A workflow template's whole definition — inputs, steps, flows — so a
    * gallery draws its graph before it is installed; absent for every other
    * kind. A `spawn` step whose target is not installed names a placeholder
@@ -12073,6 +12638,16 @@ export interface Installed {
 export interface InstalledWorkflow {
   slug: string;
   id: WorkflowId;
+  [k: string]: unknown;
+}
+/**
+ * What `POST /catalog/install` with `update: true` did beyond installing:
+ * whether the entry's installed copy was restated to the catalog's
+ * definition. `false` when it already said so, and when the entry was not
+ * here and was installed just now.
+ */
+export interface Updated {
+  restated: boolean;
   [k: string]: unknown;
 }
 /**

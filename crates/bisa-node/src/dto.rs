@@ -1137,17 +1137,32 @@ impl From<bisa_engine::ide::search::ReplaceOutcome> for IdeReplaceOutcome {
 
 /// `POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:
 /// false`), or what an apply did to each file it named (`applied: true`).
+/// The schema says `applied` as the literal each arm carries, not as a
+/// `boolean`, so the generated TypeScript tells the two apart by it — the
+/// wire is the same either way.
 #[derive(Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum IdeReplaceAnswer {
     Preview {
+        #[schemars(schema_with = "applied_false")]
         applied: bool,
         files: Vec<IdeReplacePreview>,
     },
     Applied {
+        #[schemars(schema_with = "applied_true")]
         applied: bool,
         files: Vec<IdeReplaceOutcome>,
     },
+}
+
+/// `applied: false`, as a literal in the schema (the preview's arm).
+fn applied_false(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type": "boolean", "const": false})
+}
+
+/// `applied: true`, as a literal in the schema (the apply's arm).
+fn applied_true(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type": "boolean", "const": true})
 }
 
 impl IdeReplaceAnswer {

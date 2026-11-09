@@ -22455,7 +22455,8 @@
           "type": "object",
           "properties": {
             "applied": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": false
             },
             "files": {
               "type": "array",
@@ -22473,7 +22474,8 @@
           "type": "object",
           "properties": {
             "applied": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": true
             },
             "files": {
               "type": "array",
@@ -22488,7 +22490,7 @@
           ]
         }
       ],
-      "description": "`POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:\nfalse`), or what an apply did to each file it named (`applied: true`)."
+      "description": "`POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:\nfalse`), or what an apply did to each file it named (`applied: true`).\nThe schema says `applied` as the literal each arm carries, not as a\n`boolean`, so the generated TypeScript tells the two apart by it — the\nwire is the same either way."
     },
     "IdeReplacePreview": {
       "type": "object",
