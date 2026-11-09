@@ -103,7 +103,7 @@ export function truncate(s, max = MAX) {
 /** The word for why a run was cancelled: its cause's tag, `cancelled` when unknown. */
 function cancelCauseWord(cause) {
   const c = cause?.cause;
-  return c === "stopped" || c === "restarted" || c === "withdrawn" || c === "closed" ? c : "cancelled";
+  return c === "stopped" || c === "restarted" || c === "withdrawn" || c === "closed" || c === "retired" ? c : "cancelled";
 }
 
 /** `next` for the first place in line, else `2nd`, `3rd`, `4th`… */
@@ -917,14 +917,25 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
       };
     // A proposal is owed a decision, so it is `wait`, and it names the
     // designer rather than a generic gate.
+    // Only one that carries its gate, though: an auto goal's is adopted by
+    // the platform and a manual goal's is the person's draft — designed,
+    // and nothing owed.
     case "workflow_proposed":
-      return {
-        ...base,
-        key,
-        tone: "wait",
-        icon: "icon:workflow",
-        text: t("app-activity-workflow-agent-proposed-workflow-rev-adopt", { workflow: shortId(p.workflow), revision: p.revision }),
-      };
+      return p.gate_id
+        ? {
+            ...base,
+            key,
+            tone: "wait",
+            icon: "icon:workflow",
+            text: t("app-activity-workflow-agent-proposed-workflow-rev-adopt", { workflow: shortId(p.workflow), revision: p.revision }),
+          }
+        : {
+            ...base,
+            key,
+            tone: "spine",
+            icon: "icon:workflow",
+            text: t("app-activity-workflow-agent-designed-workflow-rev", { workflow: shortId(p.workflow), revision: p.revision }),
+          };
     // The Workflow Agent's hand is news (an Inbox notice on the workflow's
     // row); a save by hand is the dim line it always was.
     case "workflow_changed":

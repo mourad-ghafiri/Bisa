@@ -310,6 +310,11 @@ fn deleting_takes_the_file_the_snapshot_and_the_row_and_a_scope_takes_its_drawin
     let on_project = ws
         .create_drawing(drawing(OwnerScope::Project { id: project.id }, "p"))
         .unwrap();
+    ws.set_goal_closed(
+        goal.id,
+        bisa_core::ClosureReason::Abandoned { rationale: None },
+    )
+    .unwrap();
     ws.delete_goal(goal.id).unwrap();
     ws.delete_workflow(wf.id).unwrap();
     ws.delete_project(project.id).unwrap();

@@ -564,3 +564,327 @@ async fn an_edit_of_the_goals_record_is_announced() {
     );
     engine.shutdown().await;
 }
+
+/// Everything a capture is refused for is refused before its first write:
+/// an archived workflow — started or not — another goal's own design, a
+/// document with no name. No goal is left behind, nothing is announced.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_capture_refused_for_its_workflow_or_its_documents_leaves_no_goal_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let put_away = engine.create_workflow(says("put away")).unwrap();
+    ws.set_workflow_archived(put_away.id, true).unwrap();
+    let owner = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..bisa_engine::SubmitRequest::captured("owns a design")
+        })
+        .unwrap();
+    let (design, _) = engine
+        .design_workflow(owner.id, says("its own"), None)
+        .unwrap();
+    let brief = ws
+        .put_attachment(b"%PDF the brief", "brief.pdf", "application/pdf")
+        .unwrap();
+    let mut nameless = brief.clone();
+    nameless.name = "   ".into();
+    let before = ws.list_goals(None).unwrap().len();
+    let mut bus = engine.events();
+    for start in [false, true] {
+        let refused = engine.submit_goal(bisa_engine::SubmitRequest {
+            workflow: Some(put_away.id),
+            start,
+            ..bisa_engine::SubmitRequest::captured("on a put-away workflow")
+        });
+        let words = refused.unwrap_err().to_string();
+        assert!(words.contains("archived"), "start={start}: {words}");
+    }
+    let words = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            workflow: Some(design.id),
+            ..bisa_engine::SubmitRequest::captured("borrowing a design")
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(words.contains("designed"), "{words}");
+    let words = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            documents: vec![nameless],
+            ..bisa_engine::SubmitRequest::captured("with a nameless document")
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(words.contains("name"), "{words}");
+    assert_eq!(
+        ws.list_goals(None).unwrap().len(),
+        before,
+        "no goal left behind"
+    );
+    while let Ok(e) = bus.try_recv() {
+        assert!(
+            !matches!(e.payload, bisa_engine::EnginePayload::GoalCreated { .. }),
+            "nothing announced: {e:?}"
+        );
+    }
+    engine.shutdown().await;
+}
+
+/// A goal captured without a budget takes the workspace default; one that
+/// names its own keeps it as given, a ceiling left out lifting it whatever
+/// the default says.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_capture_without_a_budget_takes_the_workspace_default_and_a_zero_lifts_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    engine
+        .set_setting(
+            bisa_core::SettingScope::Workspace,
+            None,
+            bisa_core::Budget::SETTING_TOKENS,
+            serde_json::json!(1000),
+        )
+        .unwrap();
+    let defaulted = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..bisa_engine::SubmitRequest::captured("defaulted")
+        })
+        .unwrap();
+    assert_eq!(defaulted.budget.max_tokens, Some(1000));
+    assert_eq!(defaulted.budget.max_usd_cents, None);
+    let lifted = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            budget: Some(bisa_core::Budget::default()),
+            ..bisa_engine::SubmitRequest::captured("unlimited by choice")
+        })
+        .unwrap();
+    assert!(lifted.budget.is_unlimited(), "{:?}", lifted.budget);
+    let own = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            budget: Some(bisa_core::Budget {
+                max_usd_cents: Some(5),
+                ..Default::default()
+            }),
+            ..bisa_engine::SubmitRequest::captured("its own ceiling")
+        })
+        .unwrap();
+    assert_eq!(own.budget.max_usd_cents, Some(5));
+    assert_eq!(own.budget.max_tokens, None, "kept as given, not defaulted");
+    engine.shutdown().await;
+}
+
+/// A run that ends as a restart reads it: the restart's mark held the queue,
+/// nothing is cancelled in the ended run's place, and the new run starts at
+/// once ahead of the queue the ended run left.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_of_a_run_that_just_ended_starts_ahead_of_the_queue_it_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, first) = run_on(&engine, "ended as the restart read it", holds("held"));
+    let queued = engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    assert!(queued.is_queued());
+    // The window between a restart's mark and its cancel, held open by hand.
+    engine.inner().ending_goals.insert(goal.id);
+    engine.release_step(first.id, &sid("hold"), None).unwrap();
+    let ended = run_finished(&engine, first.id).await;
+    assert_eq!(ended.outcome, Some(RunOutcome::Done));
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(
+        ws.get_run(queued.id).unwrap().is_queued(),
+        "held by the mark"
+    );
+    let restarted = engine.restart_goal(goal.id).await.unwrap();
+    engine.inner().ending_goals.remove(&goal.id);
+    assert!(![first.id, queued.id].contains(&restarted.id));
+    assert_eq!(
+        ws.live_run(goal.id).unwrap().map(|r| r.id),
+        Some(restarted.id),
+        "the restart's run is the live one"
+    );
+    assert!(
+        ws.get_run(queued.id).unwrap().is_queued(),
+        "the queue keeps its place behind it"
+    );
+    let first_now = ws.get_run(first.id).unwrap();
+    assert!(
+        first_now.cancelled.is_none(),
+        "left as it ended: {first_now:?}"
+    );
+    assert_eq!(restarted.start, first.start);
+    assert_eq!(restarted.inputs, first.inputs);
+    engine.shutdown().await;
+}
+
+/// A restart whose workflow was put away since is refused before anything
+/// is cancelled.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_of_an_archived_workflow_is_refused_before_anything_is_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, first) = run_on(&engine, "its workflow put away", holds("put away"));
+    ws.set_workflow_archived(first.workflow.id, true).unwrap();
+    let err = engine.restart_goal(goal.id).await.unwrap_err();
+    assert!(matches!(err, EngineError::Conflict(_)), "{err:?}");
+    assert!(err.to_string().contains("archived"), "{err}");
+    let live = ws.live_run(goal.id).unwrap().expect("still live");
+    assert_eq!(live.id, first.id, "nothing was cancelled");
+    assert_eq!(live.steps[&sid("hold")].state.as_str(), "waiting");
+    engine.shutdown().await;
+}
+
+/// A restart whose last inputs no longer bind — the workflow asks for one
+/// more now — is refused before anything is cancelled, naming the input.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_whose_inputs_no_longer_bind_is_refused_before_anything_is_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, wf) = goal_on(&engine, "asked for more since", holds("asks later"));
+    let first = engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    step_in_state(&engine, goal.id, "hold", "waiting").await;
+    let say = step(
+        "say",
+        StepKind::Notify {
+            scope: None,
+            template: "for {inputs.customer}".into(),
+            mentions: vec![],
+            author: None,
+        },
+    );
+    let mut asking = holds("asks now");
+    asking.steps[0].then = vec![bisa_core::Flow::to(sid("say"))];
+    asking.steps.push(say);
+    asking.inputs = vec![bisa_core::InputDef {
+        name: bisa_core::InputName::new("customer").unwrap(),
+        label: "Customer".into(),
+        kind: bisa_core::InputKind::Text,
+        default: None,
+        required: true,
+    }];
+    let (_, problems) = engine.save_workflow(wf.id, asking, wf.revision).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let err = engine.restart_goal(goal.id).await.unwrap_err();
+    assert!(matches!(err, EngineError::Conflict(_)), "{err:?}");
+    assert!(err.to_string().contains("customer"), "{err}");
+    let live = ws.live_run(goal.id).unwrap().expect("still live");
+    assert_eq!(live.id, first.id, "nothing was cancelled");
+    engine.shutdown().await;
+}
+
+/// A person's edit of the goal's own record: one write, announced, a blank
+/// title clearing it, tags and budget replaced; the statement trimmed, never
+/// blank, noted with the one it replaced, and fixed while a run is live; a
+/// closed goal and an edit that names nothing refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_person_edits_a_goals_own_record_and_the_statement_is_fixed_while_a_run_is_live() {
+    use bisa_engine::ops::{edit_goal, GoalEdit};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, _) = goal_on(&engine, "worded loosely", holds("held"));
+    let mut rx = engine.events();
+    let edited = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            title: Some("  The release  ".into()),
+            statement: Some("  ship the release by Friday  ".into()),
+            tags: Some(bisa_core::Tags::new(["release".to_string()]).unwrap()),
+            budget: Some(bisa_core::Budget {
+                max_usd_cents: Some(500),
+                ..Default::default()
+            }),
+        },
+    )
+    .unwrap();
+    assert_eq!(edited.title.as_deref(), Some("The release"));
+    assert_eq!(edited.statement, "ship the release by Friday");
+    assert_eq!(edited.tags.iter().count(), 1);
+    assert_eq!(edited.budget.max_usd_cents, Some(500));
+    assert_eq!(edited.revision, goal.revision + 1, "one write");
+    wait_for(&mut rx, "goal.updated", |e| {
+        matches!(&e.payload, bisa_engine::EnginePayload::GoalUpdated { goal: g } if *g == goal.id)
+    })
+    .await;
+    assert!(
+        notes(&engine, goal.id)
+            .iter()
+            .any(|n| n.starts_with("statement edited") && n.contains("worded loosely")),
+        "the statement it replaced is kept in a note"
+    );
+    let cleared = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            title: Some("  ".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(cleared.title, None);
+    assert_eq!(
+        cleared.statement, "ship the release by Friday",
+        "left out, kept"
+    );
+
+    let nothing = edit_goal(engine.inner(), goal.id, GoalEdit::default()).unwrap_err();
+    assert!(matches!(nothing, EngineError::Invalid(_)), "{nothing:?}");
+    let blank = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            statement: Some("   ".into()),
+            ..Default::default()
+        },
+    );
+    assert!(blank.is_err());
+    assert_eq!(
+        ws.get_goal(goal.id).unwrap().statement,
+        "ship the release by Friday"
+    );
+
+    engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    step_in_state(&engine, goal.id, "hold", "waiting").await;
+    let fixed = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            statement: Some("something else".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(fixed, EngineError::Conflict(_)), "{fixed:?}");
+    // The same words are no change, and the rest of the record still moves.
+    let live = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            title: Some("Renamed mid-run".into()),
+            statement: Some("ship the release by Friday".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(live.title.as_deref(), Some("Renamed mid-run"));
+
+    engine
+        .close_goal(goal.id, ClosureReason::Abandoned { rationale: None })
+        .unwrap();
+    let closed = edit_goal(
+        engine.inner(),
+        goal.id,
+        GoalEdit {
+            title: Some("too late".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(closed, EngineError::Conflict(_)), "{closed:?}");
+    engine.shutdown().await;
+}

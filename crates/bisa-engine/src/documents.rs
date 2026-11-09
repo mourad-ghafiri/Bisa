@@ -24,6 +24,12 @@ use std::sync::Arc;
 /// before anything is written, so a goal is never created for documents it
 /// cannot have (`ops::submit`) and never told to add them (`add_documents`).
 pub fn check(inner: &Inner, files: &[AttachmentRef]) -> Result<(), EngineError> {
+    // The store's rule, asked first: a document needs a name.
+    if files.iter().any(|f| f.name.trim().is_empty()) {
+        return Err(EngineError::Store(bisa_store::StoreError::Invalid(
+            bisa_core::text!("error-store-invalid-document-needs-name"),
+        )));
+    }
     if let Some(missing) = files
         .iter()
         .find(|f| inner.ws.attachment_path(&f.sha256).is_none())

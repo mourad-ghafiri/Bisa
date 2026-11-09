@@ -787,3 +787,157 @@ async fn a_restart_holds_an_occurrence_until_it_is_through() {
     child.wait().expect("the stand-in is reaped");
     engine.shutdown().await;
 }
+
+/// A workflow whose run waits on a release: live for as long as a test wants.
+fn held(name: &str) -> bisa_store::NewWorkflow {
+    new_workflow(
+        name,
+        vec![step(
+            "hold",
+            StepKind::Wait {
+                until: bisa_core::WaitFor::Release,
+            },
+        )],
+    )
+}
+
+/// While a goal's work is being ended its queue does not move: a run that
+/// ends under the mark starts nothing, and the stop withdraws what waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_queue_does_not_advance_while_the_goals_work_is_being_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, first) = run_on(&engine, "held while ending", held("held"));
+    let queued = engine
+        .start_run(goal.id, std::collections::BTreeMap::new())
+        .unwrap();
+    assert!(queued.is_queued());
+    engine.inner().ending_goals.insert(goal.id);
+    engine.release_step(first.id, &sid("hold"), None).unwrap();
+    run_finished(&engine, first.id).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        ws.get_run(queued.id).unwrap().is_queued(),
+        "the settle started nothing: the goal's work is being ended"
+    );
+    assert_eq!(ws.get_goal(goal.id).unwrap().run, Some(first.id));
+    engine.inner().ending_goals.remove(&goal.id);
+    let stopped = engine.stop_goal(goal.id, None).await.unwrap();
+    assert_eq!(stopped.withdrawn, vec![queued.id]);
+    assert_eq!(stopped.run, None, "the last run was over");
+    assert!(!engine.inner().ending_goals.contains(&goal.id));
+    engine.shutdown().await;
+}
+
+/// A run made while a stop goes is never started by the stop: one that
+/// queued is withdrawn — before the cancel or after it — and the stop says
+/// so; one made after the cancel found the goal idle and is the person's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_queued_during_a_stop_is_withdrawn_never_started_by_the_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(engine_with(&dir, vec![MockAdapter::default()]));
+    for round in 0..20 {
+        let (goal, first) = run_on(
+            &engine,
+            &format!("stopped as a run is made {round}"),
+            held("held"),
+        );
+        let racer = Arc::clone(&engine);
+        let goal_id = goal.id;
+        let (stopped, made) = tokio::join!(
+            engine.stop_goal(goal.id, None),
+            tokio::task::spawn_blocking(move || {
+                racer.start_run(goal_id, std::collections::BTreeMap::new())
+            })
+        );
+        let stopped = stopped.unwrap();
+        let made = made.unwrap();
+        let ws = engine.workspace();
+        let queued: Vec<bisa_core::RunId> = ws
+            .journal(&bisa_core::Home::Goal { goal: goal.id })
+            .unwrap()
+            .into_iter()
+            .filter_map(|e| match e.payload {
+                JournalPayload::Run {
+                    run,
+                    event: bisa_core::RunFact::Queued { .. },
+                } => Some(run),
+                _ => None,
+            })
+            .collect();
+        for run in queued {
+            let run = ws.get_run(run).unwrap();
+            assert_eq!(
+                run.cancelled,
+                Some(bisa_core::CancelCause::Withdrawn),
+                "round {round}: queued during the stop, withdrawn, never started: {run:?}"
+            );
+            assert!(
+                stopped.withdrawn.contains(&run.id),
+                "round {round}: and the stop says so"
+            );
+        }
+        assert!(
+            !engine.inner().ending_goals.contains(&goal.id),
+            "round {round}: the mark is released"
+        );
+        // The stop cancelled the run that was live when it began, unless the
+        // racer's run is the one it met — started at once on an idle goal
+        // only after the cancel, which is the person's and is ended here.
+        assert_eq!(stopped.run, Some(first.id), "round {round}");
+        if let Ok(run) = made {
+            if !ws.get_run(run.id).unwrap().is_finished() {
+                engine.stop_goal(goal.id, None).await.unwrap();
+            }
+        }
+    }
+    Arc::try_unwrap(engine)
+        .ok()
+        .expect("the only handle")
+        .shutdown()
+        .await;
+}
+
+/// A restart refused before its cancel leaves everything as it was — the
+/// run live, the queue in place, no mark — and the queue moves when the
+/// run ends.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_refused_before_its_cancel_leaves_the_queue_moving() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let (goal, first) = run_on(
+        &engine,
+        "restarted on a put-away workflow",
+        held("put away"),
+    );
+    let queued = engine
+        .start_run(goal.id, std::collections::BTreeMap::new())
+        .unwrap();
+    let wf = ws.get_goal(goal.id).unwrap().workflow.unwrap();
+    ws.set_workflow_archived(wf, true).unwrap();
+    let err = engine.restart_goal(goal.id).await.unwrap_err();
+    assert!(
+        matches!(err, bisa_engine::EngineError::Conflict(_)),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("archived"), "{err}");
+    assert_eq!(
+        ws.live_run(goal.id).unwrap().map(|r| r.id),
+        Some(first.id),
+        "nothing was cancelled"
+    );
+    assert!(ws.get_run(queued.id).unwrap().is_queued());
+    assert!(!engine.inner().ending_goals.contains(&goal.id));
+    ws.set_workflow_archived(wf, false).unwrap();
+    engine.release_step(first.id, &sid("hold"), None).unwrap();
+    until("the queued run to start", || {
+        ws.live_run(goal.id)
+            .ok()
+            .flatten()
+            .filter(|r| r.id == queued.id)
+    })
+    .await;
+    engine.shutdown().await;
+}

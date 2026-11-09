@@ -1195,3 +1195,18 @@ test("an ask in a conversation is said by its subject: the tool's name, content 
   assert.equal(ask({ kind: "auth", provider: "github" }), "a sign-in to github waits on you in the conversation");
   assert.equal(ask(undefined), "a call waits on you in the conversation", "no subject at all is a call, as before");
 });
+
+test("a proposal with no gate is designed, not owed; a retired run says so", () => {
+  const owed = engineLine({ payload: { type: "workflow_proposed", workflow: WORKFLOW, revision: 2, gate_id: "g2" } }, 1);
+  assert.equal(owed.tone, "wait");
+  assert.match(owed.text, /adopt it/);
+  const designed = engineLine({ payload: { type: "workflow_proposed", workflow: WORKFLOW, revision: 2 } }, 1);
+  assert.equal(designed.tone, "spine");
+  assert.doesNotMatch(designed.text, /adopt/);
+  assert.match(designed.text, /designed workflow/);
+});
+
+test("a run retired with its goal says so, in the journal's line and the bus's", () => {
+  assert.equal(payloadLine({ type: "run", run: RUN, event: { fact: "cancelled", cause: { cause: "retired" } } }).text, "run 00RUN1 retired with its goal");
+  assert.equal(engineLine({ payload: { ...ENGINE.run_cancelled, cause: { cause: "retired" } } }, 1).text, "run 00RUN1 retired with its goal");
+});

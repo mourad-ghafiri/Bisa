@@ -607,9 +607,11 @@ pub struct DesignStatus {
 }
 
 /// The last guidance fact, if its phase still applies: a design while the
-/// goal has no run, a repair while the current run has failed. A fact that
-/// claims work in progress with no wake behind it reads as `Stalled` — the
-/// safety net under [`resume_interrupted`].
+/// goal has no run — a proposal has a workflow and no run, and still shows —
+/// a repair while the current run has failed. A fact that claims work in
+/// progress with no wake behind it reads as `Stalled` — the safety net under
+/// [`resume_interrupted`], which re-wakes only a goal with no workflow yet:
+/// a proposal needs no wake, so the two rules differ there on purpose.
 pub fn design_status(
     inner: &Inner,
     goal: &Goal,

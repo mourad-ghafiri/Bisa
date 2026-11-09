@@ -31,6 +31,7 @@ const KIND_WORD = Object.freeze({
   failed: tr("goal-design-status-kind-failed"),
   off: tr("goal-design-status-kind-off"),
   manual: tr("goal-design-status-kind-manual"),
+  ready: tr("goal-design-status-kind-ready"),
 });
 
 /** The word of a kind, for the card's chip. */
@@ -89,6 +90,21 @@ export function designView(guidance, goal, { now = nowSecs(), paused = false, ac
   if (!design) {
     if (guidance && guidance.design_enabled === false) {
       return off(base);
+    }
+    // Nobody owes this goal a design: the node says which phase the goal is
+    // in (`design`, `repair`, else its status), and with no guidance fact a
+    // goal that has a workflow or has run is not about to be designed —
+    // captured with a workflow and not started, or between runs. The page
+    // then offers what the card offers: a start, a restart, another workflow.
+    if (guidance?.phase && guidance.phase !== "design" && guidance.phase !== "repair") {
+      return {
+        ...base,
+        kind: "ready",
+        headline: tr("goal-design-status-workflow-chosen-nobody-designing"),
+        hint: tr("goal-design-status-start-from-header-or-choose-another"),
+        tone: "quiet",
+        offerPick: true,
+      };
     }
     return {
       ...base,

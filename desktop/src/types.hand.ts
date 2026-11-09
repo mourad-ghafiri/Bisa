@@ -758,6 +758,8 @@ export interface GoalView {
   active: number;
   pending_gates: GateEntry[];
   guidance: GuidanceInfo;
+  /** True when the goal names a run this node cannot read: the page is drawn as for a goal with no run. */
+  run_unreadable?: boolean;
   /** The same run-as-a-strip the list rows carry, so a header needs no second shape. */
   strip: import("./types.gen").RunStrip;
   /** Who the goal waits on — the core's one rule, computed by the node. */

@@ -152,3 +152,16 @@ test("an addon's notice wears the addon's name, never the app's", () => {
   const bridge = readFileSync(new URL("../addons/addonBridge.ts", import.meta.url), "utf8");
   assert.ok(bridge.includes("deliverNotice(addonNoticeTitle(latest.current.addon.manifest.name, effect.title), effect.body)"), "the bridge delivers every notice under the addon's name");
 });
+
+test("a proposal is one moment: quiet after its gate was said, and quiet when it asks for no adoption", () => {
+  // A guided goal: the gate opens, then the proposal names the same gate.
+  const gate = onFrame({ type: "gate_opened", gate_id: "g7", gate: "approval", question: "Adopt “Ship it”?" }, emptyMemory());
+  assert.equal(gate.notice.category, "asks");
+  assert.equal(onFrame({ type: "workflow_proposed", workflow: "w", revision: 1, gate_id: "g7" }, gate.memory).notice, null);
+  // The other order: the proposal first, then its gate says nothing more.
+  const first = onFrame({ type: "workflow_proposed", workflow: "w", revision: 1, gate_id: "g8" }, emptyMemory());
+  assert.equal(first.notice.category, "workflows");
+  assert.equal(onFrame({ type: "gate_opened", gate_id: "g8", gate: "approval", question: "Adopt?" }, first.memory).notice, null);
+  // An auto goal's design, adopted by the platform, and a manual goal's draft carry no gate: nothing is asked.
+  assert.equal(onFrame({ type: "workflow_proposed", workflow: "w", revision: 1 }, emptyMemory()).notice, null);
+});

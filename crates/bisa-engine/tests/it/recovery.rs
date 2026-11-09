@@ -1123,3 +1123,72 @@ async fn an_ended_row_still_naming_our_child_is_terminated_at_boot_and_a_termina
     let _reaped = tab.wait();
     engine.shutdown().await;
 }
+
+/// A queued run a crash left out of its goal's record — the run's snapshot
+/// and its queued fact written, the goal's snapshot and the index not yet —
+/// is adopted when the engine starts, and starts in its turn once nothing is
+/// live; the adoption is named among the workspace's problems.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_queued_run_orphaned_by_a_crash_starts_at_boot_in_its_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let (goal, queued) = {
+        let ws = store(&dir);
+        let (goal, live) = staged_run(
+            &ws,
+            "orphaned at boot",
+            vec![step(
+                "hold",
+                StepKind::Wait {
+                    until: bisa_core::WaitFor::Release,
+                },
+            )],
+        );
+        let wf = ws.get_goal(goal).unwrap().workflow.unwrap();
+        let (queued, _) = ws
+            .create_run(
+                bisa_core::RunScope::Goal { goal },
+                wf,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.stage_crash_before_goal_recorded_run(goal, queued.id)
+            .unwrap();
+        assert!(
+            ws.queued_runs(goal).unwrap().is_empty(),
+            "the crash left no row"
+        );
+        ws.record_run_event(
+            live,
+            RunEvent::Cancel {
+                cause: bisa_core::CancelCause::Stopped { rationale: None },
+            },
+        )
+        .unwrap();
+        (goal, queued.id)
+    };
+
+    let engine = engine_with(&dir, vec![endless("mock")]);
+    let started = until("the adopted run to start", || {
+        let run = engine.workspace().get_run(queued).ok()?;
+        run.is_live().then_some(run)
+    })
+    .await;
+    assert_eq!(started.status(), bisa_core::RunStatus::Waiting);
+    let after = engine.workspace().get_goal(goal).unwrap();
+    assert_eq!(after.run, Some(queued));
+    assert!(
+        after.runs.contains(&queued),
+        "the goal names the run it never recorded"
+    );
+    assert!(
+        engine
+            .workspace()
+            .problems()
+            .iter()
+            .any(|p| p.path == queued.to_string()),
+        "the adoption is named"
+    );
+    engine.shutdown().await;
+}

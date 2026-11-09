@@ -11,44 +11,52 @@
 
 import { useEffect, useRef } from "react";
 import { api } from "../../api";
+import { useEngineEvents } from "../../bus";
+import { cardRereads } from "./goalInspectorModel.mjs";
 import type { GoalDocumentRow } from "../../types";
 import { Button, ICON, PendingFiles, SectionHeader, Tooltip, useToast, useUploads } from "../../ui";
 import { fileIcon } from "../../ui/icons";
 import { formatBytes } from "../_studio/attachmentModel.mjs";
 import { attempt, useAsync } from "./useAsync";
+import { createLatch, once, uploadsKey } from "../_goal/verbLatch.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export function DocumentsCard({ goal, readOnly = false, onOpenFiles }: { goal: string; /** Listed, never added to: the goal's run is going. */ readOnly?: boolean; onOpenFiles: () => void }) {
   const toast = useToast();
   const { data, reload } = useAsync((s) => api.goalDocuments(goal, s), [goal]);
   const rows: GoalDocumentRow[] = data?.documents ?? [];
+  // A document given from elsewhere — the CLI, another window — lands here too.
+  useEngineEvents((e) => {
+    if (cardRereads("documents", e.payload)) reload();
+  }, goal);
   const uploads = useUploads();
   const input = useRef<HTMLInputElement>(null);
 
   // Every upload that answered is handed to the goal at once, in one
   // request, and the strip empties: a chip that lingered would read as a
   // document not yet given.
+  // One request per set of files (`verbLatch`): the effect runs again while
+  // the node answers — a toast, a chip's state — and the same files sent
+  // twice were kept twice, the second as `brief (2).pdf`.
   const { uploaded, uploading, pending, clear } = uploads;
+  const sends = useRef(createLatch()).current;
   useEffect(() => {
     if (uploading || uploaded.length === 0) return;
     if (pending.some((p) => p.state === "failed")) return;
-    let cancelled = false;
-    void attempt(
-      async () => {
-        await api.addGoalDocuments(goal, uploaded);
-      },
-      toast.error,
-      () => {
-        if (cancelled) return;
-        toast.ok(uploaded.length === 1 ? t("work-documents-card-document-added") : t("work-documents-card-documents-added", { uploaded: uploaded.length }));
-        clear();
-        reload();
-      },
+    void once(sends, `${goal}:${uploadsKey(uploaded)}`, () =>
+      attempt(
+        async () => {
+          await api.addGoalDocuments(goal, uploaded);
+        },
+        toast.error,
+        () => {
+          toast.ok(uploaded.length === 1 ? t("work-documents-card-document-added") : t("work-documents-card-documents-added", { uploaded: uploaded.length }));
+          clear();
+          reload();
+        },
+      ),
     );
-    return () => {
-      cancelled = true;
-    };
-  }, [goal, uploaded, uploading, pending, clear, reload, toast]);
+  }, [goal, uploaded, uploading, pending, clear, reload, toast, sends]);
 
   return (
     <section>

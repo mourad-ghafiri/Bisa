@@ -5482,3 +5482,71 @@ async fn a_pull_is_a_head_that_caught_up_with_its_remote() {
     );
     engine.shutdown().await;
 }
+
+/// A redesign that drops the event starts stops the goal listening: a goal
+/// with nothing to hear reads `draft`, never `waiting`, and the bus hears the
+/// listening go off — the one door every pointing of a goal passes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_redesign_that_drops_the_event_starts_stops_the_listening_and_reads_draft() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided("tickets, then by hand")
+        })
+        .unwrap();
+    let (design, _) = engine.design_workflow(goal.id, tickets(), None).unwrap();
+    engine.begin_goal(goal.id, BTreeMap::new()).unwrap();
+    assert!(goal_of(&engine, &goal).is_listening());
+    assert_eq!(goal_of(&engine, &goal).status(None), GoalStatus::Waiting);
+    let mut bus = engine.events();
+    let (_, problems) = engine
+        .design_workflow(
+            goal.id,
+            new_workflow("by hand", vec![hold()]),
+            Some(design.revision),
+        )
+        .unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    wait_for(&mut bus, "listening off", |e| {
+        matches!(
+            &e.payload,
+            EnginePayload::ListeningChanged { on: false, .. }
+        )
+    })
+    .await;
+    let after = goal_of(&engine, &goal);
+    assert!(after.listening.is_none(), "{:?}", after.listening);
+    assert_eq!(after.status(None), GoalStatus::Draft);
+    assert_eq!(after.holder(None, false), Holder::You);
+    engine.shutdown().await;
+}
+
+/// A restart of a listening goal whose workflow still hears keeps it
+/// listening: the new run begins at the start the last one began at, and
+/// the goal's events are still armed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_of_a_listening_goal_keeps_it_listening_when_its_workflow_still_hears() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (goal, host) = goal_with(&engine, "restarted tickets", tickets());
+    let listener = key(host, "ticket");
+    engine.begin_goal(goal.id, BTreeMap::new()).unwrap();
+    let first = call(&engine, &listener, json!({"subject": "printer on fire"}));
+    assert_eq!(engine.drain_signals().await, 1);
+    let run = step_in_state(&engine, goal.id, "hold", "waiting").await;
+    assert_eq!(run.dispatched, Some(first));
+    let again = engine.restart_goal(goal.id).await.unwrap();
+    assert_ne!(again.id, run.id);
+    assert_eq!(
+        again.start,
+        Some(sid("ticket")),
+        "at the start the last run began at"
+    );
+    assert_eq!(again.inputs["subject"], json!("printer on fire"));
+    let after = goal_of(&engine, &goal);
+    assert!(after.is_listening(), "still armed: {:?}", after.listening);
+    assert_eq!(after.run, Some(again.id));
+    engine.shutdown().await;
+}

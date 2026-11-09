@@ -2139,12 +2139,10 @@ async fn every_refusal_of_the_engine_is_a_tool_error_whatever_the_tool() {
                     let _ = words;
                 }
                 Said::Result(words) => assert!(
-                    // The hook asks nothing; a worker whose run cannot be
-                    // read has nowhere to post and says so; an op that
+                    // The hook asks nothing; an op that
                     // carries nothing but the agent's own id cannot be
                     // refused by the scope or an argument outside a worker.
                     tool.name == "_Stop"
-                        || words.contains("No scope given")
                         || (!worker
                             && [
                                 "list_connectors",
@@ -2281,12 +2279,10 @@ async fn the_tool_core_refuses_at_its_own_edges_and_words_what_it_reads() {
         .unwrap();
     assert!(posted.contains("Message posted"), "{posted}");
 
-    // A worker whose run cannot be read has nowhere to post without a scope.
+    // A worker whose run cannot be read has nowhere to post without a scope:
+    // a refusal, never a result that reads as done.
     let lost = ToolCore::new(fake.path.clone(), Scope::WorkItem("unreadable".into()));
-    let said = lost
-        .post_message(None, "hello", None, &[], &[], &[])
-        .await
-        .unwrap();
+    let said = refusal(lost.post_message(None, "hello", None, &[], &[], &[]).await);
     assert!(said.contains("could not be read"), "{said}");
 
     // Notes: nothing to append or write is refused before the engine; a

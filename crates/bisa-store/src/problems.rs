@@ -35,9 +35,11 @@ pub enum ProblemKind {
     /// A settings layer this build cannot read; its values are not applied
     /// until the file is fixed or a setting is saved there again.
     SettingsLayerUnreadable,
-    /// A run that was running when the last node ended and that its goal
-    /// never recorded; ended as stopped when the engine next starts, under
-    /// its lock (`Workspace::end_orphan_runs`) — never by a plain open.
+    /// A run the last node left that its goal never recorded: one that was
+    /// running is ended as stopped, one that was queued is recorded and
+    /// waits its turn — when the engine next starts, under its lock
+    /// (`Workspace::end_orphan_runs`, `adopt_orphan_queued_runs`), never by
+    /// a plain open.
     OrphanRun,
     /// An index row that said a run was live while its record was finished
     /// or gone; brought back in step with the record.

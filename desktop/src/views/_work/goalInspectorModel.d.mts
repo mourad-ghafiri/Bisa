@@ -43,3 +43,7 @@ export interface OriginChip {
 }
 export declare function originChips(goal: Pick<Goal, "origin">, run: Pick<WorkflowRun, "id" | "workflow"> | null | undefined, mode: GoalMode | string): OriginChip[];
 export declare function workstreamWord(workstream: Pick<Workstream, "id" | "name" | "kind">): string;
+/** Whether a card of the Details pane — the goal's documents, its projects — reads again on this frame. */
+export declare function cardRereads(card: "documents" | "projects", payload: { type?: unknown } | null | undefined): boolean;
+/** The goal's own ceiling beside its spend — only the limits it has — or null when it has none. */
+export declare function ceilingWords(budget: { max_tokens?: number | null; max_usd_cents?: number | null; max_wall_clock_secs?: number | null } | null | undefined): string | null;

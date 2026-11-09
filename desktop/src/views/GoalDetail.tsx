@@ -43,7 +43,7 @@ import { ProgressTab } from "./_goal/ProgressTab";
 import { YourMoveBand, scrollToYourMove } from "./_goal/YourMoveBand";
 import { adoptAction, bandActions } from "./_goal/proposalRouting.mjs";
 import { designInProgress } from "./_goal/designStatus.mjs";
-import { panelFrozen, runVerbs, liveSessionsOf, spawnedOpen } from "./_goal/runControl.mjs";
+import { panelFrozen, queuedRuns, runVerbs, liveSessionsOf, spawnedOpen } from "./_goal/runControl.mjs";
 import { RunVerbDialogs, type RunVerb } from "./_goal/RunVerbDialogs";
 import { DEFAULT_TAB, GOAL_TABS, GOAL_TAB_LABEL, tabOf } from "./_goal/goalTabs.mjs";
 import { GoalConversationPane } from "./_goal/GoalConversationPane";
@@ -57,6 +57,10 @@ import { RetireDialog } from "./_work/RetireDialog";
 import { GoalWorkflowTab } from "./_workflow/GoalWorkflowTab";
 import { WorkflowPicker } from "./_workflow/WorkflowPicker";
 import { t as tr } from "../i18n/l10n.mjs";
+import { createLatch, once } from "./_goal/verbLatch.mjs";
+
+/** The page's verbs in flight, by goal and verb: one request per press. */
+const PAGE_VERBS = createLatch();
 
 // The frames that change what this screen shows are the model's
 // (`goalPageModel.wantsReload`): a tick of the design in progress is the
@@ -236,19 +240,22 @@ export default function GoalDetail({ id }: { id: string }) {
   const { goal, run, runs, guidance, pending_gates } = data;
   const working = (ws.working[id] ?? []).length > 0;
   // Where the run stands, whether a design waits, whose design it is, whether it begins on events (`goalPageModel`).
-  const { closed, finished, unfinished, proposed, ownDesign, listens, manualEntry } = pageFacts({ goal, run, pendingGates: pending_gates, startable });
+  const { closed, finished, unfinished, proposed, ownDesign, listens, manualEntry } = pageFacts({ goal, run, pendingGates: pending_gates, startable, openQuestions: guidance?.open_questions });
   // The proposed plan is the goal's landing: the Progress tab hosts
   // its card, so the band shows everything else and never a second copy.
   const proposal = adoptAction(guidance.open_questions);
   const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: !!startable, listens, manualEntry, liveSessions: liveSessionsOf(sessionRows, id) });
 
-  const act = async (label: string, fn: () => Promise<unknown>) => {
-    const ok = await attempt(fn, toast.error);
-    if (ok) {
-      toast.ok(label);
-      refreshAll();
-    }
-  };
+  // One request per press (`verbLatch`): a menu item pressed twice while the
+  // node answers — *Promote to library* made two copies — sends once.
+  const act = (label: string, fn: () => Promise<unknown>) =>
+    once(PAGE_VERBS, `${id}:${label}`, async () => {
+      const ok = await attempt(fn, toast.error);
+      if (ok) {
+        toast.ok(label);
+        refreshAll();
+      }
+    });
 
   // Choosing a workflow by hand is offered before the Workflow Agent starts
   // and after it stops — never while it is designing one for this goal.
@@ -260,7 +267,7 @@ export default function GoalDetail({ id }: { id: string }) {
     // the Workflow Agent's: listed, searched, started and picked up on the
     // Conversation tab, whose list this unfolds.
     { label: tr("screens-goal-detail-conversations-about-goal"), icon: ICON.dm, onSelect: () => setSearch({ tab: "conversation", conversations: "1" }) },
-    ...(!closed && !unfinished && !designing
+    ...(!closed && !unfinished && !designing && queuedRuns(runs).length === 0
       ? [{ label: tr("screens-goal-detail-choose-workflow-2"), icon: ICON.template, onSelect: () => setChoosing(true), separatorBefore: true }]
       : []),
     ...(ownDesign

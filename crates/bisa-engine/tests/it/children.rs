@@ -142,7 +142,14 @@ async fn a_spawn_waiting_with_no_child_at_the_crash_gets_its_child_at_boot() {
     let child = until("the child", || spawned_by(&engine, goal.id, "s1")).await;
     engine.shutdown().await;
     // What the crash leaves: the step waiting, and no child.
-    workspace(&dir).delete_goal(child.id).unwrap();
+    let ws = workspace(&dir);
+    ws.set_goal_closed(
+        child.id,
+        bisa_core::ClosureReason::Abandoned { rationale: None },
+    )
+    .unwrap();
+    ws.delete_goal(child.id).unwrap();
+    drop(ws);
 
     let engine = engine_with(&dir, vec![]);
     let fresh = until("a child spawned at boot", || {

@@ -1436,3 +1436,55 @@ async fn a_goal_that_names_who_carries_it_is_staffed_from_them_alone() {
     assert_eq!(unknown["ok"], json!(false), "{unknown}");
     engine.shutdown().await;
 }
+
+/// The Workflow Agent's proposal passes the same door as a choice by hand:
+/// a draft without event starts on a goal that listened stops the
+/// listening, and the goal reads `draft`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_proposal_without_event_starts_stops_the_goal_listening() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..SubmitRequest::captured("listens, then is redrawn")
+        })
+        .unwrap();
+    let mut start = step(
+        "ticket",
+        StepKind::Start {
+            on: bisa_core::StartOn::Hook { public: false },
+            inputs: Default::default(),
+            guard: Default::default(),
+        },
+    );
+    start.then = vec![bisa_core::Flow::to(sid("hold"))];
+    let listening = new_workflow(
+        "on tickets",
+        vec![
+            start,
+            step(
+                "hold",
+                StepKind::Wait {
+                    until: WaitFor::Release,
+                },
+            ),
+        ],
+    );
+    engine.design_workflow(goal.id, listening, None).unwrap();
+    engine
+        .begin_goal(goal.id, std::collections::BTreeMap::new())
+        .unwrap();
+    assert!(engine.workspace().get_goal(goal.id).unwrap().is_listening());
+    let reply = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "propose_workflow", "agent": DRIVER, "goal": goal.id.to_string(),
+               "workflow": draft("by hand", "mock")}),
+    )
+    .await;
+    assert_eq!(reply["ok"], true, "{reply}");
+    let after = engine.workspace().get_goal(goal.id).unwrap();
+    assert!(after.listening.is_none(), "{:?}", after.listening);
+    assert_eq!(after.status(None), bisa_core::GoalStatus::Draft);
+    engine.shutdown().await;
+}

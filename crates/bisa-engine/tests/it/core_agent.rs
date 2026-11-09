@@ -702,3 +702,51 @@ async fn any_agent_may_create_a_project() {
     assert_eq!(author, ws.get_agent(&aid("developer")).unwrap().pubkey);
     engine.shutdown().await;
 }
+
+/// The General Agent's `assign` goes through the same door as a person's:
+/// the bus hears `goal.updated`, and a refused assign — an agent nobody
+/// installed — changes nothing and announces nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn assign_announces_goal_updated_like_a_persons_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    ws.install(CatalogKind::Agent, "developer").unwrap();
+    let goal = manual_goal(&engine, "announced");
+    let mut bus = engine.events();
+    let added = intake(
+        engine.socket_path(),
+        json!({"op": "assign", "agent": GENERAL, "goal": goal.to_string(),
+               "assignees": ["agent:developer"], "replace": false}),
+    )
+    .await;
+    assert_eq!(added["ok"], json!(true), "{added}");
+    wait_for(
+        &mut bus,
+        "goal.updated",
+        |e| matches!(e.payload, bisa_engine::EnginePayload::GoalUpdated { goal: g } if g == goal),
+    )
+    .await;
+    let revision = ws.get_goal(goal).unwrap().revision;
+    let refused = intake(
+        engine.socket_path(),
+        json!({"op": "assign", "agent": GENERAL, "goal": goal.to_string(),
+               "assignees": ["agent:nobody-installed"], "replace": false}),
+    )
+    .await;
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    let after = ws.get_goal(goal).unwrap();
+    assert_eq!(
+        after.assignees,
+        vec![Assignee::Agent("developer".into())],
+        "a refused assign changes nothing"
+    );
+    assert_eq!(after.revision, revision);
+    while let Ok(e) = bus.try_recv() {
+        assert!(
+            !matches!(e.payload, bisa_engine::EnginePayload::GoalUpdated { goal: g } if g == goal),
+            "a refused assign announces nothing: {e:?}"
+        );
+    }
+    engine.shutdown().await;
+}

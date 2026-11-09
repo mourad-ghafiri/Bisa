@@ -223,6 +223,99 @@ pub(crate) fn announce_goal_updated(inner: &Arc<Inner>, goal: GoalId) {
     ));
 }
 
+/// What a person changes of a goal's own record. A field left out stays as
+/// it is; a blank title clears it; tags and the budget replace what was
+/// there, an empty budget meaning no ceiling at all.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GoalEdit {
+    pub title: Option<String>,
+    pub statement: Option<String>,
+    pub tags: Option<Tags>,
+    pub budget: Option<Budget>,
+}
+
+impl GoalEdit {
+    /// Whether the edit names nothing to change.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.statement.is_none()
+            && self.tags.is_none()
+            && self.budget.is_none()
+    }
+}
+
+/// A person's edit of a goal's own record — its title, statement, tags,
+/// budget — in one write under the goal's one writer, announced on its row
+/// (`goal.updated`). Refused when it names nothing, on a closed goal, and —
+/// for the statement alone, the rule an agent's `revise_statement` keeps —
+/// while a run is live: work is under way against the words it was given.
+/// A changed statement leaves a note with the one it replaced: a statement
+/// is never rewritten silently.
+pub fn edit_goal(inner: &Arc<Inner>, goal_id: GoalId, edit: GoalEdit) -> Result<Goal, EngineError> {
+    if edit.is_empty() {
+        return Err(EngineError::Invalid(bisa_core::text!(
+            "error-engine-invalid-goal-edit-names-nothing"
+        )));
+    }
+    let before = inner.ws.get_goal(goal_id)?;
+    if before.is_closed() {
+        return Err(EngineError::Conflict(bisa_core::text!(
+            "error-engine-invalid-goal-closed",
+            goal_id = goal_id.to_string()
+        )));
+    }
+    let rewords = edit
+        .statement
+        .as_deref()
+        .is_some_and(|s| s.trim() != before.statement);
+    if rewords {
+        // A run that cannot be read is taken for live, as the agent's door
+        // takes it.
+        let live = match inner.ws.get_current_run(goal_id) {
+            Ok(run) => run.is_some_and(|r| !r.is_finished()),
+            Err(_) => true, // LCOV_EXCL_LINE the goal's run file cannot be read; disk-only
+        };
+        if live {
+            return Err(EngineError::Conflict(bisa_core::text!(
+                "error-engine-conflict-goal-statement-fixed-while-run-live",
+                goal_id = goal_id.to_string()
+            )));
+        }
+    }
+    let updated = inner.ws.update_goal_with(goal_id, move |g| {
+        if let Some(title) = edit.title {
+            let title = title.trim();
+            g.title = (!title.is_empty()).then(|| title.to_string());
+        }
+        if let Some(statement) = edit.statement {
+            g.statement = statement;
+        }
+        if let Some(tags) = edit.tags {
+            g.tags = tags;
+        }
+        if let Some(budget) = edit.budget {
+            g.budget = budget;
+        }
+        Ok(())
+    })?;
+    if updated.statement != before.statement {
+        let owner = inner.ws.owner_keys().clone();
+        warn_on_err(
+            inner.ws.append_journal(
+                &Home::Goal { goal: goal_id },
+                JournalPayload::Note {
+                    text: format!("statement edited\nwas: {}", before.statement),
+                },
+                &owner,
+                None,
+            ),
+            "journaling a statement edit",
+        );
+    }
+    announce_goal_updated(inner, goal_id);
+    Ok(updated)
+}
+
 /// Rewrite a goal's own record — its title, statement, tags, budget. Its
 /// workflow moves through [`set_workflow`], its runs through [`start_run`],
 /// and it closes through [`close_goal`].
@@ -344,21 +437,20 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
     // with no workflow, no documents or no run.
     check_assignees(inner, &req.assignees)?;
     if let Some(wf) = req.workflow {
-        let workflow = inner.ws.get_workflow(wf)?;
-        if req.start {
-            if workflow.is_archived() {
-                return Err(EngineError::Invalid(bisa_core::text!(
-                    "error-engine-invalid-workflow-archived-unarchive-before-running",
-                    a0 = (workflow.name).to_string()
-                )));
-            }
-            // What a workflow of events listens with is checked when it
-            // begins; what a run binds is checked here.
-            if workflow.event_starts().is_empty() {
-                workflow
-                    .bind_inputs(req.inputs.clone())
-                    .map_err(bisa_store::StoreError::from)?;
-            }
+        // The store's rules on what a goal may point at — known, not
+        // archived, no other goal's design — asked before the goal exists,
+        // started or not.
+        // Refused as the request's own fault, as the start's check was.
+        let workflow = inner.ws.workflow_for_goal(wf, None).map_err(|e| match e {
+            StoreError::Invalid(why) => EngineError::Invalid(why),
+            other => other.into(),
+        })?;
+        // What a workflow of events listens with is checked when it
+        // begins; what a run binds is checked here.
+        if req.start && workflow.event_starts().is_empty() {
+            workflow
+                .bind_inputs(req.inputs.clone())
+                .map_err(bisa_store::StoreError::from)?;
         }
     }
     crate::documents::check(inner, &req.documents)?;
@@ -377,8 +469,10 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
         tags: req.tags,
     })?;
     if !budget.is_unlimited() {
-        goal.budget = budget;
-        goal = inner.ws.update_goal(goal)?;
+        goal = inner.ws.update_goal_with(goal.id, move |g| {
+            g.budget = budget;
+            Ok(())
+        })?;
     }
     // The workspace's shape changed: the feed hears it before the run does.
     inner.emit(EngineEvent::scoped(
@@ -448,8 +542,11 @@ fn begin_outside(
 ) -> Result<(), EngineError> {
     let mut goal = inner.ws.get_goal(then.goal)?;
     if goal.mode != then.mode {
-        goal.mode = then.mode;
-        goal = inner.ws.update_goal(goal)?;
+        let mode = then.mode;
+        goal = inner.ws.update_goal_with(then.goal, move |g| {
+            g.mode = mode;
+            Ok(())
+        })?;
         announce_goal_updated(inner, goal.id);
     }
     match (goal.workflow, then.start) {
@@ -773,6 +870,12 @@ fn announce_started(inner: &Arc<Inner>, run: &WorkflowRun, effects: Vec<RunEffec
 /// the run and the other finds it started. A run withdrawn between the read
 /// and the start is skipped for the next. Nothing on a closed goal.
 pub(crate) fn advance_queue(inner: &Arc<Inner>, goal_id: GoalId) -> Option<WorkflowRun> {
+    // Nothing while the goal's work is being ended (`ending::Ending`): a
+    // stop withdraws what it finds and starts nothing; a restart starts its
+    // own run, ahead of the queue.
+    if inner.ending_goals.contains(&goal_id) {
+        return None;
+    }
     loop {
         let goal = match inner.ws.get_goal(goal_id) {
             Ok(goal) => goal,
@@ -907,6 +1010,27 @@ pub async fn restart_goal_ended(
     inner: &Arc<Inner>,
     goal_id: GoalId,
 ) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
+    // The mark first — before the last run is read — and for the whole
+    // span: a run that ends meanwhile advances nothing, no occurrence starts
+    // a run on the goal the cancel leaves idle, and the restart's run goes
+    // ahead of the queue, which keeps its place.
+    let ending = crate::ending::Ending::take(inner, goal_id);
+    let restarted = restart_in(inner, goal_id).await;
+    drop(ending);
+    if restarted.is_err() {
+        // A refused restart never strands the queue: what the mark held
+        // moves now. Nothing while a run is live — the store refuses it.
+        advance_queue(inner, goal_id);
+    }
+    restarted
+}
+
+/// The restart under its mark: refuse before anything is cancelled, end the
+/// work cancelling only the run that was read, then start the new run.
+async fn restart_in(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
     let goal = inner.ws.get_goal(goal_id)?;
     // Both refusals are states of the goal, not faults of the request.
     if goal.is_closed() {
@@ -922,18 +1046,15 @@ pub async fn restart_goal_ended(
         )));
     };
     let latest = inner.ws.get_run(latest)?;
-    // Before anything is cancelled: a restart that has nowhere to begin must
+    // Before anything is cancelled: a restart whose run could not start must
     // leave the run it would have replaced as it is.
-    let entry = restart_entry(inner, &latest)?;
-    // From the cancel to the new run's start the goal's occurrences are held
-    // (`Ending`): the restart's run is the live one, never queued behind a
-    // run an occurrence started on the goal the cancel had just left idle.
-    let _ending = Ending::take(inner, goal_id);
+    let entry = restart_preflight(inner, goal_id, &latest)?;
     // The cancel before the sessions end, as `stop_goal` orders it — and
     // every session of the goal ended whether or not its last run is live.
-    let done = crate::ending::end_goal_work(
+    let done = crate::ending::end_goal_work_of(
         inner,
         goal_id,
+        Some(latest.id),
         sessions::EndCause::Restart,
         None,
         &HashSet::new(),
@@ -941,32 +1062,46 @@ pub async fn restart_goal_ended(
     .await?;
     if goal.workflow != Some(latest.workflow.id) {
         // The goal moved on to another workflow since: a restart runs the
-        // last run's, and the store refuses the swap while anything is queued.
-        set_workflow(inner, goal_id, Some(latest.workflow.id))?;
+        // last run's. Through the one door, its listening following — not
+        // `set_workflow`, whose settling of an adoption is a person's choice.
+        point_goal_at(inner, goal_id, Some(latest.workflow.id))?;
     }
     let run = start_run(inner, goal_id, latest.inputs.clone(), entry, None)?;
     Ok((run, done.ended))
 }
 
-/// A goal whose work is being ended and begun again: the mark the listening
-/// worker reads to hold the goal's occurrences meanwhile, set for the
-/// restart's whole span and released with it, however it ends.
-struct Ending<'a> {
-    inner: &'a Inner,
+/// Everything a restart's new run could be refused for, asked before the
+/// cancel: where it begins ([`restart_entry`]), the store's own checks of a
+/// start — the workflow as it stands not archived and without problems, the
+/// last run's inputs still binding — and an agent step with nowhere
+/// unambiguous to run. Each is a conflict in words; the run is left as it is.
+fn restart_preflight(
+    inner: &Arc<Inner>,
     goal: GoalId,
-}
-
-impl<'a> Ending<'a> {
-    fn take(inner: &'a Inner, goal: GoalId) -> Self {
-        inner.ending_goals.insert(goal);
-        Self { inner, goal }
-    }
-}
-
-impl Drop for Ending<'_> {
-    fn drop(&mut self) {
-        self.inner.ending_goals.remove(&self.goal);
-    }
+    latest: &WorkflowRun,
+) -> Result<RunEntry, EngineError> {
+    let entry = restart_entry(inner, latest)?;
+    let refused = |why: String| {
+        EngineError::Conflict(bisa_core::text!(
+            "error-engine-conflict-restart-cannot-start-run-left",
+            goal_id = goal.to_string(),
+            workflow = latest.workflow.name.clone(),
+            why = why
+        ))
+    };
+    inner
+        .ws
+        .check_startable(
+            RunScope::Goal { goal },
+            latest.workflow.id,
+            latest.inputs.clone(),
+            &entry,
+        )
+        .map_err(|e| refused(e.to_string()))?;
+    let current = inner.ws.get_workflow(latest.workflow.id)?;
+    crate::projects::refuse_ambiguous_steps(inner, goal, &current)
+        .map_err(|e| refused(e.to_string()))?;
+    Ok(entry)
 }
 
 /// Where a restart begins: the start the run began at, on the event that
@@ -1530,7 +1665,7 @@ pub fn design_workflow(
             .create_workflow_draft(draft, WorkflowOrigin::Goal { goal: goal_id })?,
     };
     announce_workflow(inner, &wf, false);
-    inner.ws.set_goal_workflow(goal_id, Some(wf.id))?;
+    point_goal_at(inner, goal_id, Some(wf.id))?;
     // Editing a proposed design makes it the person's own: the
     // agent's adoption gate named the revision they just changed, so it is
     // stale. Withdraw it, as a by-hand `set_workflow` does — the goal then
@@ -1550,16 +1685,17 @@ fn announce_workflow(inner: &Arc<Inner>, wf: &Workflow, designed: bool) {
     }));
 }
 
-/// Point a goal at the workflow its next run will use. Refused while a run
-/// is unfinished.
-pub fn set_workflow(
+/// Point the goal at `workflow` and let its listening follow: a workflow
+/// with no start on an event — or none — leaves the goal nothing to hear,
+/// so it stops listening. The one door every pointer passes — a choice by
+/// hand, a design, a proposal, a restart — so the goal's status never reads
+/// a listening its workflow cannot keep.
+pub(crate) fn point_goal_at(
     inner: &Arc<Inner>,
     goal_id: GoalId,
     workflow: Option<WorkflowId>,
 ) -> Result<Goal, EngineError> {
     let mut goal = inner.ws.set_goal_workflow(goal_id, workflow)?;
-    // Listening follows the goal's workflow: a workflow with no start on an
-    // event leaves the goal nothing to hear.
     if goal.listening.is_some() {
         let hears = match workflow {
             Some(id) => !inner.ws.get_workflow(id)?.event_starts().is_empty(),
@@ -1570,6 +1706,17 @@ pub fn set_workflow(
             goal = inner.ws.get_goal(goal_id)?;
         }
     }
+    Ok(goal)
+}
+
+/// Point a goal at the workflow its next run will use. Refused while a run
+/// is unfinished.
+pub fn set_workflow(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+    workflow: Option<WorkflowId>,
+) -> Result<Goal, EngineError> {
+    let goal = point_goal_at(inner, goal_id, workflow)?;
     // A choice made by hand settles any adoption still pending.
     withdraw_questions_of_goal(inner, goal_id, is_adoption, WORKFLOW_CHOSEN);
     if let Some(id) = workflow {
@@ -1635,7 +1782,7 @@ pub fn propose_workflow(
         }
     };
     announce_workflow(inner, &wf, true);
-    inner.ws.set_goal_workflow(goal_id, Some(wf.id))?;
+    point_goal_at(inner, goal_id, Some(wf.id))?;
     // A new proposal settles what came before it: an earlier adoption, and a
     // question the designer asked on the way — a question that outlives the
     // proposal would sit in *Your move* doing nothing when answered.
@@ -2342,15 +2489,20 @@ pub fn close_goal(
     // it — here and now; the wait for their processes, the goals it spawned
     // and the release follow on a task of their own, since this caller
     // cannot wait (`close_goal_settled` can).
-    let mut signalled =
-        match crate::ending::signal_goal_work(inner, goal_id, sessions::EndCause::Close, None) {
-            Ok(signalled) => signalled,
-            // LCOV_EXCL_START a close whose signal fails after its record landed: the run was cancelled under the lock a moment ago, so the reads here fail only unreadable (disk-only)
-            Err(e) => {
-                inner.guided.end_stopping(goal_id);
-                return Err(e);
-            } // LCOV_EXCL_STOP
-        };
+    let mut signalled = match crate::ending::signal_goal_work(
+        inner,
+        goal_id,
+        None,
+        sessions::EndCause::Close,
+        None,
+    ) {
+        Ok(signalled) => signalled,
+        // LCOV_EXCL_START a close whose signal fails after its record landed: the run was cancelled under the lock a moment ago, so the reads here fail only unreadable (disk-only)
+        Err(e) => {
+            inner.guided.end_stopping(goal_id);
+            return Err(e);
+        } // LCOV_EXCL_STOP
+    };
     signalled.told = signalled.told.max(noted);
     match (inner.arc(), tokio::runtime::Handle::try_current()) {
         (Some(owned), Ok(_)) => {
@@ -2376,9 +2528,24 @@ pub async fn close_goal_settled(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<(Goal, sessions::Ended), EngineError> {
+    let cause = CancelCause::Closed {
+        reason: reason.clone(),
+    };
+    close_goal_settled_as(inner, goal_id, reason, cause).await
+}
+
+/// [`close_goal_settled`], its runs cancelled for `cause` — `Retired` when
+/// a retirement closes the goal, so the journal and the Runs list say what
+/// ended them; the closure itself stays what the caller says.
+pub async fn close_goal_settled_as(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+    reason: bisa_core::ClosureReason,
+    cause: CancelCause,
+) -> Result<(Goal, sessions::Ended), EngineError> {
     refuse_closed(inner, goal_id)?;
     let noted = note_closing(inner, goal_id)?;
-    let goal = close_record(inner, goal_id, reason.clone())?;
+    let goal = close_record_as(inner, goal_id, reason.clone(), cause)?;
     let mut done = crate::ending::end_goal_work(
         inner,
         goal_id,
@@ -2435,12 +2602,27 @@ pub(crate) fn close_record(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<Goal, EngineError> {
+    let cause = CancelCause::Closed {
+        reason: reason.clone(),
+    };
+    close_record_as(inner, goal_id, reason, cause)
+}
+
+/// [`close_record`] with the cause its runs are cancelled for.
+pub(crate) fn close_record_as(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+    reason: bisa_core::ClosureReason,
+    cause: CancelCause,
+) -> Result<Goal, EngineError> {
     let before = inner.ws.get_current_run(goal_id)?;
     let listened = inner
         .ws
         .listening(&ListenerHost::Goal { goal: goal_id })?
         .is_some();
-    let (goal, cancelled) = inner.ws.set_goal_closed(goal_id, reason.clone())?;
+    let (goal, cancelled) = inner
+        .ws
+        .set_goal_closed_as(goal_id, reason.clone(), cause)?;
     if listened {
         crate::listen::invalidate(inner);
         crate::listen::turn::announce(inner, ListenerHost::Goal { goal: goal_id }, false);

@@ -529,7 +529,15 @@ impl Workspace {
             )));
         }
         if let Some(parent) = new.origin.parent() {
-            self.get_goal(parent)?;
+            // A child is made under an open parent only: a closed goal is
+            // read, never resumed, and a child of it would be work nobody
+            // asked for.
+            if self.get_goal(parent)?.is_closed() {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-parent-goal-closed",
+                    goal_id = parent.to_string()
+                )));
+            }
         }
         let id = GoalId::from_ulid(mint_ulid());
         let at = now_secs();
@@ -744,9 +752,49 @@ impl Workspace {
     /// (`set_goal_closed`), point at a workflow (`set_goal_workflow`), start
     /// or forget a run (`create_run`), begin or stop listening
     /// (`set_listening`), or rewrite where the goal came from.
-    pub fn update_goal(&self, mut goal: Goal) -> Result<Goal, StoreError> {
+    pub fn update_goal(&self, goal: Goal) -> Result<Goal, StoreError> {
         let _one_writer = self.run_writer();
         let current = self.get_goal(goal.id)?;
+        Self::refuse_edit_of_closed(&current)?;
+        self.update_goal_locked(current, goal)
+    }
+
+    /// Edit a goal's own record under the one writer: `edit` sees the goal
+    /// as it stands and changes what an edit may — the statement, the title,
+    /// the tags, the budget, the assignees, the mode — and the result is
+    /// written at the next revision, so two edits of different fields at
+    /// once never lose one. Refused on a closed goal, and for everything
+    /// [`Self::update_goal`] refuses.
+    pub fn update_goal_with(
+        &self,
+        id: GoalId,
+        edit: impl FnOnce(&mut Goal) -> Result<(), StoreError>,
+    ) -> Result<Goal, StoreError> {
+        let _one_writer = self.run_writer();
+        let current = self.get_goal(id)?;
+        Self::refuse_edit_of_closed(&current)?;
+        let mut next = current.clone();
+        edit(&mut next)?;
+        self.update_goal_locked(current, next)
+    }
+
+    /// A closed goal is read, never edited: its runs, its listening and its
+    /// archiving moved through their own doors, and nothing else moves.
+    fn refuse_edit_of_closed(current: &Goal) -> Result<(), StoreError> {
+        if current.is_closed() {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-goal-closed",
+                goal_id = current.id.to_string()
+            )));
+        }
+        Ok(())
+    }
+
+    /// The write behind [`Self::update_goal`] and [`Self::update_goal_with`],
+    /// under the writer the caller holds: what an edit may not move is
+    /// refused by name, the statement is trimmed as at capture, and the
+    /// record lands at the next revision.
+    fn update_goal_locked(&self, current: Goal, mut goal: Goal) -> Result<Goal, StoreError> {
         if current.closed != goal.closed {
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-closing-reopening-go-through-set-goal-closed"
@@ -777,7 +825,8 @@ impl Workspace {
                 "error-store-invalid-goal-s-origin-recorded-capture-never-edited"
             )));
         }
-        if goal.statement.trim().is_empty() {
+        goal.statement = goal.statement.trim().to_string();
+        if goal.statement.is_empty() {
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-goal-needs-statement"
             )));
@@ -923,7 +972,17 @@ impl Workspace {
     /// made for it keep their record under their project and lose the
     /// reference.
     pub fn delete_goal(&self, id: GoalId) -> Result<(), StoreError> {
+        // Under the one writer: nothing starts a run of the goal while its
+        // folder goes. And a closed goal only — closing is the caller's,
+        // and it is what cancels the runs and ends the work.
+        let _one_writer = self.run_writer();
         let goal = self.get_goal(id)?;
+        if !goal.is_closed() {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-goal-open-close-before-deleting",
+                goal_id = id.to_string()
+            )));
+        }
         // Read while its design is still indexed: the hook starts whose
         // secrets go with the goal.
         let hook_steps = match goal.workflow {
@@ -1811,6 +1870,105 @@ impl Workspace {
         Ok(ended_runs)
     }
 
+    /// Record every queued run its goal never named — a crash fell between
+    /// the run's snapshot and the goal's (`create_goal_run`) — in the goal's
+    /// `runs` and the index, so it starts in its turn and the signal that
+    /// made it is not dispatched twice; the queued fact was journaled
+    /// before the crash, so the record is brought to the journal, never
+    /// the journal contradicted. A closed goal's is ended as closed, one of
+    /// a workflow the goal has since left as stopped. Named
+    /// ([`ProblemKind::OrphanRun`]). **The engine's, under its lock**, as
+    /// [`Self::end_orphan_runs`] is. Answers the runs adopted.
+    pub fn adopt_orphan_queued_runs(&self) -> Result<Vec<RunId>, StoreError> {
+        let mut adopted = Vec::new();
+        for goal in self.list_goals(None)? {
+            for run in self.list_runs(goal.id)? {
+                if !run.is_queued() || goal.runs.contains(&run.id) {
+                    continue;
+                }
+                // Its row first, so the funnel resolves it.
+                let indexed = self.index_run(&run);
+                self.tolerated_index("run", &run.id.to_string(), indexed)?;
+                let ended = match &goal.closed {
+                    Some(closure) => Some(CancelCause::Closed {
+                        reason: closure.reason.clone(),
+                    }),
+                    None if goal.workflow != Some(run.workflow.id) => {
+                        Some(CancelCause::Stopped { rationale: None })
+                    }
+                    None => None,
+                };
+                let _one_writer = self.run_writer();
+                match ended {
+                    Some(cause) => {
+                        // LCOV_EXCL_START ending the run fails only unwritable (disk-only)
+                        if let Err(e) =
+                            self.record_run_event_locked(run.id, RunEvent::Cancel { cause })
+                        {
+                            tracing::warn!(goal = %goal.id, run = %run.id, "an orphan queued run could not be ended: {e}");
+                        }
+                        // LCOV_EXCL_STOP
+                        self.record_problem(WorkspaceProblem::new(
+                            ProblemKind::OrphanRun,
+                            run.id.to_string(),
+                            bisa_core::text!(
+                                "error-store-problem-orphan-queued-run-ended",
+                                run = run.id.to_string(),
+                                goal = goal.id.to_string()
+                            ),
+                            None,
+                        ));
+                    }
+                    None => {
+                        // Read again under the writer: the loop's read was
+                        // before the lock.
+                        let mut g = self.get_goal(goal.id)?;
+                        if !g.runs.contains(&run.id) {
+                            g.runs.push(run.id);
+                            self.trim_goal_runs(&mut g)?;
+                            g.revision += 1;
+                            self.write_goal_snapshot(&g, now_secs())?;
+                            let current = g.run.and_then(|id| self.get_run(id).ok());
+                            self.index_goal(&g, current.as_ref())?;
+                        } // LCOV_EXCL_LINE the run recorded by another writer between the two reads; a race
+                        self.record_problem(WorkspaceProblem::new(
+                            ProblemKind::OrphanRun,
+                            run.id.to_string(),
+                            bisa_core::text!(
+                                "error-store-problem-orphan-queued-run",
+                                run = run.id.to_string(),
+                                goal = goal.id.to_string()
+                            ),
+                            None,
+                        ));
+                        adopted.push(run.id);
+                    }
+                }
+            }
+        }
+        Ok(adopted)
+    }
+
+    /// A test's door: the goal's record and the index as a crash between a
+    /// queued run's snapshot and its goal's leaves them — the run's snapshot
+    /// and its queued fact here, the goal's `runs` and the run's row without
+    /// it — the window [`Self::adopt_orphan_queued_runs`] repairs.
+    #[doc(hidden)]
+    pub fn stage_crash_before_goal_recorded_run(
+        &self,
+        goal: GoalId,
+        run: RunId,
+    ) -> Result<(), StoreError> {
+        let _one_writer = self.run_writer();
+        let mut g = self.get_goal(goal)?;
+        g.runs.retain(|r| *r != run);
+        g.revision += 1;
+        self.write_goal_snapshot(&g, now_secs())?;
+        let current = g.run.and_then(|id| self.get_run(id).ok());
+        self.index_goal(&g, current.as_ref())?;
+        self.idx().delete_run_row(&run.to_string())
+    }
+
     /// Re-index, from their snapshots, every unfinished run — of every open
     /// goal, and of the workspace — and the work items that run owns.
     /// Bounded by the live set — a finished run is never touched — and
@@ -2499,6 +2657,12 @@ mod tests {
         let mut forgot = goal.clone();
         forgot.run = None;
         assert!(ws.update_goal(forgot).is_err());
+        let mut put_away = goal.clone();
+        put_away.archived = Some(bisa_core::Archived::at(1));
+        assert!(
+            ws.update_goal(put_away).is_err(),
+            "archiving moves through set_goal_archived"
+        );
         let mut swapped = goal.clone();
         swapped.workflow = None;
         assert!(ws.update_goal(swapped).is_err());
@@ -2770,6 +2934,8 @@ mod tests {
             .create_project(crate::projects::NewProject::managed("kept").unwrap())
             .unwrap();
         ws.attach(a.id, p.id).unwrap();
+        ws.set_goal_closed(a.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
         ws.delete_goal(a.id).unwrap();
         assert!(ws.get_goal(a.id).is_err());
         assert!(
@@ -3051,6 +3217,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let (_d, ws) = ws();
         let goal = ws.create_goal(NewGoal::captured("kept")).unwrap();
+        ws.set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
         let goals_dir = ws.paths.goals_dir();
         std::fs::set_permissions(&goals_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
         let err = ws.delete_goal(goal.id).unwrap_err();
@@ -3544,5 +3712,107 @@ mod tests {
         let (items, unreadable) = ws.list_work_items_readable(&home).unwrap();
         assert!(items.is_empty());
         assert_eq!(unreadable, vec![torn.id.to_string()]);
+    }
+
+    /// A closed goal is read, never edited: its record, its assignees and
+    /// its documents all refuse, and nothing moves its revision.
+    #[test]
+    fn a_closed_goal_refuses_every_edit() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("closed")).unwrap();
+        let (closed, _) = ws
+            .set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
+        let mut edit = closed.clone();
+        edit.title = Some("later".into());
+        assert!(ws
+            .update_goal(edit)
+            .unwrap_err()
+            .to_string()
+            .contains("closed"));
+        assert!(ws
+            .update_goal_with(goal.id, |g| {
+                g.title = Some("later".into());
+                Ok(())
+            })
+            .unwrap_err()
+            .to_string()
+            .contains("closed"));
+        assert!(ws
+            .set_goal_assignees(goal.id, vec![])
+            .unwrap_err()
+            .to_string()
+            .contains("closed"));
+        let brief = ws
+            .put_attachment(b"%PDF the brief", "brief.pdf", "application/pdf")
+            .unwrap();
+        assert!(ws
+            .add_goal_document(goal.id, &brief)
+            .unwrap_err()
+            .to_string()
+            .contains("closed"));
+        assert_eq!(
+            ws.get_goal(goal.id).unwrap().revision,
+            closed.revision,
+            "nothing moved"
+        );
+    }
+
+    /// A statement is trimmed on an edit as it is at capture, and a blank
+    /// one is refused.
+    #[test]
+    fn an_updated_statement_is_trimmed_and_a_blank_one_refused() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("padded")).unwrap();
+        let edited = ws
+            .update_goal_with(goal.id, |g| {
+                g.statement = "  ship it  ".into();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(edited.statement, "ship it");
+        assert!(ws
+            .update_goal_with(goal.id, |g| {
+                g.statement = "   ".into();
+                Ok(())
+            })
+            .is_err());
+        assert_eq!(ws.get_goal(goal.id).unwrap().statement, "ship it");
+    }
+
+    /// A sub-goal is made under an open parent only: a closed one refuses
+    /// the child by name.
+    #[test]
+    fn a_sub_goal_is_not_made_under_a_closed_parent() {
+        let (_dir, ws) = ws();
+        let parent = ws.create_goal(NewGoal::captured("parent")).unwrap();
+        ws.set_goal_closed(parent.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
+        let err = ws
+            .create_goal(NewGoal {
+                origin: GoalOrigin::Spawned {
+                    parent: parent.id,
+                    step: None,
+                },
+                ..NewGoal::captured("child")
+            })
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("closed"), "{err}");
+        assert_eq!(ws.list_goals(None).unwrap().len(), 1);
+    }
+
+    /// An open goal is not deleted: it is closed first, by its caller.
+    #[test]
+    fn an_open_goal_cannot_be_deleted() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("deleted")).unwrap();
+        let err = ws.delete_goal(goal.id).unwrap_err().to_string();
+        assert!(err.contains("open"), "{err}");
+        assert!(ws.get_goal(goal.id).is_ok());
+        ws.set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
+        ws.delete_goal(goal.id).unwrap();
+        assert!(ws.get_goal(goal.id).is_err());
     }
 }

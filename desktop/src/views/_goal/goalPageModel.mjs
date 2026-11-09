@@ -92,13 +92,23 @@ export function runStanding(run) {
 }
 
 /**
+ * Whether an adoption is still owed among the goal's open questions
+ * (`guidance.open_questions`): the node rebuilds them from the journal, so
+ * an adoption whose live gate died with an earlier process is still here.
+ */
+export function adoptionOwed(openQuestions) {
+  return (Array.isArray(openQuestions) ? openQuestions : []).some((q) => q?.gate_kind === "approval" && namesAdoption(q?.subject));
+}
+
+/**
  * Whether a designed workflow waits on the person: the goal's mode is one
  * the Workflow Agent designs in, a workflow is set, no run has started, and
- * the adoption's gate is open — all four, or the Progress tab would offer a
- * plan nobody proposed, or hide one somebody did.
+ * the adoption is open — its live gate, or, after a node restart, the
+ * question the journal still holds (`openQuestions`) — all four, or the
+ * Progress tab would offer a plan nobody proposed, or hide one somebody did.
  */
-export function isProposed(goal, pendingGates) {
-  return designs(modeOf(goal)) && !!goal?.workflow && !goal?.run && !!adoptGateOf(pendingGates);
+export function isProposed(goal, pendingGates, openQuestions) {
+  return designs(modeOf(goal)) && !!goal?.workflow && !goal?.run && (!!adoptGateOf(pendingGates) || adoptionOwed(openQuestions));
 }
 
 /**
@@ -176,12 +186,12 @@ export function closeWords(form, goals, goal) {
 }
 
 /** Everything above, for the page: one reading of the goal's data. */
-export function pageFacts({ goal, run, pendingGates, startable }) {
+export function pageFacts({ goal, run, pendingGates, startable, openQuestions }) {
   return {
     closed: !!goal?.closed,
     ...runStanding(run),
     adoptGate: adoptGateOf(pendingGates),
-    proposed: isProposed(goal, pendingGates),
+    proposed: isProposed(goal, pendingGates, openQuestions),
     ownDesign: ownDesignOf(startable),
     ...listeningFacts(goal, startable),
   };

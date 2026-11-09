@@ -159,8 +159,17 @@ export function onFrame(payload, memory) {
         memory: remember(memory, payload.gate_id),
       };
     }
-    case "workflow_proposed":
-      return { notice: { category: "workflows", title: t("shell-notifications-bisa-workflow-adopt"), body: t("shell-notifications-workflow-agent-proposed-workflow") }, memory };
+    // A proposal asks to be adopted only when it carries its gate: an auto
+    // goal's is adopted by the platform and a manual goal's is the person's
+    // draft — neither asks anything. And the gate is one moment: when its
+    // `gate_opened` was already said, the proposal says nothing more.
+    case "workflow_proposed": {
+      if (!payload.gate_id || memory.gates.includes(payload.gate_id)) return quiet;
+      return {
+        notice: { category: "workflows", title: t("shell-notifications-bisa-workflow-adopt"), body: t("shell-notifications-workflow-agent-proposed-workflow") },
+        memory: remember(memory, payload.gate_id),
+      };
+    }
     // A person creating a project sees the dialog on the spot; an agent's
     // refused settlement, or a project a step made, may happen with nobody
     // looking — so those two are the ones that reach the OS.

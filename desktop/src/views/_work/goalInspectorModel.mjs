@@ -141,6 +141,21 @@ export function spendWords(spent) {
 }
 
 /**
+ * The goal's own ceiling, said beside what it spent — only the limits it
+ * has, in the spend's own units — or null when it has none: a goal with no
+ * ceiling says nothing rather than *unlimited* three times.
+ * @param {{max_tokens?: number | null, max_usd_cents?: number | null, max_wall_clock_secs?: number | null} | null | undefined} budget
+ * @returns {string | null}
+ */
+export function ceilingWords(budget) {
+  const parts = [];
+  if (budget?.max_tokens) parts.push(t("work-goal-inspector-ceiling-tokens", { tokens: number(budget.max_tokens) }));
+  if (budget?.max_usd_cents) parts.push(cents(budget.max_usd_cents));
+  if (budget?.max_wall_clock_secs) parts.push(t("work-goal-inspector-ceiling-secs", { secs: budget.max_wall_clock_secs }));
+  return parts.length > 0 ? t("work-goal-inspector-ceiling", { parts: parts.join(" · ") }) : null;
+}
+
+/**
  * The line under the run's card: its number among the goal's runs, the
  * revision it froze, and how it ended when it has.
  * @param {{id: string, workflow: {revision: number}, outcome?: string | null, cancelled?: object | null}} run
@@ -201,7 +216,7 @@ export function designLine(mode, guidance) {
 export function originChips(goal, run, mode) {
   const chips = [{ id: "mode", label: MODE_LABEL[mode] ?? String(mode), icon: "mode" }];
   const origin = goal?.origin ?? {};
-  if (origin.origin === "spawned" && origin.parent) chips.push({ id: "parent", label: t("work-goal-inspector-refines-goal"), icon: "goal", route: { name: "goal", id: origin.parent } });
+  if (origin.origin === "spawned" && origin.parent) chips.push({ id: "parent", label: origin.step ? t("work-goal-inspector-refines-goal-step", { step: origin.step }) : t("work-goal-inspector-refines-goal"), icon: "goal", route: { name: "goal", id: origin.parent } });
   if (origin.origin === "run" && origin.run) chips.push({ id: "born", label: t("work-goal-inspector-made-by-run-step", { step: origin.step ?? "" }), icon: "run", title: t("work-goal-inspector-made-by-run-step-title"), route: { name: "run", id: origin.run } });
   if (run) chips.push({ id: "run", label: t("work-goal-inspector-run-named", { run: run.id.slice(-6), workflow: run.workflow.name }), icon: "run" });
   return chips;
@@ -217,4 +232,23 @@ export function workstreamWord(workstream) {
   if (workstream.name) return workstream.name;
   if (workstream.kind.kind === "worktree" && workstream.kind.branch) return workstream.kind.branch;
   return t("work-goal-inspector-copy", { id: workstream.id.slice(-6) });
+}
+
+/** The frames each of the Details pane's own reads is made again on. */
+const CARD_FACTS = Object.freeze({
+  documents: ["document_added"],
+  projects: ["project_created", "attachment_changed", "project_archived", "project_deleted"],
+});
+
+/**
+ * Whether a card of the Details pane reads again on this frame. The page
+ * reads the goal again on these (`PAGE_FACTS`), but a card holds a list of
+ * its own — the goal's documents, its projects — that the goal's view does
+ * not carry: without this a document an agent added, or a project a step
+ * made, showed only after the pane was left and come back to.
+ * @param {"documents" | "projects"} card
+ * @param {{type?: unknown} | null | undefined} payload
+ */
+export function cardRereads(card, payload) {
+  return typeof payload?.type === "string" && (CARD_FACTS[card] ?? []).includes(payload.type);
 }

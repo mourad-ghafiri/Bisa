@@ -791,6 +791,10 @@ work-goal-inspector-projects-workstreams = { $projects ->
    *[other] { $workstreams } workstreams
   }
 work-goal-inspector-refines-goal = refines a goal
+work-goal-inspector-refines-goal-step = refines a goal, from its step { $step }
+work-goal-inspector-ceiling = Ceiling: { $parts }
+work-goal-inspector-ceiling-tokens = { $tokens } tokens
+work-goal-inspector-ceiling-secs = { $secs } s
 work-goal-inspector-run = Run
 work-goal-inspector-run-ended = { $line } · { $ended }
 work-goal-inspector-run-named = run { $run } · { $workflow }
@@ -798,6 +802,15 @@ work-goal-inspector-run-of = run { $index } of { $total } · rev { $revision }
 work-goal-inspector-spend = Spend
 work-goal-inspector-spent = { $tokens } tokens · { $cost } · { $secs } s
 work-goal-inspector-statement = Statement
+work-goal-edit-statement-fixed-while-run-live = A run is live: the statement changes once it has ended
+work-goal-edit-statement-required = A goal needs a statement
+work-goal-edit-edit = Edit
+work-goal-edit-title = Title
+work-goal-edit-title-hint = Optional. Without one the goal is named by its statement
+work-goal-edit-tags = Tags
+work-goal-edit-save = Save
+work-goal-edit-cancel = Cancel
+work-goal-edit-saved = Goal updated.
 work-goal-inspector-step = step { $step }
 work-goal-inspector-work = Work
 work-goal-inspector-workflow-agent-designing-workflow = Workflow Agent · designing the workflow

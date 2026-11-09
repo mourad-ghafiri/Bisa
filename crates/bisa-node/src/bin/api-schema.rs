@@ -571,6 +571,7 @@ fn main() {
     add!(dto::StepAnswerBody, "StepAnswerBody");
     add!(dto::DecideBody, "DecideBody");
     add!(dto::AssigneesBody, "AssigneesBody");
+    add!(dto::GoalEditBody, "GoalEditBody");
     add!(dto::NewChannelBody, "NewChannelBody");
     add!(dto::PatchChannelBody, "PatchChannelBody");
     add!(dto::NewMessageBody, "NewMessageBody");

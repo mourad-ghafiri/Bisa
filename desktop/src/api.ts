@@ -12,6 +12,7 @@ import { locale, t as tr } from "./i18n/l10n.mjs";
 import type { FailureKind } from "./apiModel.mjs";
 import { errorFields, log } from "./log";
 import type {
+  GoalEditBody,
   CreateSimulator,
   MobileDevice,
   MobileDevelopmentProject,
@@ -1146,6 +1147,10 @@ export const api = {
   /// agents named (a team expands to its agents) and the humans named may
   /// decide the goal's gates. Entries use `Assignee`'s wire form:
   /// `agent:<id>`, `human:<hex>`, `team:<id>`.
+  /// Edit the goal's own record — only the fields named: a blank `title`
+  /// clears it, `tags` replace the list, the statement is fixed while a run
+  /// is live (409). Announced as `goal_updated`.
+  editGoal: (id: string, body: GoalEditBody, s?: AbortSignal) => patch<{ goal: Goal }>(`/goals/${id}`, body, s),
   setAssignees: (id: string, assignees: string[], s?: AbortSignal) =>
     put<{ goal: Goal }>(`/goals/${id}/assignees`, { assignees }, s),
   /// One of the goal's runs, whole, by id — an earlier or a queued run for the run picker. 404 for another goal's run.

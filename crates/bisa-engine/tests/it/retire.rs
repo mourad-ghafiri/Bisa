@@ -807,3 +807,74 @@ async fn a_goal_whose_design_is_used_elsewhere_is_refused_before_anything_stops(
     assert!(ws.get_goal(goal.id).unwrap().is_archived());
     engine.shutdown().await;
 }
+
+/// Retiring a goal cancels its runs as `retired` — the Runs list and the
+/// journal say a retirement ended them — and closes the goal as abandoned
+/// with that word as its reason.
+#[tokio::test(flavor = "multi_thread")]
+async fn retiring_a_goal_cancels_its_runs_as_retired() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let (goal, run) = run_on(
+        &engine,
+        "retired mid-run",
+        new_workflow(
+            "held",
+            vec![step(
+                "hold",
+                StepKind::Wait {
+                    until: bisa_core::WaitFor::Release,
+                },
+            )],
+        ),
+    );
+    step_in_state(&engine, goal.id, "hold", "waiting").await;
+    let mut bus = engine.events();
+    engine
+        .retire_goal(
+            goal.id,
+            GoalPlan {
+                goal: Fate::Archive,
+                projects: Fate::Keep,
+                tree: false,
+            },
+        )
+        .await
+        .unwrap();
+    let ended = engine.workspace().get_run(run.id).unwrap();
+    assert_eq!(ended.cancelled, Some(CancelCause::Retired), "{ended:?}");
+    let closed = engine.workspace().get_goal(goal.id).unwrap();
+    assert!(closed.is_archived());
+    assert!(matches!(
+        &closed.closed.as_ref().unwrap().reason,
+        ClosureReason::Abandoned { rationale: Some(word) } if word == "retired"
+    ));
+    let facts: Vec<String> = engine
+        .workspace()
+        .journal(&bisa_core::Home::Goal { goal: goal.id })
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            bisa_core::JournalPayload::Run {
+                event: bisa_core::RunFact::Cancelled { cause },
+                ..
+            } => Some(cause.as_str().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        facts,
+        vec!["retired".to_string()],
+        "the journal says what ended the run"
+    );
+    wait_for(&mut bus, "goal.closed", |e| {
+        matches!(
+            &e.payload,
+            EnginePayload::GoalClosed {
+                reason: ClosureReason::Abandoned { .. }
+            }
+        )
+    })
+    .await;
+    engine.shutdown().await;
+}

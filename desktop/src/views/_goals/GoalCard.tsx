@@ -15,6 +15,7 @@
  * `goalCardModel.mjs`'s and `goalStripModel.mjs`'s; this file paints.
  */
 import { sessionsByGoal } from "../_goal/runControl.mjs";
+import { headerWords } from "../_goal/goalPageModel.mjs";
 import { useSessions } from "../../shell/sessionsStore";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
@@ -83,7 +84,8 @@ export function GoalCard({
   });
   const queued = queuedChip(row);
   const listening = listeningChip(row);
-  const label = row.title ?? (row.statement || t("goals-goal-card-goal", { row: row.id.slice(-6) }));
+  // By its words, never its id (`goalPageModel.headerWords`): a blank title is no title.
+  const label = headerWords(row).title;
   const second = secondLine(row);
   const StatusIcon = GOAL_STATUS_ICON[row.status] ?? ICON.goal;
   const tone = statusTone(row.status);

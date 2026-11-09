@@ -22,6 +22,7 @@
 
 import { useRef, useState } from "react";
 import { api } from "../../api";
+import { useEngineEvents } from "../../bus";
 import { errorFields, log } from "../../log";
 import { href, setSearch, useSearchValue } from "../../router";
 import { useViewScroll } from "../../shell/useViewScroll";
@@ -29,6 +30,7 @@ import { placeOf, useViewState } from "../../shell/viewMemoryStore";
 import { wordsValue } from "../../shell/viewValuesModel.mjs";
 import type { GoalView, ProjectRow, WorkItemSpec, Workstream } from "../../types";
 import {
+  Button,
   Chip,
   CountBadge,
   EmptyState,
@@ -38,7 +40,13 @@ import {
   Markdown,
   SectionHeader,
   SkeletonRows,
+  TAG_VOCABULARY,
+  TagChips,
+  TagInput,
   Tabs,
+  TextArea,
+  TextInput,
+  Labelled,
   Tooltip,
   WorkItemStateChip,
   type TabDef,
@@ -49,13 +57,14 @@ import { AssigneePicker, AssigneeTag, AssigneeTags, useAssigneeOptions } from ".
 import { DocumentsCard } from "./DocumentsCard";
 import { ProjectDot, projectIsGit } from "./ProjectDetail";
 import { madeByGoal, stepOf } from "./projectOriginModel.mjs";
-import { designLine, isRunning, originChips, panelOf, panelTabs, panelsFor, projectsFirst, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
+import { cardRereads, ceilingWords, designLine, isRunning, originChips, panelOf, panelTabs, panelsFor, projectsFirst, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
 import { publishPropertiesSlot } from "../_goal/propertiesSlot";
 import { headline } from "./workItemRowModel.mjs";
 import { stateLabel as workstreamStateLabel } from "./workstreamCardModel.mjs";
 import { assigneeWire } from "./types";
 import { attempt, useAsync } from "./useAsync";
 import { readKey } from "./keptReadsModel.mjs";
+import { canSave, draftOf, editBody, editable, problemOf, type GoalDraft } from "./goalEditModel.mjs";
 import { progress } from "../_workflow/runView.mjs";
 import { StepChipStrip } from "../_goals/StepChipStrip";
 import { FROZEN_HINT } from "../_goal/runControl.mjs";
@@ -100,6 +109,10 @@ function ProjectsPanel({ goal }: { goal: string }) {
   );
 
   const rows: ProjectWithSites[] = data ?? [];
+  // A project a step made, or one attached from elsewhere, is listed when it lands.
+  useEngineEvents((e) => {
+    if (cardRereads("projects", e.payload)) reload();
+  });
 
   if (loading && rows.length === 0) return <SkeletonRows rows={3} />;
   if (error) return <ErrorNote error={error} retry={reload} />;
@@ -243,7 +256,11 @@ function WorkPanel({ items, onOpenItem }: { items: WorkItemSpec[]; onOpenItem: (
 
 /** The Details panel's project card: a count, and the way into the tab. */
 function ProjectsCard({ goal, onSeeAll }: { goal: string; onSeeAll: () => void }) {
-  const { data } = useAsync((s) => api.projects(goal, s), [goal], { keep: readKey("goal-projects", goal) });
+  const { data, reload } = useAsync((s) => api.projects(goal, s), [goal], { keep: readKey("goal-projects", goal) });
+  // A project a step made, or one attached from elsewhere, is counted when it lands.
+  useEngineEvents((e) => {
+    if (cardRereads("projects", e.payload)) reload();
+  });
   const words = projectsWords(data?.projects);
   return (
     <section>
@@ -294,6 +311,101 @@ function RunCard({ view }: { view: GoalView }) {
         <p className="mt-1 text-2xs text-text-dim">{runCardWords(run, runs)}</p>
       </button>
       <StepChipStrip strip={view.strip} onOpenStep={(st) => setSearch({ tab: "workflow", step: st })} />
+    </section>
+  );
+}
+
+/**
+ * The goal's own record: its statement, with its tags under it, and — while
+ * the goal is open — an *Edit* that turns the section into its form in place
+ * (title, statement, tags). The rules are `goalEditModel`'s: only what
+ * changed is sent, the statement waits for a live run to end and says so,
+ * and Save waits for a change that can be saved.
+ */
+function GoalRecord({ goal, run, onSaved }: { goal: GoalView["goal"]; run: GoalView["run"]; onSaved?: () => void }) {
+  const toast = useToast();
+  const [draft, setDraft] = useState<GoalDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const rule = editable(goal, run);
+  const tags = goal.tags ?? [];
+  if (draft === null) {
+    return (
+      <section>
+        <SectionHeader
+          flush
+          title={t("work-goal-inspector-statement")}
+          action={
+            rule.can ? (
+              <Button variant="ghost" size="sm" onClick={() => setDraft(draftOf(goal))}>
+                <ICON.edit size={11} aria-hidden />
+                {t("work-goal-edit-edit")}
+              </Button>
+            ) : undefined
+          }
+          alwaysAction={rule.can}
+        />
+        <Markdown text={goal.statement} />
+        {tags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <TagChips tags={tags} />
+          </div>
+        )}
+      </section>
+    );
+  }
+  const problem = problemOf(draft);
+  const save = async () => {
+    const body = editBody(goal, draft);
+    if (!body) return;
+    setSaving(true);
+    const ok = await attempt(() => api.editGoal(goal.id, body), toast.error, () => {
+      toast.ok(t("work-goal-edit-saved"));
+      onSaved?.();
+    });
+    setSaving(false);
+    if (ok) setDraft(null);
+  };
+  return (
+    <section>
+      <SectionHeader flush title={t("work-goal-inspector-statement")} />
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <Labelled label={t("work-goal-edit-title")} hint={t("work-goal-edit-title-hint")}>
+          <TextInput
+            autoFocus
+            className="w-full"
+            aria-label={t("work-goal-edit-title")}
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          />
+        </Labelled>
+        <Labelled label={t("work-goal-inspector-statement")} hint={rule.why ?? undefined} error={rule.statementLocked ? undefined : problem ?? undefined}>
+          <TextArea
+            className="w-full"
+            rows={5}
+            aria-label={t("work-goal-inspector-statement")}
+            value={draft.statement}
+            disabled={rule.statementLocked}
+            onChange={(e) => setDraft({ ...draft, statement: e.target.value })}
+          />
+        </Labelled>
+        <Labelled label={t("work-goal-edit-tags")}>
+          <TagInput value={draft.tags} onChange={(next) => setDraft({ ...draft, tags: next })} suggestions={[...TAG_VOCABULARY]} />
+        </Labelled>
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
+            {t("work-goal-edit-cancel")}
+          </Button>
+          <Button type="submit" size="sm" variant="primary" disabled={saving || !canSave(goal, draft)}>
+            {t("work-goal-edit-save")}
+          </Button>
+        </div>
+      </form>
     </section>
   );
 }
@@ -375,10 +487,7 @@ export function GoalInspector({
         )}
         {panel === "details" && (
           <div className="flex flex-col gap-6">
-            <section>
-              <SectionHeader flush title={t("work-goal-inspector-statement")} />
-              <Markdown text={goal.statement} />
-            </section>
+            <GoalRecord goal={goal} run={run} onSaved={onWorkChanged} />
 
             {designs(mode) && designLine(mode, guidance) !== null && (
               <p className="flex items-start gap-1.5 rounded-control border border-border bg-surface-2 px-2 py-1.5 text-2xs text-text-dim">
@@ -396,6 +505,7 @@ export function GoalInspector({
             <section>
               <SectionHeader flush title={t("work-goal-inspector-spend")} />
               <p className="tnum text-2xs text-text-dim">{spendWords(spent)}</p>
+              {ceilingWords(goal.budget) !== null && <p className="tnum mt-0.5 text-2xs text-text-dim">{ceilingWords(goal.budget)}</p>}
             </section>
 
             <section>

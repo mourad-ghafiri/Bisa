@@ -245,7 +245,14 @@ impl Goal {
             };
         }
         match run {
-            Some(run) => run.holder(owed),
+            Some(run) => match run.holder(owed) {
+                // A cancelled last run — stopped, restarted, withdrawn,
+                // retired — leaves an open goal a draft: the person decides
+                // what runs next, as with a workflow chosen and no run yet.
+                // An outcome is finished; a closed goal was answered above.
+                Holder::Finished if run.cancelled.is_some() => Holder::You,
+                holder => holder,
+            },
             None if owed => Holder::You,
             None => match self.workflow {
                 Some(_) => Holder::You,
@@ -366,8 +373,10 @@ pub enum GoalOrigin {
     Captured,
     /// A `spawn` step of a goal's run — `step` names it, so a restart pairs
     /// the child with the step that waits on it and no other — or an agent's
-    /// `spawn_sub_goal`, which names no step; refining a parent. A record
-    /// from before the step was named reads with none.
+    /// `spawn_sub_goal` from the goal's design session or its thread, which
+    /// names no step; refining a parent. A work item's session cannot spawn
+    /// today: every item's allowance is zero. A record from before the step
+    /// was named reads with none.
     Spawned {
         parent: GoalId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1219,5 +1228,62 @@ mod holder_tests {
                 "{status}"
             );
         }
+    }
+
+    /// A stopped goal is a draft the person holds: a cancelled last run on
+    /// an open goal reads `draft` and `you`, as a draft with a workflow
+    /// chosen does — never `finished`, which an outcome and a closed goal
+    /// keep. A listening goal between runs stays the world's whatever ended
+    /// its last run.
+    #[test]
+    fn a_stopped_goal_is_a_draft_the_person_holds() {
+        use crate::run::CancelCause;
+        let wf = WorkflowId::from_ulid(ulid::Ulid::from_parts(7, 3));
+        let goal = goal_with(Some(wf));
+        for cause in [
+            CancelCause::Stopped { rationale: None },
+            CancelCause::Restarted,
+            CancelCause::Withdrawn,
+            CancelCause::Retired,
+        ] {
+            let mut cancelled = run_with(vec![(step("a", agent_kind()), StepState::Cancelled)]);
+            cancelled.cancelled = Some(cause.clone());
+            cancelled.finished_at = Some(3);
+            assert_eq!(
+                goal.status(Some(&cancelled)),
+                GoalStatus::Draft,
+                "{cause:?}"
+            );
+            assert_eq!(
+                goal.holder(Some(&cancelled), false),
+                Holder::You,
+                "{cause:?}"
+            );
+            assert_eq!(
+                goal.holder(Some(&cancelled), true),
+                Holder::You,
+                "{cause:?}"
+            );
+        }
+        let mut done = run_with(vec![(step("a", agent_kind()), StepState::done())]);
+        done.outcome = Some(crate::workflow::RunOutcome::Done);
+        done.finished_at = Some(3);
+        assert_eq!(goal.holder(Some(&done), false), Holder::Finished);
+        let mut failed = run_with(vec![(step("a", agent_kind()), StepState::Failed)]);
+        failed.outcome = Some(crate::workflow::RunOutcome::Failed);
+        failed.finished_at = Some(3);
+        assert_eq!(goal.holder(Some(&failed), false), Holder::Finished);
+        let mut stopped = run_with(vec![]);
+        stopped.cancelled = Some(CancelCause::Stopped { rationale: None });
+        stopped.finished_at = Some(3);
+        let mut closed = goal.clone();
+        closed.closed = Some(Closure {
+            reason: ClosureReason::Abandoned { rationale: None },
+            at: 9,
+        });
+        assert_eq!(closed.holder(Some(&stopped), false), Holder::Finished);
+        let mut standing = goal.clone();
+        standing.listening = Some(listening(false));
+        assert_eq!(standing.holder(Some(&stopped), false), Holder::World);
     }
 }

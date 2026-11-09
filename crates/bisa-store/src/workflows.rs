@@ -1652,6 +1652,11 @@ pub(crate) mod tests {
             .create_workflow(notify_workflow("Everyone's"), WorkflowOrigin::Workspace)
             .unwrap();
         ws.set_goal_workflow(goal.id, Some(design.id)).unwrap();
+        ws.set_goal_closed(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
         ws.delete_goal(goal.id).unwrap();
         assert!(matches!(
             ws.get_workflow(design.id),
@@ -1778,6 +1783,11 @@ pub(crate) mod tests {
         let library = ws
             .create_workflow(notify_workflow("Everyone's"), WorkflowOrigin::Workspace)
             .unwrap();
+        ws.set_goal_closed(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
         ws.delete_goal(goal.id).unwrap();
         assert!(!ws.paths().goal(goal.id).dir().exists());
         assert!(matches!(
@@ -1912,7 +1922,9 @@ pub(crate) mod tests {
                 other_design.id
             ))
             .unwrap();
-        bad(ws.delete_goal(goal.id).unwrap_err());
+        // The deletion's read-only half: an open goal is refused its delete
+        // before the designs are read, so the bad row is met here.
+        bad(ws.goal_deletable(goal.id).unwrap_err());
         ws.idx()
             .execute_for_test(&format!(
                 "UPDATE workflows SET id = 'bad-archived' WHERE id = '{}'",

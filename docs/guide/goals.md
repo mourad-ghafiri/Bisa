@@ -22,7 +22,7 @@ one rule in the core, so `bisa status`, the Goals screen and the inbox cannot di
 A goal may have several runs over time — a second attempt, a different workflow — but only one that
 is **live**. A run started while one is live is **queued**: it waits its turn and starts on its own
 when the live run ends. **Stop** cancels the live run and withdraws the queue; the goal stays open,
-a draft again, ready for a new run. **Restart** cancels the live run and starts a new run of the same
+a draft again — held by you — ready for a new run. **Restart** cancels the live run and starts a new run of the same
 workflow with the same inputs at once, ahead of the queue. Closing is the one move outside the run:
 it cancels the live run and the queued ones, every live step's work, and every gate the run holds
 open. A closed goal is read, never resumed; its workstreams are released and the checkouts stay on
@@ -82,8 +82,9 @@ step as a filled chip toned by state (the current one larger and ringed; a long 
 line with a *+n* pill, the current step never hidden), *n of m steps*, the current step named, the
 workflow's name, who is assigned, how many projects it carries, how many things wait on you, and —
 when the move is yours — an **Act** button that answers, marks done or releases right there. The list orders itself by last activity, so what moved is at the top, and narrows by
-filters that live in the URL: who holds it (*All · You · Agents · World · Finished · Design*), which
-workflow, tags, text. Clicking a chip opens the goal's Workflow tab on that step. There is no goal
+filters: who holds it (*All · You · Agents · World · Finished · Design*), which workflow and text
+live in the URL, and tags are kept with the screen, as it was left. A stopped goal is under *You*:
+the next run is yours to start. Clicking a chip opens the goal's Workflow tab on that step. There is no goal
 section in the sidebar; this list is the one place.
 
 ## Following a run
@@ -112,8 +113,14 @@ was made or started and when it ended, *View* into the Workflow tab wearing that
 *Withdraw* on a queued one. A goal that listens keeps every run it ever made: the list draws a page
 of them, never fewer than the runs still to end, and *Show older* brings the next. **Conversation** is the goal's thread; **Workflow** is the canvas, with
 *Edit the steps* before a run and the *Designed for this goal* banner. The Details pane on the right
-keeps the run's card, work, projects, files, assignees and origin — a goal a run's `spawn` step
-captured has a door to that run there — and, while the Workflow tab shows, a fifth tab,
+keeps the statement with the goal's tags, the run's card, work, projects, files, what it spent
+beside its ceiling, assignees and origin — a goal a run's `spawn` step captured has a door to that
+run there. **Edit**, on the statement, turns it into a form in place: the title (an empty one
+clears it — the goal is then named by its statement), the statement and the tags. Only what you
+changed is saved; the statement waits while a run is live, and says so; a closed goal takes no
+edit. From a terminal it is `bisa edit <goal> [--title …] [--statement …] [--tag …]… [--clear-tags]
+[--budget-tokens …]`, which sets a ceiling of the goal's own too. A changed statement leaves a note
+in the journal with the words it replaced. And, while the Workflow tab shows, a fifth tab,
 **Properties**: the designer's own pane for whatever is picked on the canvas — the workflow itself,
 a step, a flow, several. Click a step and the pane shows it, opening if it was closed; `Esc` on the
 canvas clears the pick, and `Esc` again closes the pane.
@@ -124,8 +131,8 @@ canvas clears the pick, and `Esc` again closes the pane.
 withdrawn, the live run is cancelled — its work items cancelled, its questions withdrawn, its waits
 disarmed — the goals it spawned are stopped with it, every session on the goal is ended — the
 Workflow Agent's wake, a turn in its thread, a worker's harness and every command the harness was
-running — and waited for, and the goal reads `draft`, its workflow still chosen, ready for *New
-run…* or *Restart*. Stop is offered while a run is going or queued, and while a session works on
+running — and waited for, and the goal reads `draft`, held by you, its workflow still chosen, ready
+for *New run…* or *Restart*. Stop is offered while a run is going or queued, and while a session works on
 the goal with no run at all. The confirm says what goes: how many steps are live, how many runs
 wait, how many sessions and spawned goals end. The toast says what the node ended, and what it
 had to terminate: a harness that does not stop when told is terminated five seconds later, and a
@@ -133,8 +140,11 @@ session that could not be ended is said, never hidden.
 **Restart** cancels the live run and starts a new run of the same workflow with the same inputs —
 at the start the last run began at, on the event that began it — at
 once, ahead of anything queued (which keeps its place); it is refused, and the run left as it is,
-when that start is gone from the workflow as it stands; on a goal whose run is over it only starts
-that run again, with no confirm. **New run…** while a run is live queues the run — *Queued — it
+when the new run could not start as things stand — the start it began at gone from the workflow,
+the workflow archived or with problems, an input it needs now that the last run was not given; on
+a goal whose run is over it only starts that run again, with no confirm. A stop never starts
+anything: a run queued while it goes is withdrawn with the rest, and a restart's run always goes
+ahead of the queue. **New run…** while a run is live queues the run — *Queued — it
 starts when the live run finishes* — and a queued run can be withdrawn from the Runs list until it
 starts. A stop or a restart is your own act: the Pulse says *run … stopped* or *run … restarted*
 under Goals, and nothing lands in the Inbox. The same three verbs sit behind the `⋮` on a goal's
@@ -420,7 +430,8 @@ which wins over the default, an empty one meaning no ceiling at all; the *Turn o
 A goal's own ceiling is named the same way at capture — `bisa new --budget-tokens … --budget-usd-cents …
 --budget-secs …`, or `budget` on `POST /goals` — and kept as given: a zero lifts that ceiling, every
 flag at zero (`{}` on the wire) is no ceiling at all, whatever the default says. Nothing is set by
-default: a fresh workspace runs unlimited.
+default: a fresh workspace runs unlimited. A sub-goal — a `spawn` step's or `spawn_sub_goal`'s —
+takes the workspace default too, never its parent's ceiling: each goal's ledger is its own.
 
 ## Sub-goals and edges
 

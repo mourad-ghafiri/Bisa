@@ -219,6 +219,11 @@ fn a_note_survives_a_rebuild_because_the_file_is_the_truth() {
     ws.rebuild_index().unwrap();
     assert_eq!(ws.get_note(a.id).unwrap(), a);
     assert_eq!(ws.get_note(b.id).unwrap(), b);
+    ws.set_goal_closed(
+        goal.id,
+        bisa_core::ClosureReason::Abandoned { rationale: None },
+    )
+    .unwrap();
     ws.delete_goal(goal.id).unwrap();
     assert!(ws.get_note(b.id).is_err(), "a goal takes its notes with it");
     ws.rebuild_index().unwrap();

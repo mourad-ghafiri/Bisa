@@ -282,9 +282,10 @@ impl Workspace {
                 Assignee::Human(_) => {}
             }
         }
-        let mut current = self.get_goal(goal)?;
-        current.assignees = assignees;
-        self.update_goal(current)
+        self.update_goal_with(goal, |current| {
+            current.assignees = assignees;
+            Ok(())
+        })
     }
 
     /// The goals directly naming this assignee. Inheritance through `parent`

@@ -906,6 +906,22 @@ impl Engine {
                 // LCOV_EXCL_STOP
             }
         });
+        // A run the last process queued whose goal never recorded it is
+        // adopted here, under the same lock: recorded and indexed, it
+        // starts in its turn when the queue advances below.
+        contain("orphan queued runs", || {
+            match inner.ws.adopt_orphan_queued_runs() {
+                Ok(adopted) if !adopted.is_empty() => {
+                    tracing::warn!(target: "bisa_engine", adopted = adopted.len(), "orphan queued runs adopted at start");
+                }
+                Ok(_) => {}
+                // LCOV_EXCL_START adopting the orphan queued runs fails only unwritable (disk-only)
+                Err(e) => {
+                    tracing::error!(target: "bisa_engine", "the orphan queued runs could not be adopted: {e}");
+                    // LCOV_EXCL_STOP
+                }
+            }
+        });
         // The catalog's own connectors, brought to the bundle's revision —
         // a truth write, so here under the lock and never at a plain open.
         // The bus has no listener yet; the activity feed is the record.

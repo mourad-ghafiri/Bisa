@@ -796,6 +796,11 @@ mod tests {
             WorkstreamState::Committed
         );
 
+        ws.set_goal_closed(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
         ws.delete_goal(goal.id).unwrap();
         // The record is under the project, so it survives; the goal it was
         // made for is history.

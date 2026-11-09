@@ -179,6 +179,7 @@ app-activity-workflow-agent-about-start = the Workflow Agent is about to start {
 app-activity-workflow-agent-asked = the Workflow Agent asked you{ $why }
 app-activity-workflow-agent-could-not-start = the Workflow Agent could not start { $job }{ $why }
 app-activity-workflow-agent-proposed-adopt = the Workflow Agent proposed{ $why } — adopt it?
+app-activity-workflow-agent-designed-workflow-rev = the Workflow Agent designed workflow { $workflow } (rev { $revision })
 app-activity-workflow-agent-proposed-workflow-rev-adopt = the Workflow Agent proposed workflow { $workflow } (rev { $revision }) — adopt it?
 app-activity-workflow-designed-revision = the Workflow Agent wrote workflow { $workflow } as revision { $revision }
 app-activity-workflow-agent-stopped = the Workflow Agent stopped { $job }{ $why }
@@ -373,6 +374,7 @@ app-activity-run-cancelled = run { $run } { $cause ->
     [restarted] restarted
     [withdrawn] withdrawn
     [closed] closed
+    [retired] retired with its goal
    *[cancelled] cancelled
   }
 app-activity-language-server-method = language server ({ $language }): { $method }

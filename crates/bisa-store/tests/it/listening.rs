@@ -295,6 +295,11 @@ fn deleting_a_goal_forgets_its_listeners() {
     ))
     .unwrap();
 
+    ws.set_goal_closed(
+        goal.id,
+        bisa_core::ClosureReason::Abandoned { rationale: None },
+    )
+    .unwrap();
     ws.delete_goal(goal.id).unwrap();
     assert!(!ws.has_hook_secret(&ticket).unwrap());
     assert!(ws.list_signals(Some(&host), 10).unwrap().is_empty());

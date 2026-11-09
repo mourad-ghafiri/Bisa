@@ -163,3 +163,25 @@ test("a design status this build has no words for is shown as the agent at work,
   assert.equal(view.hint, "");
   assert.ok(view.headline.includes("weird"), view.headline);
 });
+
+test("a goal that ran or was captured with a workflow is not being designed", () => {
+  // The node's phase is the goal's status once nobody owes it a design: an
+  // auto goal captured with a workflow and not started, or between runs.
+  for (const phase of ["draft", "done", "failed", "waiting", "running"]) {
+    const g = { mode: "auto", design_enabled: true, phase, design: null, open_questions: [] };
+    const v = designView(g, auto);
+    assert.equal(v.kind, "ready", phase);
+    assert.equal(ticks(v.kind), false);
+    assert.equal(designInProgress(g, auto), false, `${phase}: the header offers its verbs`);
+    assert.equal(v.offerPick, true);
+    assert.ok(v.headline.length > 8 && kindWord(v.kind) === "ready");
+  }
+  // While a design or a repair is owed and no fact has landed yet, it is about to happen.
+  for (const phase of ["design", "repair"]) {
+    const g = { mode: "auto", design_enabled: true, phase, design: null, open_questions: [] };
+    assert.equal(designView(g, auto).kind, "scheduled", phase);
+    assert.equal(designInProgress(g, auto), true);
+  }
+  // A view with no phase at all — an older node — reads as before.
+  assert.equal(designView({ mode: "auto", design_enabled: true, design: null }, auto).kind, "scheduled");
+});

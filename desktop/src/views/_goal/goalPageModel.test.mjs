@@ -6,7 +6,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { ADOPT_SUBJECT, adoptGateOf, closeBody, closeWords, headerWords, isProposed, listeningFacts, ownDesignOf, pageFacts, replacements, runStanding, PAGE_FACTS,
+import { ADOPT_SUBJECT, adoptGateOf, adoptionOwed, closeBody, closeWords, headerWords, isProposed, listeningFacts, ownDesignOf, pageFacts, replacements, runStanding, PAGE_FACTS,
   wantsReload,
 } from "./goalPageModel.mjs";
 
@@ -138,4 +138,20 @@ test("the page closes through the model: the body is built by name, and the dial
   assert.ok(view.includes("replacements(ws.goals, id)") && view.includes("closeWords(closing, ws.goals, id)"));
   assert.ok(view.includes("setClosing(NOTHING_SAID)"), "a dialog opened again starts from nothing");
   assert.ok(!view.includes("superseded_by"), "the wire's key is written in one place");
+});
+
+test("a proposal rebuilt after a restart is still adopt and start", () => {
+  // The live gate died with the old process; the node rebuilt the question
+  // from the journal and sends it in `guidance.open_questions`.
+  const goal = { id: "G1", mode: "guided", workflow: "wf-1", run: null, closed: null };
+  const rebuilt = [{ gate_kind: "approval", subject: `${ADOPT_SUBJECT}wf-1@1`, durable: true }];
+  assert.equal(adoptionOwed(rebuilt), true);
+  assert.equal(adoptionOwed([{ gate_kind: "approval", subject: "approval:R1/review" }]), false, "a step's approval is no adoption");
+  assert.equal(adoptionOwed([{ gate_kind: "answer", subject: `${ADOPT_SUBJECT}wf-1` }]), false);
+  assert.equal(adoptionOwed(null), false);
+  assert.equal(isProposed(goal, [], rebuilt), true);
+  assert.equal(isProposed({ ...goal, run: "R1" }, [], rebuilt), false, "a goal that ran is past its proposal");
+  const facts = pageFacts({ goal, run: null, pendingGates: [], startable: null, openQuestions: rebuilt });
+  assert.equal(facts.proposed, true);
+  assert.equal(facts.adoptGate, undefined, "decided through the goal: no live gate to name");
 });

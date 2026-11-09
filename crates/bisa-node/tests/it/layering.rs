@@ -98,6 +98,12 @@ const IRREGULAR_WRITERS: &[&str] = &[
     // `end_orphan_runs` ends every run no goal names — the engine's repair at
     // its start, under its lock; a writer by what it does, not by its verb.
     "end_orphan_runs",
+    // `adopt_orphan_queued_runs` gives a queued run no goal recorded back to
+    // its goal — the same repair, for the run a crash left queued.
+    "adopt_orphan_queued_runs",
+    // `stage_crash_before_goal_recorded_run` is a test's door: it writes the
+    // run a crash would have left.
+    "stage_crash_before_goal_recorded_run",
     // `admit_claimed` adds the member a claimed invite names.
     "admit_claimed",
     // `drop_held_of` lets a removed person's held messages go.
@@ -107,6 +113,8 @@ const IRREGULAR_WRITERS: &[&str] = &[
 /// A method whose name starts with one of these words only reads.
 const READER_VERBS: &[&str] = &[
     "activity",
+    // `check_startable` asks a start's checks and writes nothing.
+    "check",
     "connector",
     "default",
     "known",

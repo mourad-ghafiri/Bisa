@@ -1597,6 +1597,9 @@
     "AssigneesBody": {
       "$ref": "#/definitions/AssigneesBody"
     },
+    "GoalEditBody": {
+      "$ref": "#/definitions/GoalEditBody"
+    },
     "NewChannelBody": {
       "$ref": "#/definitions/NewChannelBody"
     },
@@ -2031,6 +2034,9 @@
     },
     "GoalArmed": {
       "$ref": "#/definitions/GoalArmed"
+    },
+    "GoalArmedKind": {
+      "$ref": "#/definitions/GoalArmedKind"
     },
     "RunView": {
       "$ref": "#/definitions/RunView"
@@ -2589,7 +2595,7 @@
             "origin",
             "parent"
           ],
-          "description": "A `spawn` step of a goal's run — `step` names it, so a restart pairs\nthe child with the step that waits on it and no other — or an agent's\n`spawn_sub_goal`, which names no step; refining a parent. A record\nfrom before the step was named reads with none."
+          "description": "A `spawn` step of a goal's run — `step` names it, so a restart pairs\nthe child with the step that waits on it and no other — or an agent's\n`spawn_sub_goal` from the goal's design session or its thread, which\nnames no step; refining a parent. A work item's session cannot spawn\ntoday: every item's allowance is zero. A record from before the step\nwas named reads with none."
         },
         {
           "type": "object",
@@ -8522,7 +8528,7 @@
             "cause"
           ],
           "additionalProperties": false,
-          "description": "Its workflow was archived or deleted while this run of the workspace\nwent: retiring a workflow retires its runs first."
+          "description": "Its workflow was archived or deleted while this run of the workspace\nwent, or its goal was retired — archived or deleted — while this run\nwas live or queued: a retirement retires the runs first."
         }
       ],
       "description": "Why a run was cancelled. The one word the run keeps, the journal\nrecords and every screen prints; a `ClosureReason` is the goal's."
@@ -22874,6 +22880,52 @@
       },
       "description": "`PUT /goals/{id}/assignees` — an empty list clears the assignment.\nEntries use `Assignee`'s wire form: `agent:<id>`, `human:<hex>`, `team:<id>`."
     },
+    "GoalEditBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The goal's title; a blank one clears it.",
+          "default": null
+        },
+        "statement": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The goal's statement, trimmed; never blank, and fixed while a run is\nlive.",
+          "default": null
+        },
+        "tags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "The goal's tags, replacing the ones it has; `[]` clears them.",
+          "default": null
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The goal's own ceiling, as on `POST /goals`: kept as given, `{}` no\nceiling at all.",
+          "default": null
+        }
+      },
+      "description": "`PATCH /goals/{id}`: a person's edit of the goal's own record. Every\nfield is optional and one left out stays as it is."
+    },
     "NewChannelBody": {
       "type": "object",
       "additionalProperties": false,
@@ -29071,6 +29123,14 @@
     "GoalArmed": {
       "type": "object",
       "properties": {
+        "kind": {
+          "description": "Always `listening`: the start armed the goal and made no run — a run\nanswers `run`.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GoalArmedKind"
+            }
+          ]
+        },
         "status": {
           "description": "The goal's status once armed.",
           "allOf": [
@@ -29088,10 +29148,17 @@
         }
       },
       "required": [
-        "status",
-        "secrets"
+        "kind",
+        "status"
       ],
       "description": "What `POST /goals/{id}/run` answers when the start armed the goal rather\nthan running it: no run — the goal listens — where the goal stands, and\nthe public hooks' secrets the start minted, shown this once."
+    },
+    "GoalArmedKind": {
+      "type": "string",
+      "enum": [
+        "listening"
+      ],
+      "description": "What a start that made no run did."
     },
     "RunView": {
       "type": "object",

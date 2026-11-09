@@ -927,3 +927,71 @@ async fn the_judges_standing_as_the_settings_name_it() {
     let answered = op(&engine, json!({"op": "decide", "agent": "general-agent", "request": {"state": "a page", "questions": {"q": {"type": "noul", "instructions": "about AI?", "criteria": {"true": "names a model", "false": "names none"}}}}})).await;
     assert_eq!(answered["ok"], true, "{answered}");
 }
+
+/// A closed goal is read, never written to: a note on it is refused in
+/// words, and its journal does not grow.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_goal_takes_no_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let id = goal(&engine);
+    let before = engine
+        .workspace()
+        .journal(&bisa_core::Home::Goal { goal: id })
+        .unwrap()
+        .len();
+    engine
+        .workspace()
+        .set_goal_closed(id, bisa_core::ClosureReason::Abandoned { rationale: None })
+        .unwrap();
+    let after_close = engine
+        .workspace()
+        .journal(&bisa_core::Home::Goal { goal: id })
+        .unwrap()
+        .len();
+    assert!(after_close >= before);
+    let reply = op(
+        &engine,
+        json!({"op": "add_note", "goal": id.to_string(), "text": "one more thought"}),
+    )
+    .await;
+    assert!(refused(&reply).contains("closed"), "{reply}");
+    assert_eq!(
+        engine
+            .workspace()
+            .journal(&bisa_core::Home::Goal { goal: id })
+            .unwrap()
+            .len(),
+        after_close,
+        "the journal did not grow"
+    );
+    engine.shutdown().await;
+}
+
+/// A blank statement is refused in words and the goal keeps its own; a
+/// padded one lands trimmed, as at capture.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_revised_statement_is_refused_in_words_and_a_padded_one_trimmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let id = goal(&engine);
+    let before = engine.workspace().get_goal(id).unwrap().statement;
+    let blank = op(
+        &engine,
+        json!({"op": "revise_statement", "goal": id.to_string(), "statement": "   "}),
+    )
+    .await;
+    assert!(refused(&blank).contains("statement is required"), "{blank}");
+    assert_eq!(engine.workspace().get_goal(id).unwrap().statement, before);
+    let padded = op(
+        &engine,
+        json!({"op": "revise_statement", "goal": id.to_string(), "statement": "  ship it by Friday  "}),
+    )
+    .await;
+    assert_eq!(padded["ok"], true, "{padded}");
+    assert_eq!(
+        engine.workspace().get_goal(id).unwrap().statement,
+        "ship it by Friday"
+    );
+    engine.shutdown().await;
+}

@@ -152,3 +152,28 @@ test("the projects the goal made come first, the rest keep their order, and the 
   assert.deepEqual(rows.map((r) => r.id), ["x", "mine", "y", "mine-2"], "the given list stands");
   assert.deepEqual(projectsFirst(null, () => true), []);
 });
+
+test("a card reads again on the frames that change its own list, and on no other", async () => {
+  const { cardRereads } = await import("./goalInspectorModel.mjs");
+  assert.equal(cardRereads("documents", { type: "document_added" }), true);
+  assert.equal(cardRereads("documents", { type: "project_created" }), false);
+  for (const type of ["project_created", "attachment_changed", "project_archived", "project_deleted"]) {
+    assert.equal(cardRereads("projects", { type }), true, type);
+  }
+  assert.equal(cardRereads("projects", { type: "step_changed" }), false);
+  assert.equal(cardRereads("projects", null), false);
+  assert.equal(cardRereads("nothing", { type: "document_added" }), false);
+});
+
+test("the ceiling says only the limits the goal has, and nothing when it has none", async () => {
+  const { ceilingWords, originChips } = await import("./goalInspectorModel.mjs");
+  assert.equal(ceilingWords({ max_tokens: 9000, max_usd_cents: 500, max_wall_clock_secs: 600 }), "Ceiling: 9,000 tokens · $5.00 · 600 s");
+  assert.equal(ceilingWords({ max_usd_cents: 40 }), "Ceiling: 40¢");
+  assert.equal(ceilingWords({}), null);
+  assert.equal(ceilingWords(null), null);
+  // A sub-goal a spawn step made names the step; an agent's names none.
+  const stepped = originChips({ origin: { origin: "spawned", parent: "P1", step: "fan-out" } }, null, "manual");
+  assert.equal(stepped.find((c) => c.id === "parent").label, "refines a goal, from its step fan-out");
+  const plain = originChips({ origin: { origin: "spawned", parent: "P1" } }, null, "manual");
+  assert.equal(plain.find((c) => c.id === "parent").label, "refines a goal");
+});

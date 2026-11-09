@@ -28,8 +28,9 @@
 //! Teams expand to their members at this boundary — `Assignee::Team` never
 //! escapes into a caller. Nesting is not modelled (see
 //! `bisa_core::assignee`), so the expansion is one level and needs no
-//! cycle detection; the *goal* walk does need one, because `Goal.parent`
-//! is user-editable and a goal can end up its own ancestor.
+//! cycle detection; the *goal* walk does need one, since a goal's parent is
+//! its origin's (`GoalOrigin::Spawned { parent }`) and a synced record could
+//! make a goal its own ancestor.
 //!
 //! ## The core agent
 //!

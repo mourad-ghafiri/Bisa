@@ -277,3 +277,19 @@ test("a start offered now is a start by listening when the verb says so, or when
   assert.equal(listenOffer(null, false, true), false, "listens but nothing to adopt and no verb");
   assert.equal(listenOffer(undefined, true, true), true);
 });
+
+test("an auto goal after a done run offers New run and Restart, like the card", () => {
+  const auto = { id: "01G", mode: "auto", closed: null };
+  // Nobody owes it a design: the node's phase is the goal's status.
+  const between = { mode: "auto", design_enabled: true, phase: "done", design: null, open_questions: [] };
+  const v = runVerbs(args({ goal: auto, run: done, runs: [s("01R", "done")], guidance: between }));
+  assert.equal(v.start?.label.length > 0, true, "a new run is offered");
+  assert.ok(v.restart, "and a restart");
+  // Captured with a workflow and not started: a start, no restart yet.
+  const unstarted = { ...between, phase: "draft" };
+  const first = runVerbs(args({ goal: auto, guidance: unstarted }));
+  assert.ok(first.start && !first.restart);
+  // While a design is owed and no fact has landed, neither is offered.
+  const owed = { ...between, phase: "design" };
+  assert.deepEqual(runVerbs(args({ goal: auto, guidance: owed })), none);
+});

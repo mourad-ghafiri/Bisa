@@ -935,7 +935,8 @@ question. The ladder, first match wins:
 | 1a | the goal listens and nothing is live: `owed`, or its listening is paused | `you` |
 | 1b | the goal listens and nothing is live | `world` |
 | 2 | `owed` — an adoption, approval, escalation or publish gate names it | `you` |
-| 3 | the run finished — an outcome, or cancelled | `finished` |
+| 3 | the run finished with an outcome — done, or failed | `finished` |
+| 3b | the current run was cancelled — stopped, restarted, withdrawn, retired — on an open goal that does not listen: a draft again, the next run the person's to start | `you` |
 | 3a | the current run is queued — not started yet | `agents` |
 | 4 | no run, a workflow chosen or proposed | `you` |
 | 5 | no run, no workflow | `design` |
@@ -952,13 +953,23 @@ When several steps are live, `you` beats `agents` beats `world`. The per-kind ar
 cancels the live one (`stopped { rationale? }`) — the run first, so the last settle finds nothing to
 advance and an aborted worker finds its item cancelled — stops the goals it spawned the same way,
 then ends every session of the goal and waits for their processes to be gone; the goal stays open
-and reads `draft`, ready for a new run. A **restart** (`ops::restart_goal`) cancels the live run (`restarted`) and
+and reads `draft`, held by `you`, ready for a new run. A **restart** (`ops::restart_goal`) cancels the live run (`restarted`) and
 starts a new run of the last run's workflow with its inputs — at the start it began at, on the
-event that began it — at once, ahead of the queue, which keeps its place; it is refused, before
-anything is cancelled, when that start is gone from the workflow as it stands. From the cancel to
-the new run's start the goal's occurrences are held (`Inner::ending_goals`, read by the listening
-worker), so the restart's run is the live one and never queued behind a run an occurrence started
-on the goal the cancel had just left idle; a held occurrence goes on the next tick, behind it. A queued
+event that began it — at once, ahead of the queue, which keeps its place. It is refused, before
+anything is cancelled, when that run could not start as things stand (`restart_preflight`): the
+start it began at gone from the workflow, the workflow archived or with problems, its inputs no
+longer binding, an agent step with nowhere unambiguous to run — each a conflict in words, the run
+left as it is. For the whole of a stop and a restart the goal is marked as being ended
+(`ending::Ending`, one mark however deep the cascade): `advance_queue` starts nothing of a marked
+goal, so the cancel's settle never starts the next queued run under the verb, and the listening
+worker holds the goal's occurrences (`Inner::ending_goals`), so the restart's run is the live one
+and never queued behind a run an occurrence started on the goal the cancel had just left idle; a
+held occurrence goes on the next tick, behind it. The mark is taken before the restart reads the
+last run, so a run that ends meanwhile advances nothing, the restart cancels only the run it read
+— one over already is left as it ended — and its new run starts ahead of the queue; a restart
+refused moves the queue itself. A stop withdraws the queue twice — before the cancel and after it —
+so a run queued between the two is withdrawn, never started by the stop; a run made after the
+cancel finds the goal idle and starts at once, the person's. A queued
 run may be **withdrawn** on its own (`ops::withdraw_run`) — and only a queued one: the run itself
 refuses a withdrawal once it has started (`RunError::AlreadyStarted`, a pre-check of
 `WorkflowRun::apply`, under the run's one writer), so a run that starts between somebody's look and
@@ -968,8 +979,12 @@ as *withdrawn* with its work still at it. Every withdrawal goes through `ops::wi
 from its goal alone: a workflow's own *Stop every run* and *Restart every run* act on its workspace
 runs and leave a goal's run of it to the goal ([Runs of the workspace](#runs-of-the-workspace)).
 **Closing** is the one thing that moves a goal outside its run: `Cancel {
-closed { reason } }` on every queued run and on the live one, then `closed = Some(..)`. It is deliberately ungated, and it is final: a synced snapshot that
-would reopen a closed goal is refused for good.
+closed { reason } }` on every queued run and on the live one, then `closed = Some(..)`. A goal
+superseded by itself, or by a goal nobody knows, is refused before anything is cancelled. It is deliberately ungated, and it is final: a synced snapshot that
+would reopen a closed goal is refused for good — and a closed goal is read, never edited: its
+record, its assignees, its documents and its notes refuse every write (`Workspace::update_goal_with`,
+the one writer every edit of the record goes through, so two edits of different fields at once both
+land), and a sub-goal is made under an open parent only.
 
 **The goal's mode** says who designs the workflow and who adopts, starts and repairs it. It is
 chosen at capture — the New Goal dialog's switch, `--mode`, `POST /goals {mode}` — from the

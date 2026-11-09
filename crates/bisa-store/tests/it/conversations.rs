@@ -659,6 +659,11 @@ fn a_thing_takes_its_conversations_with_it_when_it_goes() {
         "the drawing's conversations left with it"
     );
 
+    ws.set_goal_closed(
+        goal.id,
+        bisa_core::ClosureReason::Abandoned { rationale: None },
+    )
+    .unwrap();
     ws.delete_goal(goal.id).unwrap();
     assert!(ws.get_conversation(of_goal.id).is_err());
     assert!(

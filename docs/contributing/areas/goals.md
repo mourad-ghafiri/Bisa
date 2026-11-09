@@ -30,7 +30,7 @@ retiring — is the engine's.
 ## Rules a change must keep
 
 - A goal stores no status: it is a projection of whether it is closed, whether it listens and its current run (I3).
-- A goal has at most one live run; every other is queued in order and starts only when nothing is live; every writer of a run takes the one `run_writes` lock (I3a).
+- A goal has at most one live run; every other is queued in order and starts only when nothing is live; every writer of a run takes the one `run_writes` lock; and no verb that ends a goal's work starts a run of it — a stop withdraws, a restart starts its own ahead (I3a).
 - An agent proposes and a person adopts: no tool adopts a workflow, decides a gate or starts a run, and the engine records no gate decision from an agent's op ([crates/engine § What this crate refuses to do](../../architecture/crates/engine.md#what-this-crate-refuses-to-do)).
 - Auto skips only the platform's own gates — the adoption, the amendment, the start — never a person's; it stops adopting alone past `goals.auto.repair_limit` or for a design that cannot start unattended, and says why (I51). A manual goal wakes nobody, and a proposal on it is the person's draft.
 - The design question is answerable as asked, journaled under its stable subject and rebuilt after a restart; a proposal or a start withdraws it (I48).

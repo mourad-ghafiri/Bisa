@@ -757,6 +757,10 @@ fn closing_a_goal_cancels_its_run() {
     );
     assert_ok(&closed, "close");
     assert_eq!(json(&closed)["closed"]["reason"], "abandoned");
+    assert!(
+        json(&closed).as_object().unwrap().contains_key("ended"),
+        "the same keys as through the node"
+    );
     let status = json(&bisa(dir.path(), &["--json", "status", &id]));
     assert_eq!(status["status"], "closed");
     assert!(status["run"]["outcome"].is_null(), "{status}");
@@ -1151,6 +1155,30 @@ fn cli_routes_through_running_node() {
     let log = bisa(dir.path(), &["--json", "log", &id]);
     assert_ok(&log, "log via node");
     assert!(json(&log)["events"].as_array().unwrap().len() >= 3);
+
+    // edit via node: the same door, every field carried.
+    let edited = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "edit",
+            &id,
+            "--title",
+            "Through the node",
+            "--statement",
+            "worded again",
+            "--tag",
+            "release",
+            "--budget-tokens",
+            "500",
+        ],
+    );
+    assert_ok(&edited, "edit via node");
+    let goal = &json(&edited)["goal"];
+    assert_eq!(goal["title"], "Through the node");
+    assert_eq!(goal["statement"], "worded again");
+    assert_eq!(goal["tags"], serde_json::json!(["release"]));
+    assert_eq!(goal["budget"]["max_tokens"], 500);
 
     drop(node);
 }
@@ -7409,5 +7437,99 @@ fn catalog_install_update_restates_an_installed_entry_and_is_honest_when_nothing
     assert!(
         err.contains("cannot update") && err.contains("channel"),
         "{err}"
+    );
+}
+
+/// `bisa edit <goal>`: a person's edit of the goal's own record, offline —
+/// what moved is said, tags replace or clear, a ceiling is set, and an edit
+/// that names nothing is refused.
+#[test]
+fn edit_changes_a_goals_words_and_says_what_moved() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let id = json(&bisa(
+        dir.path(),
+        &["--json", "new", "worded loosely", "--mode", "manual"],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let edited = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "edit",
+            &id,
+            "--title",
+            "The release",
+            "--statement",
+            "ship it by Friday",
+            "--tag",
+            "release",
+            "--budget-tokens",
+            "9000",
+        ],
+    );
+    assert_ok(&edited, "edit");
+    let goal = &json(&edited)["goal"];
+    assert_eq!(goal["title"], "The release");
+    assert_eq!(goal["statement"], "ship it by Friday");
+    assert_eq!(goal["tags"], serde_json::json!(["release"]));
+    assert_eq!(goal["budget"]["max_tokens"], 9000);
+
+    let said = bisa(dir.path(), &["edit", &id, "--clear-tags", "--title", ""]);
+    assert_ok(&said, "edit --clear-tags");
+    let words = String::from_utf8_lossy(&said.stdout).to_string();
+    assert!(words.contains("title, tags"), "{words}");
+    let status = json(&bisa(dir.path(), &["--json", "search"]));
+    assert!(status.to_string().contains("ship it by Friday"), "{status}");
+
+    let nothing = bisa(dir.path(), &["edit", &id]);
+    assert!(!nothing.status.success());
+    let err = String::from_utf8_lossy(&nothing.stderr).to_string();
+    assert!(err.contains("names what to change"), "{err}");
+}
+
+/// `bisa search` lists the goals in use, with a query and without one; a
+/// goal put away is listed only with `--archived`.
+#[test]
+fn search_never_lists_an_archived_goal_unless_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let new = |statement: &str| {
+        json(&bisa(
+            dir.path(),
+            &["--json", "new", statement, "--mode", "manual"],
+        ))["goal"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let kept = new("migrate the billing ledger");
+    let put_away = new("migrate the billing archive");
+    assert_ok(
+        &bisa(dir.path(), &["archive", "goal", &put_away]),
+        "archive",
+    );
+    let ids = |args: &[&str]| -> Vec<String> {
+        let out = bisa(dir.path(), args);
+        assert_ok(&out, "search");
+        json(&out)["matches"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|row| row["goal"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(ids(&["--json", "search"]), vec![kept.clone()]);
+    assert_eq!(ids(&["--json", "search", "billing"]), vec![kept.clone()]);
+    assert_eq!(
+        ids(&["--json", "search", "--archived"]),
+        vec![put_away.clone()]
+    );
+    assert_eq!(
+        ids(&["--json", "search", "billing", "--archived"]),
+        vec![put_away]
     );
 }

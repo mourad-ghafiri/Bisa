@@ -3893,6 +3893,10 @@ export type EventKind =
  */
 export type SignalState = ("queued" | "running" | "skipped" | "failed") | "waiting" | "held" | "done";
 /**
+ * What a start that made no run did.
+ */
+export type GoalArmedKind = "listening";
+/**
  * The kinds of thing an Inbox row is.
  */
 export type InboxKind =
@@ -4844,6 +4848,7 @@ export interface BisaApi {
   StepAnswerBody?: StepAnswerBody;
   DecideBody?: DecideBody;
   AssigneesBody?: AssigneesBody;
+  GoalEditBody?: GoalEditBody;
   NewChannelBody?: NewChannelBody;
   PatchChannelBody?: PatchChannelBody;
   NewMessageBody?: NewMessageBody;
@@ -4989,6 +4994,7 @@ export interface BisaApi {
   SignalView?: SignalView;
   SignalState?: SignalState;
   GoalArmed?: GoalArmed;
+  GoalArmedKind?: GoalArmedKind;
   RunView?: RunView;
   Representative?: Representative;
   InboxRow?: InboxRow;
@@ -10008,6 +10014,30 @@ export interface DecideBody {
 export interface AssigneesBody {
   assignees?: string[];
 }
+/**
+ * `PATCH /goals/{id}`: a person's edit of the goal's own record. Every
+ * field is optional and one left out stays as it is.
+ */
+export interface GoalEditBody {
+  /**
+   * The goal's title; a blank one clears it.
+   */
+  title?: string | null;
+  /**
+   * The goal's statement, trimmed; never blank, and fixed while a run is
+   * live.
+   */
+  statement?: string | null;
+  /**
+   * The goal's tags, replacing the ones it has; `[]` clears them.
+   */
+  tags?: string[] | null;
+  /**
+   * The goal's own ceiling, as on `POST /goals`: kept as given, `{}` no
+   * ceiling at all.
+   */
+  budget?: Budget | null;
+}
 export interface NewChannelBody {
   name: string;
   topic?: string | null;
@@ -11994,13 +12024,18 @@ export interface SignalView {
  */
 export interface GoalArmed {
   /**
+   * Always `listening`: the start armed the goal and made no run — a run
+   * answers `run`.
+   */
+  kind: GoalArmedKind;
+  /**
    * The goal's status once armed.
    */
   status: GoalStatus;
   /**
    * Absent when the start minted none.
    */
-  secrets: HookSecret[];
+  secrets?: HookSecret[];
   [k: string]: unknown;
 }
 /**

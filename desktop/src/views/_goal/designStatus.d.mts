@@ -7,7 +7,7 @@ import type { ModelLine } from "../../activityModel.mjs";
 import type { DesignStatus, Goal, GuidanceInfo } from "../../types";
 import type { EnginePayload } from "../../types.hand";
 
-export type DesignKind = "scheduled" | "working" | "asking" | "proposed" | "stalled" | "failed" | "off" | "manual";
+export type DesignKind = "scheduled" | "working" | "asking" | "proposed" | "stalled" | "failed" | "off" | "manual" | "ready";
 export type DesignTone = "neutral" | "accent" | "warn" | "danger" | "ok" | "quiet";
 
 export interface DesignView {

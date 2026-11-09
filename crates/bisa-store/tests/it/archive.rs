@@ -74,8 +74,8 @@ fn a_goal_is_archived_only_once_closed_hidden_from_the_list_and_taken_back_out()
     edited.archived = None;
     let err = ws.update_goal(edited).unwrap_err().to_string();
     assert!(
-        err.contains("set_goal_archived"),
-        "an edit cannot unarchive: {err}"
+        err.contains("is closed"),
+        "an edit cannot unarchive — a closed goal takes no edit at all: {err}"
     );
 
     let back = ws.set_goal_archived(goal, false).unwrap();

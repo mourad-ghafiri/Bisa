@@ -106,7 +106,7 @@ pub(crate) fn current_run(ws: &Workspace, goal: &Goal) -> CurrentRun {
 /// 404: an id that is no run's id, or names no run. A run that is there and
 /// cannot be read is the store's own error, never *not found*: a file this
 /// node cannot read is said, not hidden behind a run that does not exist.
-fn run_of(state: &Shared, raw: &str) -> Result<WorkflowRun, ApiError> {
+pub(crate) fn run_of(state: &Shared, raw: &str) -> Result<WorkflowRun, ApiError> {
     let missing = || {
         not_found(bisa_core::text!(
             "error-node-goals-run-not-found",
@@ -154,9 +154,11 @@ pub(crate) fn way_in(
     })
 }
 
-/// A run just made, as the two run routes answer it: `{run, status}`.
+/// A run just made, as the two run routes answer it: `{kind, run, status}`
+/// — `kind` is `run`, so a caller of the goal's start door tells a run from
+/// a goal that was armed (`listening`) without reading which keys came.
 pub(crate) fn made(run: &WorkflowRun) -> serde_json::Value {
-    json!({"run": run, "status": run.status()})
+    json!({"kind": "run", "run": run, "status": run.status()})
 }
 
 /// Its place among its siblings — the goal's runs, or its workflow's runs

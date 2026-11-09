@@ -201,7 +201,7 @@ export function GoalWorkflowTab({
   const activeRun: WorkflowRun | null = viewingRun && shownRun.data && shownRun.data.id === viewingRun ? shownRun.data : run;
   const workflow: Workflow | null = activeRun?.workflow ?? stored.data ?? null;
   // The same reading as the goal page's (`goalPageModel`): one formula for both.
-  const { adoptGate, proposed, unfinished } = pageFacts({ goal, run, pendingGates: pending_gates, startable: null });
+  const { adoptGate, proposed, unfinished } = pageFacts({ goal, run, pendingGates: pending_gates, startable: null, openQuestions: guidance?.open_questions });
   const mode = modeOf(goal);
   // A workflow that moved elsewhere (`designerSession.goalTabRemote`): read again when
   // nothing is drawn; with a drawing, said once — its save is refused rather than

@@ -2,8 +2,12 @@
 //! a close, a retirement and the engine's own stop go through, in one order,
 //! so nothing of the thing is left running and the verb says what it ended:
 //!
-//! 1. listening off and the queue withdrawn — a stop; a restart keeps the
-//!    queue in its place; a close did both in its record;
+//! 0. a stop and a restart mark the goal as being ended ([`Ending`]) for
+//!    their whole span: nothing of its queue starts and its occurrences are
+//!    held meanwhile;
+//! 1. listening off and the queue withdrawn — a stop, which withdraws again
+//!    after the cancel; a restart keeps the queue in its place; a close did
+//!    both in its record;
 //! 2. no re-wake: the Workflow Agent's pending cycle and the thread's queued
 //!    message go, and the goal is marked as being ended, so the stop is not
 //!    answered by the cycle it stopped;
@@ -66,6 +70,32 @@ pub struct Signalled {
     pub workstreams: HashSet<WorkstreamId>,
 }
 
+/// A goal whose work is being ended: the mark the queue and the listening
+/// worker read — `ops::advance_queue` starts nothing of a marked goal, an
+/// occurrence of its events is held — taken by a stop and a restart for
+/// their whole span and released with it, however it ends. Nested takes are
+/// one mark: the outermost releases it.
+pub(crate) struct Ending<'a> {
+    inner: &'a Inner,
+    goal: GoalId,
+    held: bool,
+}
+
+impl<'a> Ending<'a> {
+    pub(crate) fn take(inner: &'a Inner, goal: GoalId) -> Self {
+        let held = inner.ending_goals.insert(goal);
+        Self { inner, goal, held }
+    }
+}
+
+impl Drop for Ending<'_> {
+    fn drop(&mut self) {
+        if self.held {
+            self.inner.ending_goals.remove(&self.goal);
+        }
+    }
+}
+
 /// End a goal's work for `cause`, its spawned goals with it, and wait for
 /// every process to be gone (module doc). `extra` names workstreams whose
 /// sessions go with the goal's — the ones a retirement touches.
@@ -76,13 +106,43 @@ pub async fn end_goal_work(
     rationale: Option<String>,
     extra: &HashSet<WorkstreamId>,
 ) -> Result<WorkEnded, EngineError> {
+    end_goal_work_of(inner, goal, None, cause, rationale, extra).await
+}
+
+/// [`end_goal_work`], cancelling `run` rather than whatever is live: the
+/// run a restart read. One over by now is left as it ended, and nothing
+/// else of the goal is cancelled in its place.
+pub(crate) async fn end_goal_work_of(
+    inner: &Arc<Inner>,
+    goal: GoalId,
+    run: Option<RunId>,
+    cause: EndCause,
+    rationale: Option<String>,
+    extra: &HashSet<WorkstreamId>,
+) -> Result<WorkEnded, EngineError> {
     let mut visited = HashSet::new();
-    end_goal_work_in(inner, goal, cause, rationale, extra, &mut visited, 0).await
+    let whose = Whose { goal, run };
+    end_goal_work_in(inner, whose, cause, rationale, extra, &mut visited, 0).await
+}
+
+/// The goal whose work ends, and the run to cancel when the caller read one
+/// — else whatever is live.
+#[derive(Clone, Copy)]
+struct Whose {
+    goal: GoalId,
+    run: Option<RunId>,
+}
+
+impl Whose {
+    /// A spawned goal: its live run, whatever it is.
+    fn child(goal: GoalId) -> Self {
+        Self { goal, run: None }
+    }
 }
 
 fn end_goal_work_in<'a>(
     inner: &'a Arc<Inner>,
-    goal: GoalId,
+    whose: Whose,
     cause: EndCause,
     rationale: Option<String>,
     extra: &'a HashSet<WorkstreamId>,
@@ -90,12 +150,17 @@ fn end_goal_work_in<'a>(
     depth: usize,
 ) -> Pin<Box<dyn Future<Output = Result<WorkEnded, EngineError>> + Send + 'a>> {
     Box::pin(async move {
+        let Whose { goal, run } = whose;
         if !visited.insert(goal) || depth > MAX_DEPTH {
             // LCOV_EXCL_START: a child is its parent's once and the chain is shallow; the set and the depth keep a cycle from recursing
             return Ok(WorkEnded::default());
             // LCOV_EXCL_STOP
         }
-        let mut signalled = match signal_goal_work(inner, goal, cause, rationale) {
+        // A stop's and a restart's mark, for the verb's whole span: nothing
+        // of the goal's queue starts under it.
+        let _ending =
+            matches!(cause, EndCause::Stop | EndCause::Restart).then(|| Ending::take(inner, goal));
+        let mut signalled = match signal_goal_work(inner, goal, run, cause, rationale) {
             Ok(signalled) => signalled,
             Err(e) => {
                 // A stop that failed half-way is no stop in progress: the
@@ -164,7 +229,7 @@ async fn end_child(
             } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
             let done = end_goal_work_in(
                 inner,
-                child,
+                Whose::child(child),
                 EndCause::Close,
                 Some(rationale),
                 &HashSet::new(),
@@ -184,7 +249,7 @@ async fn end_child(
         _ => {
             end_goal_work_in(
                 inner,
-                child,
+                Whose::child(child),
                 EndCause::Stop,
                 Some(rationale),
                 &HashSet::new(),
@@ -234,6 +299,7 @@ fn open_children_of(
 pub(crate) fn signal_goal_work(
     inner: &Arc<Inner>,
     goal: GoalId,
+    run: Option<RunId>,
     cause: EndCause,
     rationale: Option<String>,
 ) -> Result<Signalled, EngineError> {
@@ -258,16 +324,36 @@ pub(crate) fn signal_goal_work(
     // terminate at the deadline. Entered first, the deadline has it.
     out.workstreams = ops::workstreams_of_goal(inner, goal)?;
     let noted = sessions::note_stopping(inner, Scope::Goal(goal), &out.workstreams, cause);
-    // 3. The run first, the sessions after.
+    // 3. The run first, the sessions after: the run the caller read — a
+    // restart's — else the live one. A run over by now is left as it ended;
+    // nothing else of the goal is cancelled in its place.
     if matches!(cause, EndCause::Stop | EndCause::Restart) {
-        if let Some(live) = inner.ws.live_run(goal)? {
+        let target = match run {
+            Some(run) => Some(run),
+            None => inner.ws.live_run(goal)?.map(|r| r.id),
+        };
+        if let Some(target) = target {
             let cancel = match cause {
                 EndCause::Stop => CancelCause::Stopped { rationale },
                 _ => CancelCause::Restarted,
             };
-            if ops::cancel_unless_over(inner, live.id, cancel)? {
-                out.run = Some(live.id);
+            if ops::cancel_unless_over(inner, target, cancel)? {
+                out.run = Some(target);
             }
+        }
+        // A stop's second pass over the queue: a run queued between the
+        // first pass and the cancel is withdrawn too. The cancel's settle
+        // started nothing — the goal is marked as being ended — and a run
+        // made after the cancel finds the goal idle and starts at once: the
+        // person's, never the stop's.
+        if cause == EndCause::Stop {
+            // LCOV_EXCL_START a run queued in the window between the first pass and the cancel; a race
+            for queued in inner.ws.queued_runs(goal)? {
+                if ops::withdraw_if_queued(inner, queued.id)? {
+                    out.withdrawn.push(queued.id);
+                }
+            }
+            // LCOV_EXCL_STOP
         }
     }
     // 5. Nothing of the run waits on a platform or a shell any more.

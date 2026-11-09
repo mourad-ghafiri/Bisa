@@ -169,14 +169,16 @@ sequenceDiagram
 ```
 
 **A stop, a restart.** `POST /goals/{id}/stop` (`ops::stop_goal`) stops the goal listening
-(`listen::turn::turn_off`), withdraws every queued run, cancels the live one (`Cancel { stopped }`)
-and ends the goal's sessions (`sessions::stop_for`), in that order — so nothing its events start
-slips in and the last settle finds nothing to advance — then waits a bounded time for the
-sessions to be gone; the goal reads `draft`. While a restart waits for the sessions to end, an
-occurrence of the goal's events is held rather than dispatched (`Inner.ending_goals`, set for the
-goal's life in `signal_goal_work` and cleared with `finish_goal_work`; `dispatch::decide` settles
-the signal *waiting*), and the next tick dispatches it — so the restart's run is the live one and
-no run the occurrence began queues ahead of it. **Every verb goes through one door** (`ending.rs`), in
+(`listen::turn::turn_off`), withdraws every queued run, cancels the live one (`Cancel { stopped }`),
+withdraws again whatever was queued meanwhile, and ends the goal's sessions (`sessions::stop_for`),
+in that order — so nothing its events start slips in and the last settle finds nothing to advance —
+then waits a bounded time for the sessions to be gone; the goal reads `draft`. For the whole of a
+stop and a restart the goal is marked as being ended (`ending::Ending`, in `Inner.ending_goals`,
+taken at the top of `end_goal_work_in` — and by a restart before it reads the last run — released
+when the verb returns): `ops::advance_queue` starts nothing of a marked goal, so the cancel's settle
+never starts the next queued run under the verb, and an occurrence of the goal's events is held
+rather than dispatched (`dispatch::decide` settles the signal *waiting*), the next tick dispatching
+it — so the restart's run is the live one and no run the occurrence began queues ahead of it. **Every verb goes through one door** (`ending.rs`), in
 one order: listening off and the queue withdrawn; no re-wake — the Workflow Agent's pending cycle
 and the thread's queued message go; the live run cancelled, the run first and the sessions after, so
 an aborted worker finds its item cancelled and nothing retries; **the goals it spawned, recursively**
@@ -194,11 +196,14 @@ still_live, children }`, and the desktop words it. A close (`ops::close_goal`) s
 once and finishes on a task of its own — the node's route waits for it (`close_goal_settled`).
 A restart ends every session of the goal whether or not its last run is live, so a repair wake or a
 thread's turn never outlives the run it was about. `POST /goals/{id}/restart` (`ops::restart_goal`)
-reads where the last run began before it cancels anything (`restart_entry`: the start it entered
-and the event that began it — refused, the run left as it is, when that start is gone from the
-workflow as it stands), cancels the live run with `restarted` — a settle that advances nothing —
-and calls `start_run` with the last run's inputs at that entry: the store starts it at once
-because nothing is live, and the queue keeps its place behind it. The signal the run was made from
+takes the mark, reads the last run, and asks before it cancels anything whether that run could
+start again as things stand (`restart_preflight`: the start it entered still a start of the
+workflow, the workflow not archived and without problems, the inputs still binding, no agent step
+with an ambiguous project — refused as a conflict in words, the run left as it is), cancels the run
+it read with `restarted` — one over already is left as it ended, nothing else cancelled in its
+place — and calls `start_run` with the last run's inputs at that entry: the store starts it at once
+because nothing is live, and the queue keeps its place behind it. A refused restart moves the queue
+itself before it answers. The signal the run was made from
 is never copied: it made that run alone. A workflow's own `stop` and `restart` act on its workspace runs alone
 ([A workflow run in the workspace](#a-workflow-run-in-the-workspace)); a goal's run of it is the
 goal's.

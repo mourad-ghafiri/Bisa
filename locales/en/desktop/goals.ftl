@@ -11,7 +11,6 @@ goals-goal-card-act-2 = Act on { $label }
 goals-goal-card-could-not-read = This goal could not be read. The diagnostic log has the detail.
 goals-goal-card-delete = Delete…
 goals-goal-card-designing = designing
-goals-goal-card-goal = Goal { $row }
 goals-goal-card-goal-names-run-node-cannot-read = The goal names a run this node cannot read; it is drawn without one. The diagnostic log names the file.
 goals-goal-card-menu = Menu for { $label }
 goals-goal-card-new-run = New run…

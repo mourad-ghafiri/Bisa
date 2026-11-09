@@ -59,6 +59,27 @@ pub struct NewGoalBody {
     pub budget: Option<bisa_core::Budget>,
 }
 
+/// `PATCH /goals/{id}`: a person's edit of the goal's own record. Every
+/// field is optional and one left out stays as it is.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GoalEditBody {
+    /// The goal's title; a blank one clears it.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The goal's statement, trimmed; never blank, and fixed while a run is
+    /// live.
+    #[serde(default)]
+    pub statement: Option<String>,
+    /// The goal's tags, replacing the ones it has; `[]` clears them.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    /// The goal's own ceiling, as on `POST /goals`: kept as given, `{}` no
+    /// ceiling at all.
+    #[serde(default)]
+    pub budget: Option<bisa_core::Budget>,
+}
+
 /// `POST /goals/{id}/documents`: more documents for a goal that exists.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -741,11 +762,21 @@ pub struct StartRunBody {
 /// the public hooks' secrets the start minted, shown this once.
 #[derive(Serialize, JsonSchema)]
 pub struct GoalArmed {
+    /// Always `listening`: the start armed the goal and made no run — a run
+    /// answers `run`.
+    pub kind: GoalArmedKind,
     /// The goal's status once armed.
     pub status: GoalStatus,
     /// Absent when the start minted none.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secrets: Vec<bisa_engine::HookSecret>,
+}
+
+/// What a start that made no run did.
+#[derive(Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalArmedKind {
+    Listening,
 }
 
 /// `POST /runs/{rid}/steps/{step}/release` — let a held `wait` step go; a

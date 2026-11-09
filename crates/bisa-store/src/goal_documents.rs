@@ -97,7 +97,13 @@ impl Workspace {
         goal: GoalId,
         file: &AttachmentRef,
     ) -> Result<GoalDocument, StoreError> {
-        self.get_goal(goal)?;
+        let g = self.get_goal(goal)?;
+        if g.is_closed() {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-goal-closed",
+                goal_id = goal.to_string()
+            )));
+        }
         if self.attachment_path(&file.sha256).is_none() {
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-no-attachment-workspace-upload-bytes-first",
@@ -109,6 +115,9 @@ impl Workspace {
                 "error-store-invalid-document-needs-name"
             )));
         }
+        // The name is picked and the fact written under the one writer, so
+        // two adds of one name at once never see each other's as free.
+        let _one_writer = self.run_writer();
         let taken: HashSet<String> = named(self.document_facts(goal)?)
             .into_iter()
             .map(|(_, n)| n)
@@ -346,5 +355,36 @@ mod tests {
         assert!(!doc.path.exists(), "left for the next pass");
         ws.materialise_goal_documents(goal.id).unwrap();
         assert!(doc.path.exists());
+    }
+
+    /// Two adds of one name at once take two names: the name is picked and
+    /// the fact written under the one writer, so neither sees the other's
+    /// name as free.
+    #[test]
+    fn two_adds_of_one_name_at_once_take_two_names() {
+        use crate::identity::MemoryKeyStore;
+        use crate::workspace::NewGoal;
+        for _ in 0..10 {
+            let dir = tempfile::tempdir().unwrap();
+            let ws = Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default()))
+                .unwrap();
+            let goal = ws.create_goal(NewGoal::captured("two briefs")).unwrap().id;
+            let one = ws
+                .put_attachment(b"%PDF one", "brief.pdf", "application/pdf")
+                .unwrap();
+            let two = ws
+                .put_attachment(b"%PDF two", "brief.pdf", "application/pdf")
+                .unwrap();
+            let names: Vec<String> = std::thread::scope(|s| {
+                let ws = &ws;
+                let a = s.spawn(move || ws.add_goal_document(goal, &one).unwrap().name);
+                let b = s.spawn(move || ws.add_goal_document(goal, &two).unwrap().name);
+                let mut names = vec![a.join().unwrap(), b.join().unwrap()];
+                names.sort();
+                names
+            });
+            assert_eq!(names, ["brief (2).pdf", "brief.pdf"]);
+            assert_eq!(ws.goal_documents(goal).unwrap().len(), 2);
+        }
     }
 }

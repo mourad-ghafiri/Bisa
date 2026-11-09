@@ -49,6 +49,49 @@ notes (`docs/contributing/release.md`).
   stay yours; a team its name, purpose, tags and agents, the people on it kept. What the entry needs
   and is missing is installed first; a channel, a workflow, a connector or an addon refuses the act
   by kind. The catalog listing says when a copy differs (`installed_differs`).
+- **Two edits of a goal's record at once could lose one.** Every edit of the record — the
+  statement, the title, the tags, the budget, the assignees — is now read and changed under the one
+  writer, so a second writer's change never lands over a first's; the statement is trimmed on an edit
+  as it is at capture.
+- **A closed goal accepted writes.** Its record, its assignees, its documents and its notes now
+  refuse every edit, in words; a sub-goal is made under an open parent only.
+- **A goal could be superseded by itself, or by a goal that does not exist.** Both are refused
+  before anything is cancelled.
+- **A queued run a crash left out of its goal's record waited for ever.** It is adopted when the
+  engine starts — recorded on the goal, indexed, named among the workspace's problems — and starts
+  in its turn; one of a closed goal, or of a workflow the goal has since left, is ended.
+- **An open goal could be deleted at the store's door.** Deleting takes the run writer and refuses an
+  open goal: closing is the caller's, and it is what cancels the runs and ends the work.
+- **Two documents added to a goal at once could take one name.** The name is picked and the fact
+  written under the one writer.
+- **A capture could refuse after creating the goal.** A workflow that is archived or another goal's
+  design, and a document with no name, are refused before the first write whether or not the goal
+  starts at once — before, a capture with `--no-start` on an archived workflow left a goal behind.
+- **A redesign that dropped the event starts left the goal listening.** Every pointing of a goal at
+  a workflow — by hand, by a design, by a proposal, by a restart — now goes through one door that
+  stops the listening a workflow cannot keep, so the goal reads `draft` rather than `waiting` or
+  `failed`.
+- **The General Agent's `assign` announced nothing.** It goes through the same door as a person's
+  edit now: every assignee checked, the goal's page and row told (`goal.updated`).
+- **A blank statement handed to `revise_statement` was a vague failure.** It is refused in words,
+  and a statement is trimmed as at capture.
+- **A stop could start the run it meant to withdraw.** A run queued between a stop's withdrawal and
+  its cancel was started by the cancel's settle. The goal is marked as being ended for the verb's
+  whole span now — nothing of its queue advances — and the stop withdraws the queue again after the
+  cancel.
+- **A restart refused after its cancel stranded the queue.** What a start checks — the workflow
+  archived or with problems, inputs that no longer bind, an ambiguous project — is asked before
+  anything is cancelled and refused as a conflict in words; a refused restart moves the queue itself.
+- **A restart raced a natural end.** A run that ended as the restart read it advanced the queue, and
+  the restart cancelled the run the queue had started. The mark is taken before the read, the
+  restart cancels only the run it read, and its new run starts ahead of the queue.
+- **A goal's own record can be edited.** `PATCH /goals/{id}` (`{title?, statement?, tags?, budget?}`)
+  and `bisa edit <goal>` change a goal's title, statement, tags and ceiling in one write, announced
+  as `goal_updated`. A blank title clears it, tags replace the list, the statement is fixed while a
+  run is live and leaves a note with the one it replaced; a closed goal takes no edit.
+- **`bisa search --archived`** lists the goals put away.
+- **The start door says what it made.** `POST /goals/{id}/run` and `…/restart` answer `kind`: `run`
+  for a run, `listening` for a goal that was armed.
 
 ### Changed
 
@@ -67,6 +110,17 @@ notes (`docs/contributing/release.md`).
 - **A catalog skill's shape refuses a key it does not name.** A reference section written as a TOML
   table of its own instead of a `## Reference:` heading inside `content` no longer parses to a skill
   with no sections; the bundle test names the key.
+- **A stopped goal is held by you.** A goal whose last run was cancelled — stopped, restarted,
+  withdrawn, retired — read `draft` but was filed under *Finished*; an open goal that does not listen
+  now reads *held by you* after a cancel, a draft again with its workflow chosen. Done and failed
+  runs keep *finished*.
+- **A retirement records `retired`.** Archiving or deleting a goal cancels its runs as *retired* —
+  the journal and the Runs list say a retirement ended them — and closes the goal as abandoned with
+  that word as its reason; before, a retired run read as a person's close with no reason.
+- **`post_message` with no scope to post to is a refusal.** A session whose run cannot be read was
+  answered a sentence as a result; it is told *Not done* now, like every other refusal.
+- **`bisa close --json` carries `ended` on both paths**, `null` when an engine of the command's own
+  closed the goal.
 
 ### Fixed
 
@@ -93,6 +147,15 @@ notes (`docs/contributing/release.md`).
 - **`browser_open` on a tab the agent already held ignored `headless`**: `headless: false` never
   showed a hidden tab although the tool said it asks either way. It shows the tab now; for a tab
   already open only the agent's own word counts, never the policy's.
+- **`bisa search <query>` listed archived goals.** With a query or without, the list is the goals in
+  use; `--archived` asks for the others.
+- **`bisa inbox` printed a command that could not work under a workspace run's row.** The hint
+  names the run the decision is filed on, not the row's workflow.
+- **A goal's run that cannot be read posed as missing under the goal's path.** `GET
+  /goals/{id}/runs/{rid}` answers the store's error, as `/runs/{rid}` does; only a run that is not
+  there is a 404.
+- **The MCP reference said `expects` defaults to `decision`** and that every proposal opens the
+  Adopt gate; it says `answer`, and by mode, as the tools do.
 
 ## [0.7.0] - 2026-11-06
 

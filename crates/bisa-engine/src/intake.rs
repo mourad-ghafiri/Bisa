@@ -1434,6 +1434,13 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 Ok(x) => x,
                 Err(e) => return e,
             };
+            // A closed goal is read, never written to: its journal takes no
+            // note once it is closed.
+            if let Home::Goal { goal } = &home {
+                if inner.ws.get_goal(*goal).is_ok_and(|g| g.is_closed()) {
+                    return err("the goal is closed; it takes no note");
+                }
+            }
             let (signer, attestation) =
                 ops::signer_for(&inner.ws, spec.and_then(|s| s.agent).as_deref());
             match inner.ws.append_journal(
@@ -2299,9 +2306,12 @@ fn assign(
                 return err("unknown goal"); // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             };
             let next = merged_assignees(i.assignees, parsed, replace);
-            match inner.ws.set_goal_assignees(goal_id, next) {
+            // Through the engine's door, as a person's edit goes: every
+            // assignee checked, and the goal's row and its open page told
+            // (`goal.updated`).
+            match ops::set_goal_assignees(inner, goal_id, next) {
                 Ok(i) => (i.assignees, "this goal".to_string()),
-                Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
+                Err(e) => return err(e.to_string()),
             }
         }
     };
@@ -4043,7 +4053,12 @@ fn revise_statement(
         Ok(x) => x,
         Err(e) => return e,
     };
-    let Ok(mut g) = inner.ws.get_goal(goal_id) else {
+    // Trimmed as at capture, and never blank: the goal keeps the statement it has.
+    let statement = statement.trim().to_string();
+    if statement.is_empty() {
+        return err("a statement is required; the goal keeps the one it has");
+    }
+    let Ok(g) = inner.ws.get_goal(goal_id) else {
         return err("unknown goal"); // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     if g.is_closed() {
@@ -4061,8 +4076,15 @@ fn revise_statement(
         );
     }
     let old = g.statement.clone();
-    g.statement = statement.clone();
-    if inner.ws.update_goal(g).is_err() {
+    let next = statement.clone();
+    if inner
+        .ws
+        .update_goal_with(goal_id, move |g| {
+            g.statement = next;
+            Ok(())
+        })
+        .is_err()
+    {
         return err("failed to update the goal"); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     ops::announce_goal_updated(inner, goal_id);

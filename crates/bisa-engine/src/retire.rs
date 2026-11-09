@@ -336,9 +336,18 @@ pub async fn retire_goal(
     // deadline passed and the leftovers were terminated and said.
     let mut ended = sessions::Ended::default();
     if !g.is_closed() {
-        let (_, closed) =
-            ops::close_goal_settled(inner, goal, ClosureReason::Abandoned { rationale: None })
-                .await?;
+        // A retirement's close: the runs it cancels say so — `retired`, not
+        // a person's `closed` — and the closure stays abandoned, with the
+        // word that says why.
+        let (_, closed) = ops::close_goal_settled_as(
+            inner,
+            goal,
+            ClosureReason::Abandoned {
+                rationale: Some("retired".to_string()),
+            },
+            bisa_core::CancelCause::Retired,
+        )
+        .await?;
         ended.add(closed);
     }
     let done =
@@ -360,7 +369,21 @@ pub async fn retire_goal(
             ));
         }
         Fate::Delete => {
-            ops::delete_goal(inner, goal)?;
+            // LCOV_EXCL_START the window between the pre-check above and the store's own: a design taken into use by another goal meanwhile; a race no test stages
+            if let Err(e) = ops::delete_goal(inner, goal) {
+                // Closure is final by design: the goal stays closed, and
+                // the refusal is written where its owner reads.
+                if let Err(note) = ops::add_note(
+                    inner,
+                    goal,
+                    format!("deletion refused after the close: {e}; the goal is closed and kept"),
+                    None,
+                ) {
+                    tracing::warn!(target: "bisa_engine", goal = %goal, "the refused deletion could not be noted: {note}");
+                }
+                return Err(e);
+            }
+            // LCOV_EXCL_STOP
             // Scoped to the goal: the screen open on it hears it and leaves.
             inner.emit(EngineEvent::scoped(
                 goal,

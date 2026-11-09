@@ -252,6 +252,25 @@ enum Command {
         #[command(subcommand)]
         command: step::StepCmd,
     },
+    /// Edit a goal's own record: its title, statement, tags or budget
+    Edit {
+        /// Goal id
+        goal: String,
+        /// The goal's title; an empty one clears it
+        #[arg(long)]
+        title: Option<String>,
+        /// The goal's statement — fixed while a run is live
+        #[arg(long)]
+        statement: Option<String>,
+        #[command(flatten)]
+        tags: tags::TagSetArgs,
+        /// Take every tag off the goal
+        #[arg(long, conflicts_with = "tags")]
+        clear_tags: bool,
+        /// The goal's own ceiling, replacing the one it has
+        #[command(flatten)]
+        budget: budget::BudgetArgs,
+    },
     /// Show a goal's status, workflow and run — or one run's, by its id
     Status { id: String },
     /// Render a goal's journal — or a run of the workspace's — as an
@@ -272,6 +291,9 @@ enum Command {
     /// either. This is the goal list.
     Search {
         query: Option<String>,
+        /// List the goals put away instead of the ones in use
+        #[arg(long)]
+        archived: bool,
         #[command(flatten)]
         filter: tags::TagFilterArgs,
     },
@@ -900,11 +922,36 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
         } => run::stop(ctx, out, &id, rationale, listening).await,
         Command::Restart { id, watch } => run::restart(ctx, out, &id, watch).await,
         Command::Runs { id } => run::runs(ctx, out, &id).await,
+        Command::Edit {
+            goal,
+            title,
+            statement,
+            tags,
+            clear_tags,
+            budget,
+        } => {
+            let tags = match (clear_tags, tags.given()) {
+                (true, _) => Some(bisa_core::Tags::default()),
+                (false, true) => Some(tags.parse()?),
+                (false, false) => None,
+            };
+            let edit = bisa_engine::ops::GoalEdit {
+                title,
+                statement,
+                tags,
+                budget: budget.budget(),
+            };
+            edit_goal(ctx, out, &goal, edit).await
+        }
         Command::Status { id } => status(ctx, out, &id).await,
         Command::Log { id, limit } => log(ctx, out, &id, limit).await,
         Command::Logs => logs(ctx, out),
         Command::Paths => paths(ctx, out),
-        Command::Search { query, filter } => search(ctx, out, query.as_deref(), &filter),
+        Command::Search {
+            query,
+            archived,
+            filter,
+        } => search(ctx, out, query.as_deref(), archived, &filter),
         Command::Harness { command } => harness(ctx, out, command).await,
         Command::Session { command } => {
             session::session(command);
@@ -1979,15 +2026,26 @@ fn close_body(reason: &ClosureReason) -> serde_json::Value {
 /// One command rather than two: a full-text query and a tag filter answer the
 /// same question at different resolutions, and splitting them would leave
 /// `--tag` unable to reach goals at all.
-fn search(ctx: &Ctx, out: &Out, query: Option<&str>, filter: &tags::TagFilterArgs) -> Result<()> {
+fn search(
+    ctx: &Ctx,
+    out: &Out,
+    query: Option<&str>,
+    archived: bool,
+    filter: &tags::TagFilterArgs,
+) -> Result<()> {
     let ws = ctx.workspace()?;
     let admitted = filter.admitted(&ws, bisa_core::tags::TagEntity::Goal)?;
+    // One rule with and without a query: the goals in use, or — asked for —
+    // the ones put away. A query never brings an archived goal back into a
+    // list that did not ask for it.
     let found: Vec<bisa_core::Goal> = match query {
         Some(q) => ws
             .search(q)?
             .into_iter()
             .filter_map(|id| ws.get_goal(id).ok())
+            .filter(|goal| goal.is_archived() == archived)
             .collect(),
+        None if archived => ws.list_archived_goals()?,
         None => ws.list_goals(None)?,
     };
     let mut rows = Vec::new();
@@ -2367,6 +2425,55 @@ impl bisa_store::BootObserver for BootWords<'_> {
 /// Close a goal. Through the engine, never the store alone: the effects —
 /// cancelling the run and its items, releasing workstreams — are the engine's
 /// to run.
+/// `bisa edit <goal>` — a person's edit of the goal's own record, through
+/// the node when one runs, through an engine of this command's own
+/// otherwise: one door either way (`ops::edit_goal`).
+async fn edit_goal(ctx: &Ctx, out: &Out, id: &str, edit: bisa_engine::ops::GoalEdit) -> Result<()> {
+    let id = parse_goal_id(id)?;
+    let changed: Vec<&str> = [
+        edit.title.as_ref().map(|_| "title"),
+        edit.statement.as_ref().map(|_| "statement"),
+        edit.tags.as_ref().map(|_| "tags"),
+        edit.budget.as_ref().map(|_| "budget"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let goal: bisa_core::Goal = if let Some(client) = ctx.node_client().await {
+        let mut body = serde_json::Map::new();
+        if let Some(title) = &edit.title {
+            body.insert("title".into(), json!(title));
+        }
+        if let Some(statement) = &edit.statement {
+            body.insert("statement".into(), json!(statement));
+        }
+        if let Some(tags) = &edit.tags {
+            body.insert("tags".into(), json!(tags));
+        }
+        if let Some(budget) = &edit.budget {
+            body.insert("budget".into(), json!(budget));
+        }
+        let answer = client
+            .patch(&format!("/goals/{id}"), serde_json::Value::Object(body))
+            .await?;
+        serde_json::from_value(answer["goal"].clone()).context(bisa_core::text!(
+            "cli-main-unexpected-goal-payload-from-node"
+        ))?
+    } else {
+        let (engine, _) = ctx.engine().await?;
+        let edited = bisa_engine::ops::edit_goal(engine.inner(), id, edit);
+        engine.shutdown().await;
+        edited?
+    };
+    out.say(&bisa_core::text!(
+        "cli-main-goal-edited",
+        id = id.to_string(),
+        what = changed.join(", ")
+    ));
+    out.json_value(json!({"goal": goal}));
+    Ok(())
+}
+
 async fn close(
     ctx: &Ctx,
     out: &Out,
@@ -2392,7 +2499,9 @@ async fn close(
             id = id.to_string(),
             a0 = (reason.as_str()).to_string()
         ));
-        out.json_value(json!({"goal": id.to_string(), "closed": v["goal"]["closed"]}));
+        out.json_value(
+            json!({"goal": id.to_string(), "closed": v["goal"]["closed"], "ended": v["ended"]}),
+        );
         return Ok(());
     }
     let (engine, _) = ctx.engine().await?;
@@ -2409,7 +2518,10 @@ async fn close(
             .unwrap_or("closed"))
         .to_string()
     ));
-    out.json_value(json!({"goal": id.to_string(), "closed": goal.closed}));
+    // The same keys on both paths: what the close ended is the node's to
+    // say — it waits for the sessions; an engine of this command's own
+    // answers at once and names none.
+    out.json_value(json!({"goal": id.to_string(), "closed": goal.closed, "ended": null}));
     Ok(())
 }
 
@@ -2728,6 +2840,11 @@ fn render_inbox(out: &Out, rows: &[serde_json::Value]) {
             ));
         }
         for a in r["needs_action"].as_array().cloned().unwrap_or_default() {
+            // The id the printed command takes: the row's own for a goal, the
+            // run's for a decision filed on a run of the workspace — whose
+            // row is keyed by its workflow, which `answer` and `approve`
+            // do not take.
+            let key = target::hint_id(key, &a);
             let question = a["question"].as_str().unwrap_or("");
             if a["expects"]["kind"].as_str() == Some("answer") {
                 let offered: Vec<String> = a["expects"]["options"]

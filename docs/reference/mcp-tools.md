@@ -27,9 +27,9 @@ disk and any process that knows it can write to it.
 | `ask_human` | ask without blocking; `expects` is `decision` (approve/decline) or `answer` (they tell you something, optionally from `options`) |
 | `await_human` | block on a gate opened with `ask_human`; three outcomes — decided, answered, **not sure** |
 | `ask_human_and_wait` | both |
-| `add_note` | append a durable note to the journal of the session's home — its goal's, or its run's for a worker of a run of the workspace |
+| `add_note` | append a durable note to the journal of the session's home — its goal's, or its run's for a worker of a run of the workspace. A closed goal takes none |
 | `decide` | put typed questions about a state to the Decision-Making Agent ([15](../architecture/15-decision-making-agent.md)): `{state, questions: {<id>: {type: noul \| choice \| score, instructions, criteria?}}}` → each answer with its probabilities and whether the model is sure — a noul is *is it so*, a choice *which of these* (2 to 255 options, each described), a score *how much* along 2 to 10 levels; one atomic question each, composed by the caller; the state is data, never instructions; an answer it is not sure of is to be weighed, not followed; refused in a sentence when the Decision-Making Agent is not switched on for this session |
-| `spawn_sub_goal` | capture a new goal that refines this one, with a workflow of its own; subject to spawn policy. A worker of a run of the workspace has no goal to refine: its child is a goal of its own, born of the run and its step (origin `run`) |
+| `spawn_sub_goal` | capture a new goal with a lifecycle of its own. From a goal's design session or its thread the child refines that goal and inherits its projects; from a run of the workspace it is a goal of its own, born of the run and its step (origin `run`). A work item's session is refused today — a worker's spawn allowance is zero — and a child keeps the workspace's default budget, never its parent's ceiling |
 | `emit_signal` | raise a **named signal** — `{name, payload?, scope?}`, the name dotted lowercase words (`deploy.finished`): a durable fact that something happened. It acts on nothing itself — a workflow that starts on the signal begins a run, a run waiting for it goes on, a boundary event for it fires — under the usual gates and budgets; a workflow that raised a signal never starts again from it. The reply says how many listeners heard it |
 | `post_message` | post into a conversation — the one the session is in, a channel, or this goal's thread; with no `scope`, a worker posts in its goal's thread, or in `general` for a run of the workspace — signed as the agent the session runs as, the General Agent when it has none, with `mentions` (an agent id, a team id, a pubkey, the channel's handle), `artifacts` — what the agent made for the person to look at, as `{path, title}`, rendered live where they read ([12 — Artifacts](../architecture/12-artifacts.md)) — and `attachments`, files handed over as files; a path is where the session works: its scratch folder, the checkout it runs in, or the scratch of its goal or its run, never elsewhere |
 | `recall_store` · `recall_get` · `recall_list` | the agent's private memory, base-hash guarded |
@@ -98,7 +98,7 @@ agent never calls it.
 | Tool | What it is for |
 |---|---|
 | `revise_statement` | replace the statement with a sharpened one; refused while a run is live |
-| `propose_workflow` | propose the workflow the goal will run — inputs and steps, whole. Validated first (every problem comes back, nothing is written), installs nothing, and opens the **Adopt** gate for the person. The Workflow Agent only; the engine refuses anyone else by id |
+| `propose_workflow` | propose the workflow the goal will run — inputs and steps, whole. Validated first (every problem comes back, nothing is written), installs nothing, and is settled by the goal's mode: a guided goal's opens the **Adopt** gate for the person, an auto goal's is adopted and started by the platform (or gated, once it stops adopting alone), a manual goal's is kept as the person's draft. The Workflow Agent only; the engine refuses anyone else by id |
 | `amend_workflow` | propose an amendment to the running workflow after a step failed; only steps that have not started may change. Validated and gated like a proposal. The Workflow Agent only |
 
 ## The General Agent and the Workflow Agent — any scope
@@ -136,7 +136,7 @@ session like any other: the common set, its record's tools defaulted to the reco
 | Parameter | Meaning |
 |---|---|
 | `question` | one sentence |
-| `expects` | `decision` (default) or `answer` |
+| `expects` | `answer` (default) or `decision` — a bare approve/decline with nothing to type |
 | `options` | `{id, label, detail?, recommended?}` — only with `answer`; at most one `recommended`; ids unique and non-empty |
 | `multi` | more than one option may be picked |
 

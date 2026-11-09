@@ -31,7 +31,7 @@ use std::str::FromStr;
 pub(crate) fn routes() -> Router<Shared> {
     Router::new()
         .route("/goals", get(list).post(create))
-        .route("/goals/{id}", get(status).delete(remove))
+        .route("/goals/{id}", get(status).delete(remove).patch(edit))
         .route("/goals/{id}/journal", get(journal))
         .route("/goals/{id}/documents", get(documents).post(add_documents))
         .route("/goals/{id}/retirement", get(retirement))
@@ -307,6 +307,31 @@ async fn status(
     Ok(Json(view(&state, parse_id(&id)?)?))
 }
 
+/// A person's edit of the goal's own record — title, statement, tags,
+/// budget — through the engine's one door (`ops::edit_goal`).
+async fn edit(
+    State(state): State<Shared>,
+    AxPath(id): AxPath<String>,
+    crate::Body(body): crate::Body<GoalEditBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let id = parse_id(&id)?;
+    let tags = match &body.tags {
+        Some(raw) => Some(parse_tags(raw)?),
+        None => None,
+    };
+    let goal = bisa_engine::ops::edit_goal(
+        state.engine.inner(),
+        id,
+        bisa_engine::ops::GoalEdit {
+            title: body.title,
+            statement: body.statement,
+            tags,
+            budget: body.budget,
+        },
+    )?;
+    Ok(Json(json!({"goal": goal})))
+}
+
 /// The goal with everything a screen needs beside it — `GET /goals/{id}`,
 /// and what the listening routes answer once the goal's standing moved.
 pub(crate) fn view(state: &Shared, id: GoalId) -> Result<serde_json::Value, ApiError> {
@@ -392,26 +417,17 @@ async fn run_detail(
 
 /// One of the goal's runs, whole, by id — the run picker's door to an
 /// earlier run. A run of another goal is not this goal's and is 404, as is
-/// an id that names nothing.
+/// an id that names nothing; a run this node cannot read is said so (500),
+/// as under `/runs/{rid}`.
 async fn run_by_id(
     State(state): State<Shared>,
     AxPath((id, rid)): AxPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_id(&id)?;
-    let ws = state.engine.workspace();
-    ws.get_goal(id)?;
-    let rid = bisa_core::RunId::from_str(&rid).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-goals-run-not-found",
-            rid = rid.to_string()
-        ))
-    })?;
-    let run = ws.get_run(rid).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-goals-run-not-found",
-            rid = rid.to_string()
-        ))
-    })?;
+    state.engine.workspace().get_goal(id)?;
+    // Read as `/runs/{rid}` reads it: a run that is there and cannot be read
+    // is the store's own error, never posed as one that does not exist.
+    let run = crate::runs::run_of(&state, &rid)?;
     if run.scope.goal() != Some(id) {
         return Err(not_found(bisa_core::text!(
             "error-node-goals-run-not-run-goal",
@@ -449,6 +465,7 @@ async fn start_run(
             armed @ Begun::Listening(_) => {
                 let ws = state.engine.workspace();
                 let armed = GoalArmed {
+                    kind: GoalArmedKind::Listening,
                     status: status_of(ws, &ws.get_goal(id)?),
                     secrets: armed.secrets(),
                 };
@@ -760,23 +777,24 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/goals", summary: "Every goal as a row: id, title, statement, status, workflow, run, origin, mode, assignees, tags — plus its `strip` (every step with its state), the `holder` (you · agents · world · finished · design), `run_status` (the current run's), `queued` (how many runs wait behind the live one), `last_activity_at`, `archived` and `listening` (its standing while its workflow begins on events — armed, or paused and why; `null` otherwise). `run_unreadable` is true when the goal names a run this node cannot read: the row is then drawn as for a goal with no run, never dropped and never the reason the list fails. Archived goals are left out unless `?archived=true`." },
     RouteDoc { method: "POST", path: "/goals", summary: "Capture a goal: `{statement, title?, mode?, workflow?, inputs?, assignees?, tags?, documents?, budget?}` → `{goal, secrets?}`. `budget` is the goal's own ceiling (`{max_tokens?, max_usd_cents?, max_wall_clock_secs?}`); absent takes the workspace default `budget.default.*`, given it is kept as given — `{}` is no ceiling at all. `mode` is `auto` (the Workflow Agent designs and the platform adopts, starts, repairs and restarts alone), `guided` (it proposes, you adopt) or `manual` (you design on the Workflow tab); absent takes `goals.default_mode`. An auto or guided goal without a workflow wakes the Workflow Agent, which staffs its steps from the agents and teams in `assignees` (`agent:…`, `team:…` — a team whole or one of its members) and from every enabled one when none is named; `inputs` with a workflow begins its work at once — a run, or, when the workflow begins on events, listening with those inputs, `secrets` then the public hooks' secrets that minted (`{step, path, secret}`, **shown once**, absent when there are none); `documents` — descriptors from `POST /attachments` — are kept under the goal's `documents/` folder as its context before anything runs (400 for a hash this node does not hold)." },
     RouteDoc { method: "GET", path: "/goals/{id}/documents", summary: "The files a person gave the goal as context: `{goal, documents: [{file, name, path, present}]}` — the descriptor, the name it is kept under in `documents/`, its absolute path, and whether the bytes are on this node." },
-    RouteDoc { method: "POST", path: "/goals/{id}/documents", summary: "Give the goal more documents: `{documents: [AttachmentRef]}` → the rows added. Each is materialised under `documents/` (a taken name numbered), recorded as a `document` journal fact and announced as `document.added`; 400 for an empty list or a hash this node does not hold." },
+    RouteDoc { method: "POST", path: "/goals/{id}/documents", summary: "Give the goal more documents: `{documents: [AttachmentRef]}` → the rows added. Each is materialised under `documents/` (a taken name numbered), recorded as a `document` journal fact and announced as `document_added`; 400 for an empty list or a hash this node does not hold." },
     RouteDoc { method: "GET", path: "/goals/{id}", summary: "The goal with its status, strip, holder, `listening`, its own designs, current run (`run_unreadable` when it names one this node cannot read), its runs newest first (a queued one carries its `position`, a cancelled one its `cause`), work items, spend, pending gates and guidance." },
+    RouteDoc { method: "PATCH", path: "/goals/{id}", summary: "Edit the goal's own record: `{title?, statement?, tags?, budget?}` → `{goal}`. A field left out stays; a blank `title` clears it; `tags` replace the ones it has (`[]` clears them); `budget` is kept as given, `{}` no ceiling at all. Announced as `goal_updated`; a changed statement leaves a journal note with the one it replaced. 400 for a body that names nothing, a blank statement or a tag that will not normalize; 409 on a closed goal, and for a changed `statement` while a run is live." },
     RouteDoc { method: "DELETE", path: "/goals/{id}", summary: "Delete a goal — the plain retirement: refused up front while a design of its own is used elsewhere; every session on it aborted and waited for, its unfinished run cancelled, its journal, runs, work items, designs and attachments gone; the projects born of it kept and detached. → `{ok, retired}`." },
     RouteDoc { method: "GET", path: "/goals/{id}/retirement", summary: "What retiring the goal would touch: `{agents, harnesses, run: {id, status, live_steps} | null, refusal: string | null, designs, projects_born: [{id, slug, name, adopted, workstreams, workstream_ids, sessions, archived}], projects_attached: […]}` — the facts a retirement dialog is drawn from: the engine sessions it aborts, the terminal harnesses it terminates, the run it cancels, and why a deletion would be refused (archive stays open)." },
-    RouteDoc { method: "POST", path: "/goals/{id}/retire", summary: "Retire the goal on a plan: `{goal: archive|delete, projects: keep|archive|delete, tree?}`. Refuses first (a design of its own used elsewhere, for a delete), then stops every session on it and in the projects the plan touches — the harness process aborted on the spot — closes it if open, waits up to 5 s for the rows to end, settles the projects born of it (`tree` moves a deleted managed folder to the Trash; an adopted folder never moves), then archives or deletes it; a merely attached project is detached on delete and left alone on archive. `goal_deleted` is scoped to the goal. → `{goal, retired: {stopped_sessions, unsettled_sessions, projects: [{id, fate}], workstreams_retired}}`. The goals it spawned are closed with it; `retired.ended` says what was ended." },
+    RouteDoc { method: "POST", path: "/goals/{id}/retire", summary: "Retire the goal on a plan: `{goal: archive|delete, projects: keep|archive|delete, tree?}`. Refuses first (a design of its own used elsewhere, for a delete), then stops every session on it and in the projects the plan touches — the harness process aborted on the spot — closes it if open, waits up to 5 s for the rows to end, settles the projects born of it (`tree` moves a deleted managed folder to the Trash; an adopted folder never moves), then archives or deletes it — the runs it cancels carry the cause `retired`; a merely attached project is detached on delete and left alone on archive. `goal_deleted` is scoped to the goal. → `{goal, retired: {stopped_sessions, unsettled_sessions, projects: [{id, fate}], workstreams_retired}}`. The goals it spawned are closed with it; `retired.ended` says what was ended." },
     RouteDoc { method: "POST", path: "/goals/{id}/archive", summary: "`{archived: true}` puts a goal away (closing it first when open; a mark, never a status), `{archived: false}` takes it back out — it stays closed. → `{goal}`. Archiving answers `ended` besides." },
     RouteDoc { method: "GET", path: "/goals/{id}/journal", summary: "The signed journal, rendered, newest last (`?limit=`, default 100)." },
     RouteDoc { method: "GET", path: "/goals/{id}/run", summary: "The current run, whole — the live one, else the latest that started: the frozen workflow and every step's record; `null` before the first run. Never a queued run. Its steps are answered, released and marked done by the run (`/runs/{rid}/steps/{step}/…`)." },
-    RouteDoc { method: "POST", path: "/goals/{id}/run", summary: "The goal's one start door: `{inputs?, start?, event?}`. With no `start` it is a person's start — a goal whose workflow begins on events is armed and makes no run → `{status, secrets?}` (the goal's status; the public hooks' secrets the start minted, `{step, path, secret}`, **shown once**): it listens with `inputs`, or, given none, with what it listened with before — a goal started again after a pause is asked for nothing it was already given; any other goal runs by hand → `{run, status}` (the run's status). `start` naming the start by hand is a run now, whatever else the workflow begins on; naming an event start makes a test run, begun there as if `event` — a sample payload — had happened. A run is started at once when nothing is live on the goal (`status` running or waiting), queued behind its live run otherwise (`queued`): it starts on its own, in order, when the live run ends. 400 for a `start` that is no start of the workflow, or an `event` with no start or with the start by hand; 409 when the goal is busy and points at another workflow." },
-    RouteDoc { method: "GET", path: "/goals/{id}/runs", summary: "Every run of the goal, newest first: `{goal, runs: [{id, scope, goal, number, status, workflow, workflow_name, revision, started_by, queued_at, started_at?, finished_at?, outcome?, cause?, position?}]}` — `number` its place among the goal's runs (1 the first), a queued run's `position` its place in the queue (1 next), a cancelled run's `cause` `stopped` · `restarted` · `withdrawn` · `closed`, `started_by` who started it — `{by: you}`, `{by: event, event, detail?}` (the event's kind, and who sent the message, which signal or which run when there is one to name) or `{by: test, event}`." },
-    RouteDoc { method: "GET", path: "/goals/{id}/runs/{rid}", summary: "One of the goal's runs, whole, by id — an earlier or a queued run for the run picker. 404 for a run of another goal." },
+    RouteDoc { method: "POST", path: "/goals/{id}/run", summary: "The goal's one start door: `{inputs?, start?, event?}`. With no `start` it is a person's start — a goal whose workflow begins on events is armed and makes no run → `{kind: listening, status, secrets?}` (the goal's status; the public hooks' secrets the start minted, `{step, path, secret}`, **shown once**): it listens with `inputs`, or, given none, with what it listened with before — a goal started again after a pause is asked for nothing it was already given; any other goal runs by hand → `{kind: run, run, status}` (the run's status). `start` naming the start by hand is a run now, whatever else the workflow begins on; naming an event start makes a test run, begun there as if `event` — a sample payload — had happened. A run is started at once when nothing is live on the goal (`status` running or waiting), queued behind its live run otherwise (`queued`): it starts on its own, in order, when the live run ends. 400 for a `start` that is no start of the workflow, or an `event` with no start or with the start by hand; 409 when the goal is busy and points at another workflow." },
+    RouteDoc { method: "GET", path: "/goals/{id}/runs", summary: "Every run of the goal, newest first: `{goal, runs: [{id, scope, goal, number, status, workflow, workflow_name, revision, started_by, queued_at, started_at?, finished_at?, outcome?, cause?, position?}]}` — `number` its place among the goal's runs (1 the first), a queued run's `position` its place in the queue (1 next), a cancelled run's `cause` `stopped` · `restarted` · `withdrawn` · `closed` · `retired` (its goal was archived or deleted), `started_by` who started it — `{by: you}`, `{by: event, event, detail?}` (the event's kind, and who sent the message, which signal or which run when there is one to name) or `{by: test, event}`." },
+    RouteDoc { method: "GET", path: "/goals/{id}/runs/{rid}", summary: "One of the goal's runs, whole, by id — an earlier or a queued run for the run picker. 404 for a run of another goal or an id that names none; a run this node cannot read is a 500 in words, never a 404." },
     RouteDoc { method: "DELETE", path: "/goals/{id}/runs/{rid}", summary: "Withdraw a queued run from the goal's queue → `{run}` (cancelled, cause `withdrawn`). 404 for a run of another goal, 409 for one that is live or over." },
-    RouteDoc { method: "POST", path: "/goals/{id}/stop", summary: "Stop the goal: `{rationale?}` → `{stopped, withdrawn}` — its sessions ended, its queued runs withdrawn, its live run cancelled (cause `stopped`), its listening stopped. The goal stays open and reads `draft`, ready for a new run; nothing to stop answers both empty. 409 when closed. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. A stop stops the goals it spawned, recursively." },
-    RouteDoc { method: "POST", path: "/goals/{id}/restart", summary: "Restart the goal → `{run, status}`: a new run of its last run's workflow and inputs, at the same start and on the same event, started at once ahead of the queue; a live run is cancelled first (cause `restarted`). 409 when closed or never run. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. Every session of the goal is ended whether or not its last run is live." },
+    RouteDoc { method: "POST", path: "/goals/{id}/stop", summary: "Stop the goal: `{rationale?}` → `{stopped, withdrawn}` — its sessions ended, its queued runs withdrawn (before the cancel and again after it, so a run queued meanwhile is withdrawn, never started), its live run cancelled (cause `stopped`), its listening stopped. The goal stays open and reads `draft`, ready for a new run; nothing to stop answers both empty. 409 when closed. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. A stop stops the goals it spawned, recursively." },
+    RouteDoc { method: "POST", path: "/goals/{id}/restart", summary: "Restart the goal → `{kind: run, run, status}`: a new run of its last run's workflow and inputs, at the same start and on the same event, started at once ahead of the queue; a live run is cancelled first (cause `restarted`). 409 when closed or never run, and — before anything is cancelled — when that run could not start as things stand: its start gone from the workflow, the workflow archived or with problems, its inputs no longer binding. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. Every session of the goal is ended whether or not its last run is live." },
     RouteDoc { method: "PUT", path: "/goals/{id}/workflow", summary: "Point the goal at a workflow — `{workflow: <id | slug> | null}` → `{goal}` — or record `{definition: {name, steps, ...}, revision?}` as the goal’s own design, kept as a draft → `{goal, workflow, problems}` (`revision` names the design edited once the goal has one; 409 when it moved). Refused while a run is live or queued." },
     RouteDoc { method: "POST", path: "/goals/{id}/amend", summary: "Replace the not-yet-started steps of the current run: `{workflow: {name, steps, …}}` → `{run}`." },
-    RouteDoc { method: "POST", path: "/goals/{id}/close", summary: "Close a goal: `{rationale?, superseded_by?}`. Cancels its live run and its queued runs (cause `closed`), withdraws its questions, releases workstreams. Waited for: every session of the goal and of the goals it spawned — closed with it, recursively — is gone when it answers. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
+    RouteDoc { method: "POST", path: "/goals/{id}/close", summary: "Close a goal: `{rationale?, superseded_by?}` (`superseded_by` another goal that exists — 400 for itself or one that does not). Cancels its live run and its queued runs (cause `closed`), withdraws its questions, releases workstreams. Waited for: every session of the goal and of the goals it spawned — closed with it, recursively — is gone when it answers. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
     RouteDoc { method: "POST", path: "/goals/{id}/decide", summary: "Decide a gate: `{approve, rationale?, answer?, gate?, inputs?, step?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status`, `secrets?`). An approved adoption starts the run with `inputs` — or, for a design that begins on events, makes the goal listen with them, and `secrets` carries its public hooks' secrets, shown once; an approved amendment applies it; `step` names the waiting step when several wait — and a held `wait` step is released only by name while an adoption or an amendment is still owed a decision. A gate is decided once: a second decision is `409`; a `gate` that is another home's is `400` and decides nothing; an answer the gate does not offer leaves it open. A waiting step is also decided by its run (`POST /runs/{rid}/decide`)." },
     RouteDoc { method: "POST", path: "/goals/{id}/design", summary: "Ask the Workflow Agent to design the goal’s workflow again — after a stall, a failure or a restart → `{guidance}`. 409 when the goal is manual, is closed, already has a workflow or a run, is being worked on, or designing is off on this node." },
     RouteDoc { method: "GET", path: "/goals/{id}/messages", summary: "The goal's conversation (`?before=&before_id=&limit=`)." },

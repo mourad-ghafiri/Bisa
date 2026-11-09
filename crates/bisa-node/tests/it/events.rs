@@ -1949,7 +1949,7 @@ async fn a_goal_listens_runs_on_each_occurrence_and_listens_again() {
         .await;
     assert_eq!(
         begun,
-        json!({"status": "waiting"}),
+        json!({"kind": "listening", "status": "waiting"}),
         "armed: no run, and no secret where no hook is public"
     );
     let listeners = node

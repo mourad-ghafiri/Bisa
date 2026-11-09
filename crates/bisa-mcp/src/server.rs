@@ -686,7 +686,13 @@ impl ToolCore {
             // was unknown — which is how a hand-off inside a channel failed.
             None => match self.default_thread().await {
                 Some(id) => id,
-                None => return Ok("No scope given and the session's run could not be read.".into()),
+                // A refusal, not a result: nothing was posted, and a tool
+                // that answered in a sentence would read as done.
+                None => {
+                    return Err(Self::invalid(
+                        "no scope given and the session's run could not be read",
+                    ))
+                }
             },
         };
         let artifacts: Vec<serde_json::Value> = artifacts
@@ -3454,7 +3460,7 @@ impl BisaServer {
 
     #[tool(
         name = "add_note",
-        description = "Append a durable note to the goal's journal — rationale, findings, context worth keeping."
+        description = "Append a durable note to the journal of what this session works on — its goal, or the run of the workspace — rationale, findings, context worth keeping. A closed goal takes none."
     )]
     async fn add_note(&self, Parameters(p): Parameters<AddNoteParams>) -> Result<String, McpError> {
         self.core.add_note(&p.text).await
@@ -3462,7 +3468,7 @@ impl BisaServer {
 
     #[tool(
         name = "spawn_sub_goal",
-        description = "Capture a new sub-goal refining this one (for work that deserves its own lifecycle). Subject to spawn policy."
+        description = "Capture a new goal for work that deserves its own lifecycle. From a goal's design session or its thread the child refines this goal and inherits its projects; from a run of the workspace it is a goal of its own whose origin names the run and the step. A work item's session is refused today: a worker's spawn allowance is zero."
     )]
     async fn spawn_sub_goal(
         &self,

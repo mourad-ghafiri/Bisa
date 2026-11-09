@@ -10915,6 +10915,12 @@ async fn a_gate_whose_goal_is_gone_keeps_its_row_and_a_quiet_row_sorts_last() {
         .unwrap();
     node.post("/read", json!({"scope": dm.id.as_str()})).await;
     node.ask(gone).await;
+    node.ws
+        .set_goal_closed(
+            gone,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
     node.ws.delete_goal(gone).unwrap();
 
     let v = node.get("/inbox").await;
@@ -11843,4 +11849,235 @@ async fn an_update_from_the_catalog_restates_one_entry_and_the_listing_says_when
         node.get("/skills/scoring-rubric").await["skill"]["name"],
         json!("ours")
     );
+}
+
+/// `PATCH /goals/{id}`: a person's edit of the goal's own record, announced
+/// on the bus; what it refuses, each with its code.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goals_record_is_edited_by_a_person_and_the_edit_is_announced() {
+    let node = Node::start().await;
+    let id = node.new_goal("worded loosely").await;
+    let mut events = node.events();
+    let v = node
+        .post_patch(
+            &format!("/goals/{id}"),
+            json!({"title": "The release", "statement": "  ship it by Friday ",
+                   "tags": ["release"], "budget": {"max_tokens": 9000}}),
+        )
+        .await;
+    assert_eq!(v["goal"]["title"], json!("The release"));
+    assert_eq!(v["goal"]["statement"], json!("ship it by Friday"));
+    assert_eq!(v["goal"]["tags"], json!(["release"]));
+    assert_eq!(v["goal"]["budget"]["max_tokens"], json!(9000));
+    let said = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let e = events.recv().await.expect("the bus");
+            if matches!(e.payload, bisa_engine::events::EnginePayload::GoalUpdated { goal } if goal == id)
+            {
+                return e;
+            }
+        }
+    })
+    .await
+    .expect("goal_updated");
+    assert_eq!(said.goal, Some(id));
+    // The list finds it under its new tag, the page reads the new words.
+    let listed = node.get("/goals?tag=release").await;
+    assert_eq!(listed["goals"].as_array().unwrap().len(), 1, "{listed}");
+    assert_eq!(
+        node.get(&format!("/goals/{id}")).await["goal"]["title"],
+        json!("The release")
+    );
+
+    let path = format!("/goals/{id}");
+    let refused = |body: Value| node.req("PATCH", &path, Some(body));
+    let (code, v) = refused(json!({})).await;
+    assert_eq!(code, 400, "names nothing: {v}");
+    let (code, v) = refused(json!({"statement": "   "})).await;
+    assert_eq!(code, 400, "a blank statement: {v}");
+    let (code, v) = refused(json!({"status": "done"})).await;
+    assert_eq!(code, 400, "an unknown key: {v}");
+    let (code, _) = node
+        .req(
+            "PATCH",
+            "/goals/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            Some(json!({"title": "x"})),
+        )
+        .await;
+    assert_eq!(code, 404);
+
+    // While a run is live the statement is fixed; the rest still moves.
+    let wf = node.workflow(human_workflow()).await;
+    node.start_run(id, wf).await;
+    let (code, v) = refused(json!({"statement": "something else"})).await;
+    assert_eq!(code, 409, "{v}");
+    let (code, v) = refused(json!({"title": "Renamed mid-run", "tags": []})).await;
+    assert_eq!(code, 200, "{v}");
+    assert!(v["goal"]["tags"].is_null(), "cleared: {v}");
+
+    node.post(&format!("/goals/{id}/close"), json!({})).await;
+    let (code, v) = refused(json!({"title": "too late"})).await;
+    assert_eq!(code, 409, "{v}");
+    node.shutdown().await;
+}
+
+/// `POST /goals/{id}/close` with `superseded_by`: another goal that exists,
+/// never the goal itself and never one nobody captured — a 400 in words,
+/// the goal left open.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_close_naming_itself_or_a_missing_goal_is_a_400_in_words() {
+    let node = Node::start().await;
+    let old = node.new_goal("the old plan").await;
+    let new = node.new_goal("the new plan").await;
+    let close = format!("/goals/{old}/close");
+    let (code, v) = node
+        .req(
+            "POST",
+            &close,
+            Some(json!({"superseded_by": old.to_string()})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("supersede"), "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            &close,
+            Some(json!({"superseded_by": "01ARZ3NDEKTSV4RRFFQ69G5FAV"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(node.get(&format!("/goals/{old}")).await["goal"]["closed"].is_null());
+    let v = node
+        .post(&close, json!({"superseded_by": new.to_string()}))
+        .await;
+    assert_eq!(v["goal"]["closed"]["reason"], json!("superseded"), "{v}");
+    assert_eq!(v["goal"]["closed"]["by"], json!(new.to_string()));
+    node.shutdown().await;
+}
+
+/// The goal's start door and its restart say what they made (`kind: run`),
+/// and the refusals the routes promise carry their codes: a restart of a
+/// goal that never ran, a workflow swapped under a live run, a run asked of
+/// another goal's path, a restart whose workflow was put away since — the
+/// run left live.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_goals_run_doors_say_their_kind_and_refuse_with_their_codes() {
+    let node = Node::start().await;
+    let id = node.new_goal("run me").await;
+    let other = node.new_goal("another").await;
+    let (code, v) = node
+        .req("POST", &format!("/goals/{id}/restart"), Some(json!({})))
+        .await;
+    assert_eq!(code, 409, "never ran: {v}");
+
+    let wf = node.workflow(human_workflow()).await;
+    node.req(
+        "PUT",
+        &format!("/goals/{id}/workflow"),
+        Some(json!({"workflow": wf.to_string()})),
+    )
+    .await;
+    let made = node.post(&format!("/goals/{id}/run"), json!({})).await;
+    assert_eq!(made["kind"], json!("run"), "{made}");
+    let run = made["run"]["id"].as_str().unwrap().to_string();
+
+    // A run is its goal's alone under the goal's path.
+    let (code, _) = node
+        .req("GET", &format!("/goals/{other}/runs/{run}"), None)
+        .await;
+    assert_eq!(code, 404);
+    let (code, _) = node
+        .req("GET", &format!("/goals/{id}/runs/not-a-run"), None)
+        .await;
+    assert_eq!(code, 404);
+    let (code, v) = node
+        .req("GET", &format!("/goals/{id}/runs/{run}"), None)
+        .await;
+    assert_eq!(code, 200, "{v}");
+
+    // The pointer does not move under a live run — to another workflow or to none.
+    for body in [
+        json!({"workflow": null}),
+        json!({"workflow": wf.to_string()}),
+    ] {
+        let (code, v) = node
+            .req("PUT", &format!("/goals/{id}/workflow"), Some(body))
+            .await;
+        assert_eq!(code, 409, "{v}");
+    }
+
+    // A restart whose workflow was put away since is refused before the cancel.
+    node.ws.set_workflow_archived(wf, true).unwrap();
+    let (code, v) = node
+        .req("POST", &format!("/goals/{id}/restart"), Some(json!({})))
+        .await;
+    assert_eq!(code, 409, "{v}");
+    assert!(v.to_string().contains("archived"), "{v}");
+    let now = node.get(&format!("/goals/{id}")).await;
+    assert_eq!(now["run"]["id"], json!(run), "the run is left as it is");
+    assert!(now["run"]["cancelled"].is_null(), "{now}");
+
+    node.ws.set_workflow_archived(wf, false).unwrap();
+    let again = node.post(&format!("/goals/{id}/restart"), json!({})).await;
+    assert_eq!(again["kind"], json!("run"), "{again}");
+    assert_ne!(again["run"]["id"], json!(run));
+    node.shutdown().await;
+}
+
+/// A retirement over HTTP: `keep` is no fate for a goal (400); archiving a
+/// goal with a live run answers what it ended and its run reads `retired`
+/// in the goal's runs; `{archived: true}` on the plain route answers
+/// `ended` besides, and `{archived: false}` takes the goal back out closed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retirement_over_http_says_retired_and_refuses_keep() {
+    let node = Node::start().await;
+    let id = node.new_goal("retired mid-run").await;
+    let wf = node.workflow(human_workflow()).await;
+    let run = node.start_run(id, wf).await;
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/goals/{id}/retire"),
+            Some(json!({"goal": "keep", "projects": "keep"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let retired = node
+        .post(
+            &format!("/goals/{id}/retire"),
+            json!({"goal": "archive", "projects": "keep"}),
+        )
+        .await;
+    assert!(retired["retired"].is_object(), "{retired}");
+    let runs = node.get(&format!("/goals/{id}/runs")).await;
+    let row = &runs["runs"][0];
+    assert_eq!(row["id"], json!(run.to_string()), "{runs}");
+    assert!(row["cause"].to_string().contains("retired"), "{runs}");
+    let goal = node.get(&format!("/goals/{id}")).await;
+    assert_eq!(goal["status"], json!("closed"));
+    assert_eq!(goal["goal"]["closed"]["reason"], json!("abandoned"));
+
+    let plain = node.new_goal("put away plainly").await;
+    let archived = node
+        .post(
+            &format!("/goals/{plain}/archive"),
+            json!({"archived": true}),
+        )
+        .await;
+    assert!(archived["goal"]["archived"].is_object(), "{archived}");
+    assert!(archived.get("ended").is_some(), "{archived}");
+    let back = node
+        .post(
+            &format!("/goals/{plain}/archive"),
+            json!({"archived": false}),
+        )
+        .await;
+    assert!(back["goal"]["archived"].is_null(), "{back}");
+    assert_eq!(
+        back["goal"]["closed"]["reason"],
+        json!("abandoned"),
+        "it stays closed"
+    );
+    node.shutdown().await;
 }

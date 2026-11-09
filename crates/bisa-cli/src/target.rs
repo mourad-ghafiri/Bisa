@@ -12,6 +12,17 @@ use bisa_core::{GoalId, Home, RunId};
 use bisa_store::Workspace;
 use std::str::FromStr;
 
+/// The id a command printed under an inbox row takes for one of its
+/// decisions (`needs_action`): the run's when the decision is filed on a run
+/// of the workspace — its row is keyed by the workflow, which names neither
+/// a goal nor a run — else the row's own key.
+pub fn hint_id<'a>(row_key: &'a str, action: &'a serde_json::Value) -> &'a str {
+    match action["home"]["home"].as_str() {
+        Some("run") => action["home"]["run"].as_str().unwrap_or(row_key),
+        _ => row_key,
+    }
+}
+
 /// A goal, or one run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -69,5 +80,27 @@ pub fn decide_route(home: &Home) -> String {
     match home {
         Home::Goal { goal } => format!("/goals/{goal}/decide"),
         Home::Run { run } => format!("/runs/{run}/decide"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The command printed under an inbox row names an id the verb takes: a
+    /// goal row's own key, and — under a workspace run's row, keyed by its
+    /// workflow — the run the decision is filed on.
+    #[test]
+    fn the_inbox_hint_under_a_workspace_runs_row_is_a_command_that_works() {
+        let goal = json!({"home": {"home": "goal", "goal": "01GOAL"}});
+        assert_eq!(hint_id("01GOAL", &goal), "01GOAL");
+        let run = json!({"home": {"home": "run", "run": "01RUN"}});
+        assert_eq!(hint_id("01WORKFLOW", &run), "01RUN");
+        assert_eq!(
+            hint_id("01ROW", &json!({})),
+            "01ROW",
+            "a row with no home keeps its key"
+        );
     }
 }

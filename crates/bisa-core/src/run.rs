@@ -438,7 +438,8 @@ pub enum CancelCause {
     /// schema the desktop's type generator cannot read.
     Closed { reason: ClosureReason },
     /// Its workflow was archived or deleted while this run of the workspace
-    /// went: retiring a workflow retires its runs first.
+    /// went, or its goal was retired — archived or deleted — while this run
+    /// was live or queued: a retirement retires the runs first.
     Retired,
 }
 

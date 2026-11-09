@@ -209,6 +209,19 @@ impl Workspace {
         })
     }
 
+    /// Whether a run of `workflow` could start in `scope` with these inputs
+    /// at `entry`, as things stand: the checks every start makes, and
+    /// nothing written. What a restart asks before it cancels anything.
+    pub fn check_startable(
+        &self,
+        scope: RunScope,
+        workflow: WorkflowId,
+        inputs: BTreeMap<String, Value>,
+        entry: &RunEntry,
+    ) -> Result<(), StoreError> {
+        self.startable(&scope, workflow, inputs, entry).map(|_| ())
+    }
+
     /// A run not started yet, from what the checks let through and how it
     /// came to be.
     fn new_run(
@@ -339,7 +352,7 @@ impl Workspace {
 
     /// Keep the goal's snapshot to its queued runs and the newest ones; the
     /// index holds every run it has had.
-    fn trim_goal_runs(&self, goal: &mut Goal) -> Result<(), StoreError> {
+    pub(crate) fn trim_goal_runs(&self, goal: &mut Goal) -> Result<(), StoreError> {
         let queued: std::collections::BTreeSet<RunId> = self
             .idx()
             .queued_run_ids(&goal.id.to_string())?
@@ -606,6 +619,23 @@ impl Workspace {
         goal_id: GoalId,
         reason: ClosureReason,
     ) -> Result<(Goal, Vec<CancelledRun>), StoreError> {
+        let cause = CancelCause::Closed {
+            reason: reason.clone(),
+        };
+        self.set_goal_closed_as(goal_id, reason, cause)
+    }
+
+    /// [`Self::set_goal_closed`], its runs cancelled for `cause`: `Closed {
+    /// reason }` for a person's close, `Retired` for a retirement — so the
+    /// journal and the Runs list tell the two apart. A goal superseded by
+    /// itself, or by a goal nobody knows, is refused before anything is
+    /// cancelled.
+    pub fn set_goal_closed_as(
+        &self,
+        goal_id: GoalId,
+        reason: ClosureReason,
+        cause: CancelCause,
+    ) -> Result<(Goal, Vec<CancelledRun>), StoreError> {
         let _one_writer = self.run_writer();
         let mut goal = self.get_goal(goal_id)?;
         if goal.is_closed() {
@@ -614,9 +644,21 @@ impl Workspace {
                 goal_id = goal_id.to_string()
             )));
         }
-        let cause = CancelCause::Closed {
-            reason: reason.clone(),
-        };
+        if let ClosureReason::Superseded { by } = &reason {
+            if *by == goal_id {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-goal-cannot-supersede-itself",
+                    goal_id = goal_id.to_string()
+                )));
+            }
+            if self.get_goal(*by).is_err() {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-superseding-goal-unknown",
+                    goal_id = goal_id.to_string(),
+                    by = by.to_string()
+                )));
+            }
+        }
         let mut cancelled = Vec::new();
         for queued in self.queued_runs_of(&goal)? {
             cancelled.push(self.record_run_event_locked(
@@ -678,6 +720,34 @@ impl Workspace {
         Ok(goal)
     }
 
+    /// The workflow a goal may point at: known, not archived, and no other
+    /// goal's design — `goal` is the goal, `None` for one not yet made. The
+    /// rule a capture asks before its first write, and `set_goal_workflow`
+    /// at the pointing.
+    pub fn workflow_for_goal(
+        &self,
+        workflow: WorkflowId,
+        goal: Option<GoalId>,
+    ) -> Result<Workflow, StoreError> {
+        let wf = self.get_workflow(workflow)?;
+        if wf.is_archived() {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-workflow-archived-unarchive-before-pointing-goal",
+                a0 = (wf.name).to_string()
+            )));
+        }
+        if let Some(designed_for) = wf.origin.goal() {
+            if Some(designed_for) != goal {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-workflow-was-designed-goal-promote-library-first",
+                    a0 = (wf.name).to_string(),
+                    designed_for = designed_for.to_string()
+                )));
+            }
+        }
+        Ok(wf)
+    }
+
     /// The workflow the next run will use. Refused while a run is live or
     /// queued: a run holds its own copy, and swapping the goal's pointer
     /// under it would make the goal describe one thing and run another.
@@ -705,22 +775,7 @@ impl Workspace {
             });
         }
         if let Some(id) = workflow {
-            let wf = self.get_workflow(id)?;
-            if wf.is_archived() {
-                return Err(StoreError::Invalid(bisa_core::text!(
-                    "error-store-invalid-workflow-archived-unarchive-before-pointing-goal",
-                    a0 = (wf.name).to_string()
-                )));
-            }
-            if let Some(designed_for) = wf.origin.goal() {
-                if designed_for != goal_id {
-                    return Err(StoreError::Invalid(bisa_core::text!(
-                        "error-store-invalid-workflow-was-designed-goal-promote-library-first",
-                        a0 = (wf.name).to_string(),
-                        designed_for = designed_for.to_string()
-                    )));
-                }
-            }
+            self.workflow_for_goal(id, Some(goal_id))?;
         }
         if goal.workflow == workflow {
             return Ok(goal);
@@ -3569,5 +3624,343 @@ mod one_writer {
         );
         ws.set_wait_due(run.id, &sid("hold"), None).unwrap();
         assert!(ws.list_due_waits(600).unwrap().is_empty());
+    }
+
+    /// Two edits of different fields at once both survive: the record is
+    /// read and changed under the one writer, so a second writer's change
+    /// never lands over a first's.
+    #[test]
+    fn two_edits_of_different_fields_at_once_both_survive() {
+        let (_dir, ws) = ws();
+        let goal = ws
+            .create_goal(NewGoal::captured("edited twice at once"))
+            .unwrap();
+        std::thread::scope(|s| {
+            let ws = &ws;
+            let id = goal.id;
+            s.spawn(move || {
+                for i in 0..20 {
+                    ws.update_goal_with(id, |g| {
+                        g.title = Some(format!("title {i}"));
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+            });
+            s.spawn(move || {
+                for i in 0..20 {
+                    ws.update_goal_with(id, |g| {
+                        g.statement = format!("statement {i}");
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+            });
+        });
+        let after = ws.get_goal(goal.id).unwrap();
+        assert_eq!(after.title.as_deref(), Some("title 19"));
+        assert_eq!(after.statement, "statement 19");
+        assert_eq!(after.revision, goal.revision + 40);
+    }
+
+    /// A goal with a workflow held open by a wait, a live run on it.
+    fn held_live(
+        ws: &Workspace,
+        statement: &str,
+    ) -> (bisa_core::Goal, bisa_core::WorkflowId, bisa_core::RunId) {
+        let goal = ws.create_goal(NewGoal::captured(statement)).unwrap();
+        let wf = ws
+            .create_workflow(held("Held"), bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        ws.set_goal_workflow(goal.id, Some(wf.id)).unwrap();
+        let (run, _) = ws
+            .create_run(
+                RunScope::Goal { goal: goal.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        assert!(run.is_live());
+        (ws.get_goal(goal.id).unwrap(), wf.id, run.id)
+    }
+
+    /// A goal is superseded only by another goal that exists: itself and a
+    /// goal nobody knows are refused before anything is cancelled.
+    #[test]
+    fn a_goal_is_superseded_only_by_another_goal_that_exists() {
+        let (_dir, ws) = ws();
+        let (goal, _, run) = held_live(&ws, "superseded");
+        let itself = ws
+            .set_goal_closed(goal.id, ClosureReason::Superseded { by: goal.id })
+            .unwrap_err()
+            .to_string();
+        assert!(itself.contains("itself"), "{itself}");
+        let unknown = GoalId::from_ulid(ulid::Ulid::from_parts(99, 99));
+        let missing = ws
+            .set_goal_closed(goal.id, ClosureReason::Superseded { by: unknown })
+            .unwrap_err()
+            .to_string();
+        assert!(missing.contains(&unknown.to_string()), "{missing}");
+        assert!(ws.get_run(run).unwrap().is_live(), "nothing was cancelled");
+        assert!(!ws.get_goal(goal.id).unwrap().is_closed());
+        let other = ws.create_goal(NewGoal::captured("the next")).unwrap();
+        let (closed, cancelled) = ws
+            .set_goal_closed(goal.id, ClosureReason::Superseded { by: other.id })
+            .unwrap();
+        assert!(
+            matches!(closed.closed.unwrap().reason, ClosureReason::Superseded { by } if by == other.id)
+        );
+        assert_eq!(cancelled.len(), 1);
+    }
+
+    /// A retirement cancels the goal's runs as `retired` — the Runs list and
+    /// the journal say a retirement ended them — while the closure itself
+    /// stays `abandoned`.
+    #[test]
+    fn a_retirement_cancels_the_runs_as_retired_and_closes_the_goal_abandoned() {
+        let (_dir, ws) = ws();
+        let (goal, wf, live) = held_live(&ws, "retired");
+        let (queued, _) = ws
+            .create_run(
+                RunScope::Goal { goal: goal.id },
+                wf,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        assert!(queued.is_queued());
+        let (closed, cancelled) = ws
+            .set_goal_closed_as(
+                goal.id,
+                ClosureReason::Abandoned {
+                    rationale: Some("retired".into()),
+                },
+                bisa_core::CancelCause::Retired,
+            )
+            .unwrap();
+        assert!(matches!(
+            closed.closed.as_ref().unwrap().reason,
+            ClosureReason::Abandoned { .. }
+        ));
+        let mut ended: Vec<bisa_core::RunId> = cancelled.iter().map(|(r, _)| r.id).collect();
+        ended.sort();
+        let mut want = vec![live, queued.id];
+        want.sort();
+        assert_eq!(ended, want);
+        for id in [live, queued.id] {
+            assert_eq!(
+                ws.get_run(id).unwrap().cancelled,
+                Some(bisa_core::CancelCause::Retired),
+                "{id}"
+            );
+        }
+        let cancelled_facts = ws
+            .journal(&bisa_core::Home::Goal { goal: goal.id })
+            .unwrap()
+            .into_iter()
+            .filter(|je| matches!(&je.payload, bisa_core::JournalPayload::Run { event, .. } if event.as_str() == "cancelled"))
+            .count();
+        assert_eq!(cancelled_facts, 2, "one cancelled fact per run");
+    }
+
+    /// A queued run the goal never recorded — a crash between the run's
+    /// snapshot and the goal's — is adopted: named by the goal, indexed, a
+    /// problem recorded, and it starts in its turn. Adopting twice is
+    /// nothing.
+    #[test]
+    fn a_queued_run_the_goal_never_recorded_is_adopted_and_waits_its_turn() {
+        let (_dir, ws) = ws();
+        let (goal, wf, live) = held_live(&ws, "orphaned");
+        let (queued, _) = ws
+            .create_run(
+                RunScope::Goal { goal: goal.id },
+                wf,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.stage_crash_before_goal_recorded_run(goal.id, queued.id)
+            .unwrap();
+        assert!(
+            ws.queued_runs(goal.id).unwrap().is_empty(),
+            "the index knows nothing of it"
+        );
+        assert!(!ws.get_goal(goal.id).unwrap().runs.contains(&queued.id));
+        let adopted = ws.adopt_orphan_queued_runs().unwrap();
+        assert_eq!(adopted, vec![queued.id]);
+        let after = ws.get_goal(goal.id).unwrap();
+        assert!(after.runs.contains(&queued.id));
+        assert_eq!(
+            after.run,
+            Some(live),
+            "the live run is still the current one"
+        );
+        assert_eq!(
+            ws.queued_runs(goal.id)
+                .unwrap()
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![queued.id]
+        );
+        assert!(ws.problems().iter().any(|p| {
+            p.kind == crate::problems::ProblemKind::OrphanRun && p.path == queued.id.to_string()
+        }));
+        assert!(ws.adopt_orphan_queued_runs().unwrap().is_empty());
+        ws.record_run_event(
+            live,
+            RunEvent::Cancel {
+                cause: bisa_core::CancelCause::Stopped { rationale: None },
+            },
+        )
+        .unwrap();
+        let (started, _) = ws.start_queued_run(queued.id).unwrap();
+        assert!(started.is_live());
+    }
+
+    /// A delete racing a start never writes into a gone goal: once the
+    /// folder is gone, nothing of the goal is written again — the start
+    /// finds no goal, or landed before and was cancelled by the close.
+    #[test]
+    fn a_delete_racing_a_start_never_writes_into_a_gone_goal() {
+        for _ in 0..20 {
+            let (_dir, ws) = ws();
+            let goal = ws.create_goal(NewGoal::captured("racing")).unwrap();
+            let wf = ws
+                .create_workflow(held("Held"), bisa_core::WorkflowOrigin::Workspace)
+                .unwrap();
+            ws.set_goal_workflow(goal.id, Some(wf.id)).unwrap();
+            let dir = ws.paths().goal(goal.id).dir().to_path_buf();
+            std::thread::scope(|s| {
+                let ws = &ws;
+                let delete = s.spawn(move || {
+                    // The close may lose the race to the start: then the
+                    // goal is open and the delete refuses it.
+                    let _closed =
+                        ws.set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None });
+                    ws.delete_goal(goal.id)
+                });
+                let start = s.spawn(move || {
+                    ws.create_run(
+                        RunScope::Goal { goal: goal.id },
+                        wf.id,
+                        BTreeMap::new(),
+                        bisa_core::RunEntry::by_hand(),
+                        None,
+                    )
+                });
+                let deleted = delete.join().unwrap();
+                let started = start.join().unwrap();
+                if deleted.is_ok() {
+                    assert!(ws.get_goal(goal.id).is_err(), "the goal is gone");
+                    assert!(
+                        !dir.exists(),
+                        "nothing was written into the gone goal's folder"
+                    );
+                } else {
+                    assert!(
+                        ws.get_goal(goal.id).is_ok(),
+                        "a refused delete keeps the goal"
+                    );
+                    assert!(
+                        started.is_ok(),
+                        "the delete refused the open goal the start kept open"
+                    );
+                }
+            });
+        }
+    }
+
+    /// An orphan queued run of a closed goal, or of a workflow the goal has
+    /// since left, is ended rather than adopted — as closed, or as stopped —
+    /// and named either way.
+    #[test]
+    fn an_orphan_queued_run_of_a_closed_goal_or_of_a_workflow_the_goal_left_is_ended() {
+        let (_dir, ws) = ws();
+        // Closed meanwhile: the orphan is ended as the goal was closed.
+        let (closed_goal, wf, live) = held_live(&ws, "closed meanwhile");
+        let (orphan, _) = ws
+            .create_run(
+                RunScope::Goal {
+                    goal: closed_goal.id,
+                },
+                wf,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.stage_crash_before_goal_recorded_run(closed_goal.id, orphan.id)
+            .unwrap();
+        ws.set_goal_closed(
+            closed_goal.id,
+            ClosureReason::Abandoned {
+                rationale: Some("moved on".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ws.get_run(live)
+                .unwrap()
+                .cancelled
+                .as_ref()
+                .map(|c| c.as_str()),
+            Some("closed")
+        );
+        // Left for another workflow: the orphan is of a workflow the goal no
+        // longer runs, and is stopped.
+        let (moved_goal, wf2, live2) = held_live(&ws, "moved on");
+        let (orphan2, _) = ws
+            .create_run(
+                RunScope::Goal {
+                    goal: moved_goal.id,
+                },
+                wf2,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.stage_crash_before_goal_recorded_run(moved_goal.id, orphan2.id)
+            .unwrap();
+        ws.record_run_event(
+            live2,
+            RunEvent::Cancel {
+                cause: bisa_core::CancelCause::Stopped { rationale: None },
+            },
+        )
+        .unwrap();
+        let other = ws
+            .create_workflow(held("Other"), bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        ws.set_goal_workflow(moved_goal.id, Some(other.id)).unwrap();
+
+        assert!(
+            ws.adopt_orphan_queued_runs().unwrap().is_empty(),
+            "nothing adopted: both ended"
+        );
+        assert!(matches!(
+            ws.get_run(orphan.id).unwrap().cancelled,
+            Some(bisa_core::CancelCause::Closed { .. })
+        ));
+        assert_eq!(
+            ws.get_run(orphan2.id).unwrap().cancelled,
+            Some(bisa_core::CancelCause::Stopped { rationale: None })
+        );
+        let named: Vec<String> = ws
+            .problems()
+            .into_iter()
+            .filter(|p| p.kind == crate::problems::ProblemKind::OrphanRun)
+            .map(|p| p.path)
+            .collect();
+        assert!(
+            named.contains(&orphan.id.to_string()) && named.contains(&orphan2.id.to_string()),
+            "{named:?}"
+        );
+        assert!(ws.adopt_orphan_queued_runs().unwrap().is_empty());
     }
 }

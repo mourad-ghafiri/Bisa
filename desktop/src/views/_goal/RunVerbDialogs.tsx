@@ -24,6 +24,7 @@ import { StartRunDialog } from "../_workflow/StartRunDialog";
 import { startInputs } from "../_workflow/forms/startForm.mjs";
 import { pageFacts } from "./goalPageModel.mjs";
 import { listenOffer, liveSessionsOf, queuedRuns, restartWords, runVerbs, spawnedOpen, stopWords } from "./runControl.mjs";
+import { createLatch, once } from "./verbLatch.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export type RunVerb = "start" | "stop" | "restart";
@@ -52,7 +53,7 @@ export function RunVerbDialogs({
   const children = spawnedOpen(goals, goal.id);
   const startable = design ?? run?.workflow ?? null;
   // Whether a design waits to be adopted, whether it begins on events, and where a run by hand begins — the page's own reading (`goalPageModel`).
-  const { adoptGate, proposed, listens, manualEntry } = pageFacts({ goal, run, pendingGates: pending_gates, startable });
+  const { adoptGate, proposed, listens, manualEntry } = pageFacts({ goal, run, pendingGates: pending_gates, startable, openQuestions: guidance?.open_questions });
   const verbs = runVerbs({ goal, run, runs, guidance, proposed, startable: !!startable || !!goal.workflow, listens, manualEntry, liveSessions });
   // Starting by listening asks only what its events do not supply.
   const listen = listenOffer(verbs.start, proposed, listens);
@@ -61,23 +62,30 @@ export function RunVerbDialogs({
   const queued = queuedRuns(runs).length;
   const restartConfirm = restartWords({ live, queued, children });
 
+  // One request per press (`verbLatch`): the dialog closes at the click, and
+  // a second ask while the node answers sends nothing.
+  const latch = useRef(createLatch()).current;
   const stop = () => {
-    void attempt(() => api.stopGoal(goal.id, {}), toast.error, (s) => {
-      const n = s.withdrawn.length;
-      const ended = endedOf(s);
-      const lead = n > 0 ? t("goal-run-verb-dialogs-stopped-queued-run-runs-withdrawn", { n }) : s.stopped || (ended?.sessions ?? 0) > 0 ? t("goal-run-verb-dialogs-stopped") : t("goal-run-verb-dialogs-nothing-running");
-      // The node's own word on what it ended rides after the lead.
-      toast[stopTone(ended)](saidAfter(lead, ended));
-      onDone();
-    });
+    void once(latch, "stop", () =>
+      attempt(() => api.stopGoal(goal.id, {}), toast.error, (s) => {
+        const n = s.withdrawn.length;
+        const ended = endedOf(s);
+        const lead = n > 0 ? t("goal-run-verb-dialogs-stopped-queued-run-runs-withdrawn", { n }) : s.stopped || (ended?.sessions ?? 0) > 0 ? t("goal-run-verb-dialogs-stopped") : t("goal-run-verb-dialogs-nothing-running");
+        // The node's own word on what it ended rides after the lead.
+        toast[stopTone(ended)](saidAfter(lead, ended));
+        onDone();
+      }),
+    );
     onClose();
   };
   const restart = () => {
-    void attempt(() => api.restartGoal(goal.id), toast.error, (r) => {
-      const ended = endedOf(r);
-      toast[stopTone(ended)](saidAfter(t("goal-run-verb-dialogs-restarted"), ended));
-      onDone();
-    });
+    void once(latch, "restart", () =>
+      attempt(() => api.restartGoal(goal.id), toast.error, (r) => {
+        const ended = endedOf(r);
+        toast[stopTone(ended)](saidAfter(t("goal-run-verb-dialogs-restarted"), ended));
+        onDone();
+      }),
+    );
     onClose();
   };
 

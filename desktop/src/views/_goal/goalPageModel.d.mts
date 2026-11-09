@@ -23,7 +23,13 @@ export declare function wantsReload(payload: { type?: unknown; status?: unknown 
 export declare function headerWords(goal: { title?: string | null; statement?: string | null } | null | undefined): { title: string; subtitle: string | null };
 export declare function adoptGateOf(pendingGates: readonly GateEntry[] | null | undefined): GateEntry | undefined;
 export declare function runStanding(run: RunEnd | null | undefined): { finished: boolean; unfinished: boolean };
-export declare function isProposed(goal: Goal | null | undefined, pendingGates: readonly GateEntry[] | null | undefined): boolean;
+/** Whether an adoption is still owed among the goal's open questions, rebuilt from the journal. */
+export declare function adoptionOwed(openQuestions: readonly { gate_kind?: string; subject?: string | null }[] | null | undefined): boolean;
+export declare function isProposed(
+  goal: Goal | null | undefined,
+  pendingGates: readonly GateEntry[] | null | undefined,
+  openQuestions?: readonly { gate_kind?: string; subject?: string | null }[] | null,
+): boolean;
 export declare function ownDesignOf<T extends { origin?: { origin?: string } }>(startable: T | null | undefined): T | null;
 /** What the close dialog holds: the person's word on why, and the goal that takes this one's place. */
 export interface CloseForm {
@@ -41,4 +47,6 @@ export declare function pageFacts<T extends Design>(data: {
   run: RunEnd | null | undefined;
   pendingGates: readonly GateEntry[] | null | undefined;
   startable: T | null | undefined;
+  /** `guidance.open_questions`: an adoption the journal still holds counts as proposed. */
+  openQuestions?: readonly { gate_kind?: string; subject?: string | null }[] | null;
 }): { closed: boolean; finished: boolean; unfinished: boolean; adoptGate: GateEntry | undefined; proposed: boolean; ownDesign: T | null } & ListeningFacts;

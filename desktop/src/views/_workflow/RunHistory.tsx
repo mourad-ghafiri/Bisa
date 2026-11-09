@@ -10,19 +10,22 @@
  * runs still to end, which lead it — and *Show older* for the next
  * (`workflowRunsModel.paneWindow`, the Runs pane's own rule).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../api";
 import { setSearch } from "../../router";
 import type { RunSummary } from "../../types";
 import { Button, Chip, ICON, RUN_STATUS_ICON, RelativeTime, useToast } from "../../ui";
 import { attempt } from "../_work/useAsync";
 import { runRows } from "../_goal/runControl.mjs";
+import { createLatch, once } from "../_goal/verbLatch.mjs";
 import { RUNS_SHOWN, paneWindow } from "./workflowRunsModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export function RunHistory({ goal, runs, onChanged }: { goal: string; runs: RunSummary[]; onChanged: () => void }) {
   const toast = useToast();
   const [shown, setShown] = useState(RUNS_SHOWN);
+  // One withdrawal per press, by run (`verbLatch`).
+  const latch = useRef(createLatch()).current;
   const all = runRows(runs);
   const { rows, hidden, more } = paneWindow(all, shown);
   if (all.length === 0) return null;
@@ -54,10 +57,12 @@ export function RunHistory({ goal, runs, onChanged }: { goal: string; runs: RunS
                     size="sm"
                     variant="ghost"
                     onClick={() =>
-                      void attempt(() => api.withdrawRun(goal, r.id), toast.error, () => {
-                        toast.ok(t("workflow-run-history-withdrawn"));
-                        onChanged();
-                      })
+                      void once(latch, r.id, () =>
+                        attempt(() => api.withdrawRun(goal, r.id), toast.error, () => {
+                          toast.ok(t("workflow-run-history-withdrawn"));
+                          onChanged();
+                        }),
+                      )
                     }
                   >{t("workflow-run-history-withdraw")}</Button>
                 )}

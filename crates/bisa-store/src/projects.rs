@@ -952,6 +952,11 @@ mod tests {
             .collect();
         rebuilt.sort();
         assert_eq!(rebuilt, want);
+        ws.set_goal_closed(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
         ws.delete_goal(goal.id).unwrap();
         let survivor = ws.get_project(of_step.id).unwrap();
         assert_eq!(
