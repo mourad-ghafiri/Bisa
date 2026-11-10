@@ -1567,8 +1567,18 @@ fact under its subject, beside the `Decision` an answer is (`recovery::withdraw_
 `ops::withdraw_questions_of_goal`: the live gate, and every such question still open in the
 journal, so one whose gate died with an earlier process is taken back the same way). So the durable
 mirror reads one rule wherever it reads: **the newest fact on a subject says where the question
-stands.** The Inbox's `durable_actions` rebuilds an ask only while that fact is the question; the
-durable decide (`decide_without_engine`) takes, when nothing waits on the live run, the newest
+stands.** One reader says so for both sides — `recovery::open_questions` (the open questions of a
+family of subjects, each judged by its own newest fact) and `recovery::standing_of` (one subject) —
+so two work items' questions are two cards and answering one leaves the other owed. A family is
+always named: a step's question is journaled under its gate's id and decided under
+`approval:`/`step:<run>/<step>`, so it is read from its run's waiting step, never from the journal.
+The Inbox's `durable_actions` rebuilds an ask only while that fact is the question. A decision may
+**name its question** (`Engine::decide_subject`, `ops::decide_subject_without_engine`): the subject
+a rebuilt card carries decides exactly that — a step's subject its step of the live run, an
+adoption's, an amendment's or an agent's question where it stands (open: settled; decided: 409;
+taken back or never asked: *no longer asked*) — and never whatever else the home owes, which is
+how an approval of a rebuilt amendment beside one waiting `approval` step decided the step. The
+unnamed durable decide (`decide_without_engine`) takes, when nothing waits on the live run, the newest
 **open** question of the goal's own — an adoption, a held amendment, the designer's — refuses *no
 pending gate* when there is none, and tells a second hand that a decided one was decided (409); a
 step's question is its run's, decided through the waiting step alone. One durable decision is taken

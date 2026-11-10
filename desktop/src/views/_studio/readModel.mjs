@@ -22,6 +22,7 @@ export const NEAR_BOTTOM_PX = 80;
  * that stands unread for a gate or a notice alone.
  * @param {number | null | undefined} unreadCount
  * @param {{read: boolean} | null | undefined} row the scope's inbox row, when it has one
+ * @param {boolean} [held] the person put the scope back unread while it is open: nothing reads it until they leave
  */
 /**
  * The first unread message's id — where the *new* marker is drawn — from the
@@ -37,7 +38,8 @@ export function firstUnreadId(messages, unread) {
   return messages[messages.length - n]?.id ?? null;
 }
 
-export function readWanted(unreadCount, row) {
+export function readWanted(unreadCount, row, held = false) {
+  if (held) return false;
   return (Number(unreadCount) || 0) > 0 || (row ? !row.read : false);
 }
 

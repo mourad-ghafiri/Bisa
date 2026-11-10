@@ -37,6 +37,7 @@ pub mod ending;
 pub mod error_text;
 pub mod events;
 pub mod executor;
+pub mod feed;
 pub mod folder_git;
 pub mod framing;
 pub mod gates;
@@ -46,6 +47,7 @@ pub mod harness_usage;
 pub mod ide;
 pub mod identity;
 pub mod import;
+pub mod inbox;
 pub mod inputs;
 pub mod intake;
 pub mod interactive;
@@ -500,12 +502,6 @@ pub struct Inner {
     /// mid-settle writes nothing more — the item is left as a restart's sweep
     /// finds it, interrupted, never failed by its own engine's ending.
     pub stopping: std::sync::atomic::AtomicBool,
-    /// How many times each goal — or run of the workspace — has already been
-    /// re-asked after an "I'm not sure". Bounded by
-    /// [`EngineConfig::max_clarify_rounds`] — per question (its home and
-    /// its subject), so two steps waiting side by side spend nothing of
-    /// each other's.
-    pub clarify_rounds: DashMap<(Home, String), u8>,
     /// The homes a durable decision is being taken on right now
     /// (`ops::DecidingDurably`): one at a time per home.
     pub durable_decides: DashSet<Home>,
@@ -816,7 +812,6 @@ impl Engine {
             inflight: DashMap::new(),
             executors: std::sync::Mutex::new(Vec::new()),
             stopping: std::sync::atomic::AtomicBool::new(false),
-            clarify_rounds: DashMap::new(),
             durable_decides: DashSet::new(),
             ending_goals: DashSet::new(),
             models: ModelLedger::new(),
@@ -1613,6 +1608,43 @@ impl Engine {
             );
         }
         ops::decide_without_engine(&self.inner, home, approve, rationale, answer, inputs, step)
+    }
+
+    /// Decide the question a card names by its `subject` — what a card
+    /// rebuilt after a restart carries, having no gate id. A live gate of
+    /// the home about that subject is decided as itself (its waiter
+    /// resolves); with none, the durable mirror decides exactly that
+    /// question and never another the home owes
+    /// ([`ops::decide_subject_without_engine`]).
+    pub fn decide_subject(
+        &self,
+        home: &Home,
+        subject: &str,
+        approve: bool,
+        rationale: Option<&str>,
+        answer: Option<&Answer>,
+        inputs: Option<BTreeMap<String, serde_json::Value>>,
+    ) -> Result<DecideOutcome, EngineError> {
+        let live = self
+            .inbox()
+            .into_iter()
+            .find(|g| g.home == *home && g.resolution.is_none() && g.subject == subject);
+        if let Some(gate) = live {
+            let decided =
+                ops::decide_showing(&self.inner, &gate.id, approve, rationale, answer, inputs)?;
+            return Ok(
+                ops::outcome_of(&self.inner, home, gate.gate, approve)?.showing(decided.secrets)
+            );
+        }
+        ops::decide_subject_without_engine(
+            &self.inner,
+            home,
+            subject,
+            approve,
+            rationale,
+            answer,
+            inputs,
+        )
     }
 
     /// The `wait` steps armed right now: `(run, step, what it waits for)`.

@@ -267,18 +267,23 @@ bisa answer <goal|gate> --unsure            # you do not know
 bisa step answer <goal> <step> "…"          # the same, naming the step
 bisa step release <goal> <step>             # let a wait step through
 bisa step done <goal> <step>                # mark a human step done — an interview happened, a call was made
+bisa answer <goal> "…" --subject <subject>   # one question of several, by the subject `bisa inbox` prints
 ```
 
 **The options never limit the answer.** Free text and `--unsure` are valid on every question,
 including one the daemon reconstructed from durable state with no list at all. `--unsure` is not a
 decline: it resolves the question without deciding it and steers the agent to ask something
 narrower — *"which database?"* becomes *"does it need to survive a restart?"*. After three unsure
-answers on a goal the agent is told to proceed on its own recommendation and record the assumption
-as a note. An empty answer is refused rather than recorded. On a `human` step of a run, the last
+answers running on one question the agent is told to proceed on its own recommendation and record
+the assumption as a note; the count is the journal's, so it is the same after a restart and from a
+terminal with no node. An empty answer is refused rather than recorded. On a `human` step of a run, the last
 unsure answer fails the step with your words, and the run as the step's `on_fail` says — the gate
 is spent only on a decision the run took.
 
-Decide gates with `bisa approve [--no]`; keep `bisa answer` for questions. The inbox
+Decide gates with `bisa approve [--no] [--rationale "…"]`; `bisa answer` is for questions. The two
+are kept apart: words typed at a decision gate — an adoption, an `approval` step, a held `wait`, a
+yes-or-no question — are refused, naming `bisa approve`, and decide nothing; a verdict's reason
+travels as its rationale. `bisa step answer` and `bisa step done` answer a `human` step alone. The inbox
 labels which is which — `?` for a question, `⏸` for a gate, `•` for a notice you have not read — and
 prints the right command under each row.
 

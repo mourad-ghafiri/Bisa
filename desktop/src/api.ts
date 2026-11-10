@@ -1318,7 +1318,11 @@ export const api = {
     q.set("limit", String(limit));
     return get<PulsePage>(`/pulse?${q.toString()}`, s);
   },
-  markRead: (scope: string, s?: AbortSignal) => post<{ ok: boolean }>("/read", { scope }, s),
+  /// Read a scope up to `at` — the newest moment its reader was shown, a
+  /// row's `latest_at` — so what arrived after it stays unread; none named
+  /// is up to now. `at` rides only when there is one.
+  markRead: (scope: string, at?: number, s?: AbortSignal) =>
+    post<{ ok: boolean; at?: number }>("/read", at === undefined ? { scope } : { scope, at }, s),
   markUnread: (scope: string, s?: AbortSignal) => post<{ ok: boolean }>("/unread", { scope }, s),
 
   // --- channels / messages -------------------------------------------------

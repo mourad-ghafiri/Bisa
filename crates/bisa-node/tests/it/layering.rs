@@ -727,10 +727,6 @@ fn declared(files: &[(PathBuf, String)]) -> Vec<Declared> {
 /// the reason it takes what it does not know.
 const READ_AND_NO_BODY: &[(&str, &str)] = &[
     (
-        "PulseMessage",
-        "a row of the activity index typed back: the store's shape",
-    ),
-    (
         "SendParams",
         "A2A's `message/send`: another protocol's message",
     ),

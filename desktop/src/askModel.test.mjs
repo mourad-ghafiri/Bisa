@@ -182,7 +182,16 @@ test("a step-scoped ask names its step on the wire, a goal-scoped one does not, 
   const release = { gate_id: null, step: "hold", durable: true, expects: { kind: "decision" } };
   assert.deepEqual(decideBody(release, empty), { approve: true, step: "hold" }, "a held step is released by name");
   const amend = { gate_id: null, step: null, durable: true, subject: "amend:r@w", expects: { kind: "decision" } };
-  assert.deepEqual(decideBody(amend, empty), { approve: true }, "an amendment is the goal's, not a step's");
+  assert.deepEqual(decideBody(amend, empty), { approve: true, subject: "amend:r@w" }, "an amendment is the goal's, not a step's — named by its subject, so a step waiting beside it is never decided in its place");
+  // A live gate is named by its id and a step by its name: neither needs the subject, and a node from before it never sees the key.
+  assert.equal("subject" in decideBody({ gate_id: "gate-7", subject: "adopt:w@1", expects: { kind: "decision" } }, empty), false);
+  assert.equal("subject" in decideBody({ ...release, subject: "release:r/hold" }, empty), false);
+  // An agent's question rebuilt after a restart: answered as itself.
+  assert.deepEqual(decideBody({ gate_id: null, step: null, durable: true, subject: "ask_human:01ITEM", expects: { kind: "answer" } }, { selected: [], text: "eu" }), {
+    approve: true,
+    subject: "ask_human:01ITEM",
+    answer: { selected: [], text: "eu", unsure: false },
+  });
   assert.deepEqual(decideBody({ ...asking(), step: "ask" }, { selected: ["sqlite"], text: "" }), {
     approve: true,
     gate: "gate-7",

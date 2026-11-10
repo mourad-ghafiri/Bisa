@@ -117,6 +117,7 @@ Finder* and the conversation's gallery of versions; see [Artifacts](artifacts.md
 Every thing that has ever concerned you earns an inbox row and keeps it — a channel that named
 you, a direct channel, a goal that asked, a conversation that moved, a workflow whose listener
 could not start its run;
-`bisa inbox` prints the same rows the desktop shows, with the offered options under each
-question, each unread notice, and the right command under each row. The rows, their asks and their
+`bisa inbox` prints the same rows the desktop shows — with no node running, the same rows less what
+only a running node holds: a gate an agent waits at and a harness waiting in a terminal — with the
+offered options under each question, each unread notice, and the command that settles each ask. The rows, their asks and their
 notices are in [`the-desktop.md`](the-desktop.md#inbox).

@@ -8,6 +8,14 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Security
+
+- **The spreadsheet reader is SheetJS 0.20.3**, from the copy kept in `desktop/vendor/`. The `xlsx`
+  package on the npm registry stopped at 0.18.5, which two published advisories name (prototype
+  pollution, GHSA-4r6h-8v6p-xvw6; a slow regular expression, GHSA-5pgg-2g8v-p4x9); SheetJS
+  publishes on its own site and recommends keeping the tarball beside the project. A `.xlsx`,
+  `.xls` or `.ods` file opens as before, and the advisory check of the licence gate passes.
+
 ### Added
 
 - **A skill can carry reference sections, read on demand.** A heading `## Reference: <Title>` in a
@@ -92,6 +100,18 @@ notes (`docs/contributing/release.md`).
 - **`bisa search --archived`** lists the goals put away.
 - **The start door says what it made.** `POST /goals/{id}/run` and `…/restart` answer `kind`: `run`
   for a run, `listening` for a goal that was armed.
+- **An `inbox` frame says whether its key has a row** (`listed`), and always carries the row's
+  notice counts. A client that holds no row for a key with none has nothing to read again.
+- **A row is read up to what was shown.** `POST /read` takes an optional `at` — the newest moment
+  its reader drew, a row's `latest_at` — and what arrived after it stays unread. The answer carries
+  `at`, the mark as it stands. A client that names no moment reads up to now, as before.
+- **`bisa answer` and `bisa approve` take `--subject`**, the question by the subject `bisa inbox`
+  prints when a goal or a run owes several; `bisa approve` takes a live gate's id through the node,
+  as `bisa answer` does; `bisa read <scope> --at <seconds>` reads up to a moment, and `--json` says
+  the mark as it stands.
+- **A decide names its question.** `POST /goals/{id}/decide` and `POST /runs/{rid}/decide` take an
+  optional `subject` — what every ask of `GET /inbox` carries. Exactly that question is decided,
+  live or rebuilt after a restart, and never another the home owes; one already answered is `409`.
 
 ### Changed
 
@@ -121,6 +141,15 @@ notes (`docs/contributing/release.md`).
   answered a sentence as a result; it is told *Not done* now, like every other refusal.
 - **`bisa close --json` carries `ended` on both paths**, `null` when an engine of the command's own
   closed the goal.
+- **A project and its primary workstream are one Inbox row.** They share an id, so two rows could
+  carry one key, one read mark and one selection. What happens in the primary checkout — a script,
+  a pull request, a committer wanted — is on the project's row, and a frame for that key says
+  `project`.
+- **A decision dates its row.** A row whose ask was decided is dated by the decision, so one taken
+  by somebody else while you were away is news; your own decision and your own post leave the row
+  read.
+- **A person who left keeps their Inbox row** while a notice still concerns them, as the route
+  always said.
 
 ### Fixed
 
@@ -164,6 +193,94 @@ notes (`docs/contributing/release.md`).
   packages that nested old ones, and `happy-dom`, a test dependency, moves to 21.
 - **`scripts/coverage/measure shell` works with nextest installed.** The shell's own workspace has
   its `.config/nextest.toml` now, with the `coverage` profile the measurer asks for.
+- **Words typed at a decision gate approved it.** `bisa answer <goal> "no, use postgres"` on an
+  adoption adopted the workflow and started its run, and on an `approval` step approved it — the
+  text was dropped; `bisa step answer` and `step done` did the same, and released a held `wait`
+  step. A decision takes a verdict: a typed answer on one is refused over HTTP and on the command
+  line, naming `bisa approve [--no] [--rationale]`, and nothing is decided.
+- **Marking a row unread collapsed its count to one.** Putting a scope back moved its read
+  watermark to now, so three unread messages became one and every notice on the row counted as
+  unread. The watermark stays where it was: what was unread still is, and a row with nothing new
+  counts one.
+- **A read mark could move backwards.** A later mark that named an earlier moment, or a clock
+  stepped back, replaced the newer watermark and unread what had been read. The mark moves forward
+  only, and a moment in the future is taken as now.
+- **A read mark was kept for any string.** `POST /read` and `POST /unread` took a scope no row
+  could be keyed by and kept a marker for it. Such a string is a `400` in words now; the id of a
+  thing that is gone is still taken, so a row deleted under its reader never turns a read into an
+  error.
+- **The Inbox's keys fought the person.** `j` from a row a filter had hidden landed on the second
+  row; `Esc` cleared a selection that was picked again at once; `u` was undone a moment later by
+  the row reading itself; an ask's card took the keyboard on every selection, so the next `j` was
+  typed into an answer; `e`, `u`, `o` and `Enter` acted on the selected row while focus stood on
+  another. Each is the model's rule now, with its test, and `Esc` inside an ask goes back to its
+  row.
+- **An ask on a workflow's or a project's row was not drawn.** The pane showed what happened and
+  no card: a run's approval could be seen in the list and answered only on the run's page. Every
+  row draws its asks.
+- **The Inbox missed a rename and a deletion.** A goal renamed, archived or deleted, a workflow
+  deleted, a project archived or deleted moved the sidebar's badge and not the open list.
+- **Mark all read and a join's Admit could be pressed twice**, and the rows waited for the node to
+  look read. One press sends, and the rows read at once.
+- **A link to an Inbox row could open another.** The rows the window kept were judged before the
+  node answered, so a row new since then lost to the first of the kept ones.
+- **Two doors to one terminal.** A session row's header and its card both said *Open the terminal*
+  and only the card brought the harness's tab to the front. They are one door.
+- **`bisa inbox` with no node showed other rows.** It printed a goal's name with no ask, no notice
+  and no read state, called every other row a channel, and failed whole on one unreadable run. It
+  is built by the node's own builder now: the same rows in the same order, minus what only a
+  running engine has.
+- **The command under an inbox ask did not always work.** A held `wait` was printed as
+  `bisa approve … [--no]`, which refuses it; several waiting steps were printed without `--step`,
+  which is refused; an amendment was offered `--input`; an answered question read "escalation
+  approved". Each line is the command that settles its ask, and a handled question reads as
+  answered.
+- **`bisa --json approve` with no node printed two JSON documents** when the approval moved the run
+  on. It prints one: the decision, with where the run settled as `followed`.
+- **A gate's id given with no node** was refused as naming "no goal and no run". The refusal says a
+  gate's id is a running node's to know and what to pass.
+- **A rebuilt card could decide another question.** A card rebuilt after a restart has no gate id,
+  so approving a held amendment while one approval step waited decided the step. The card's
+  `subject` on the decide names its own question.
+- **One unreadable workstream record failed every list that named it.** The store has a tolerant
+  list beside the strict one (`list_workstreams_readable`): the readable records, and why each of
+  the others could not be read.
+- **Two agents' questions in one run hid each other.** After a restart the Inbox rebuilt only the
+  newest question of a run, and once that one was answered an older one still open never showed —
+  though the command line could still answer it. Each open question is its own card now, with its
+  work item, read by the same per-subject rule the decide uses; a goal's run shows its work items'
+  questions the same way.
+- **Approving a rebuilt card could decide something else.** A card rebuilt after a restart has no
+  gate to name, so approving a held amendment while one `approval` step waited approved the step.
+  The engine can decide a question by its subject (`Engine::decide_subject`); the route and the
+  clients name it in the phases that follow.
+- **The "not sure" budget began again at every restart**, and never ran out for `bisa answer
+  --unsure` with no node. It is counted from the journal.
+- **A worker's question outlived the worker.** A question an agent asked while working a step
+  (`ask_human`) stayed in the Inbox after its session was stopped, its step cancelled or the node
+  restarted — answerable, and heard by nobody. Its gate is bound to the session that asked and goes
+  with it, with a `withdrawn` fact and a note; a restart withdraws a work item's question the same
+  way and keeps the goal's own.
+- **A question asked twice was two cards.** A retried `ask_human` opened a second gate, and two
+  open gates on one goal made an unnamed decision refuse. The same question again answers the gate
+  already open; a reworded one replaces it.
+- **Decided gates were kept for the life of the process**, and every Inbox read walked them all. A
+  decided gate is kept one hour — for its asker to read the answer — then forgotten; the journal
+  holds the decision.
+- **A live `inbox` frame could disagree with the list.** The frame was a second copy of the row's
+  arithmetic: it dated a row from nothing where the list dates it from the thing's creation, judged
+  `read` without the row's notices on a message's frame, and had no people at all — so a people
+  row's notices were cleared by every frame. A frame is a projection of the row now, built by the
+  function the list uses.
+- **One unreadable record cost the whole Inbox, answered as *not found*.** A workstream record or
+  a member file this node cannot read costs its own rows, said in the log; a read that fails is a
+  500 in words.
+- **A run's ask vanished with its workflow's file.** The workflow's row stays, titled by the name
+  the run carries.
+- **Your own post made a row unread.** A row is unread for what somebody else brought.
+- **Two rows of one second could trade places between reads.** The order ends in the key.
+- **Every Inbox read opened every goal's journal**, and verified each event's signature. A journal
+  is read only for a goal that ever journaled a question and is still open.
 
 ## [0.7.0] - 2026-11-06
 

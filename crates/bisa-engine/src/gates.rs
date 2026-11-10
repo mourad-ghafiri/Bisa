@@ -101,6 +101,23 @@ impl GateEntry {
 struct GateSlot {
     entry: GateEntry,
     tx: watch::Sender<Option<GateResolution>>,
+    /// When the gate was decided — what its keeping is counted from
+    /// ([`Gates::prune_resolved`]). `None` while it is pending.
+    resolved_at: Option<u64>,
+}
+
+/// How long a decided gate is kept: its asker may come back for the answer
+/// (`await_decision` reads the slot), and a second decision that names it is
+/// told it was decided. Past this it is forgotten — the journal holds the
+/// decision — so the registry holds what is pending and the last hour's
+/// answers, not every gate the process ever opened.
+pub const RESOLVED_KEPT_SECS: u64 = 60 * 60;
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[derive(Default)]
@@ -229,6 +246,9 @@ impl Gates {
         question: String,
         expects: AskKind,
     ) -> (String, watch::Receiver<Option<GateResolution>>) {
+        // Opening is where the registry grows, so it is where it is kept
+        // small: what was decided long ago goes first.
+        self.prune_resolved(now_secs());
         let id = ulid::Ulid::from_datetime(SystemTime::now()).to_string();
         let (run, step) = match step {
             Some((r, s)) => (Some(r), Some(s)),
@@ -245,16 +265,30 @@ impl Gates {
             subject,
             question,
             expects,
-            opened_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            opened_at: now_secs(),
             resolution: None,
         };
         let (tx, rx) = watch::channel(None);
-        self.slots
-            .insert(id.clone(), Arc::new(GateSlot { entry, tx }));
+        self.slots.insert(
+            id.clone(),
+            Arc::new(GateSlot {
+                entry,
+                tx,
+                resolved_at: None,
+            }),
+        );
         (id, rx)
+    }
+
+    /// Forget the gates decided [`RESOLVED_KEPT_SECS`] or more before `now`;
+    /// a pending gate is never forgotten. Answers how many went.
+    pub fn prune_resolved(&self, now: u64) -> usize {
+        let before = self.slots.len();
+        self.slots.retain(|_, slot| {
+            slot.resolved_at
+                .is_none_or(|at| now.saturating_sub(at) < RESOLVED_KEPT_SECS)
+        });
+        before - self.slots.len()
     }
 
     /// Pending gates, oldest first — the inbox.
@@ -317,6 +351,15 @@ impl Gates {
             .collect()
     }
 
+    /// The pending gates one work item asked through — bound to a session or
+    /// not: what goes with the item when it is cancelled.
+    pub fn pending_for_work_item(&self, work_item: WorkItemId) -> Vec<GateEntry> {
+        self.pending()
+            .into_iter()
+            .filter(|g| g.work_item == Some(work_item))
+            .collect()
+    }
+
     /// The pending gates of one home — a goal, or a run of the workspace.
     pub fn pending_for_home(&self, home: &Home) -> Vec<GateEntry> {
         self.pending()
@@ -372,6 +415,7 @@ impl Gates {
         *slot = Arc::new(GateSlot {
             entry: entry.clone(),
             tx: tx.clone(),
+            resolved_at: Some(now_secs()),
         });
         drop(slot);
         // No receiver means nobody is waiting on this gate, which is not a fault.
@@ -467,6 +511,35 @@ mod tests {
                 AskKind::Decision,
             )
             .0
+    }
+
+    /// A decided gate is kept for its waiter — who may come back for the
+    /// answer — and for the hand that names it again, then forgotten; a
+    /// pending one is kept however old.
+    #[test]
+    fn a_resolved_gate_is_kept_for_its_waiter_then_pruned() {
+        let gates = Gates::new();
+        let decided = open(&gates);
+        let pending = open(&gates);
+        gates
+            .resolve(&decided, true, None, "event".into(), None)
+            .expect("resolved");
+        let now = now_secs();
+        assert_eq!(gates.prune_resolved(now + RESOLVED_KEPT_SECS - 5), 0);
+        assert!(
+            gates.get(&decided).is_some_and(|g| g.resolution.is_some()),
+            "its answer is still there to be read"
+        );
+        assert_eq!(gates.prune_resolved(now + RESOLVED_KEPT_SECS + 5), 1);
+        assert!(gates.get(&decided).is_none(), "forgotten");
+        assert!(
+            gates.get(&pending).is_some(),
+            "a pending gate is never pruned"
+        );
+        assert_eq!(gates.pending().len(), 1);
+        // Opening a gate prunes on its way: nothing old is here to go.
+        open(&gates);
+        assert_eq!(gates.pending().len(), 2);
     }
 
     #[test]

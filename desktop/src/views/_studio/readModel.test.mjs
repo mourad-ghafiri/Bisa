@@ -12,6 +12,9 @@ test("a read is wanted for unread messages, or for a row unread by a gate or a n
   assert.ok(!readWanted(0, { read: true }));
   assert.ok(!readWanted(0, null), "nothing known, nothing wanted");
   assert.ok(!readWanted(undefined, undefined));
+  // Put back unread by hand: nothing reads it while it stays open.
+  assert.ok(!readWanted(2, { read: false }, true), "held: the thread does not read itself");
+  assert.ok(readWanted(2, { read: false }, false));
 });
 
 test("the newest message is seen when the window is visible, the thread is at its bottom and the first page has landed", () => {

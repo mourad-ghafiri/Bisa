@@ -995,3 +995,50 @@ async fn a_blank_revised_statement_is_refused_in_words_and_a_padded_one_trimmed(
     );
     engine.shutdown().await;
 }
+
+/// One gate per question: the same question asked again — a retried call —
+/// answers the gate already open and journals nothing twice; a reworded one
+/// replaces it, and whoever waited on the old gate hears it vanished.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_ask_is_one_gate_and_a_reworded_one_replaces_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let id = goal(&engine);
+    let ask = |question: &str| json!({"op": "ask_human", "goal": id.to_string(), "question": question, "expects": "decision"});
+    let first = op(&engine, ask("ship it?")).await;
+    let gate = first["gate"].as_str().expect("a gate").to_string();
+    let again = op(&engine, ask("ship it?")).await;
+    assert_eq!(again["gate"], json!(gate), "the same gate: {again}");
+    let subject = format!("ask_human:{id}");
+    let questions = || {
+        engine
+            .workspace()
+            .journal(&bisa_core::Home::Goal { goal: id })
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(&e.payload, bisa_core::event::JournalPayload::Question { gate, .. } if *gate == subject))
+            .count()
+    };
+    assert_eq!(questions(), 1, "asked once in the journal");
+    assert_eq!(engine.inbox().len(), 1, "one card");
+
+    // Somebody waits on the first gate while the question is reworded.
+    let socket = engine.socket_path().to_path_buf();
+    let waited = gate.clone();
+    let waiter = tokio::spawn(async move {
+        intake_roundtrip(&socket, json!({"op": "await_decision", "gate": waited})).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    let reworded = op(&engine, ask("ship it today?")).await;
+    let newer = reworded["gate"].as_str().expect("a gate").to_string();
+    assert_ne!(newer, gate);
+    let pending = engine.inbox();
+    assert_eq!(pending.len(), 1, "still one card: {pending:?}");
+    assert_eq!(pending[0].question, "ship it today?");
+    assert_eq!(questions(), 2, "the reworded question is the newest fact");
+    let heard = waiter.await.unwrap();
+    assert!(refused(&heard).contains("gate vanished"), "{heard}");
+    // The one that stands is decided as any gate is.
+    engine.decide(&newer, true, None, None, None).unwrap();
+    assert!(engine.inbox().is_empty());
+}

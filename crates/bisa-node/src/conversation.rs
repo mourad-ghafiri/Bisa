@@ -395,10 +395,10 @@ async fn react(
 
 async fn mark_read(
     State(state): State<Shared>,
-    crate::Body(body): crate::Body<ScopeBody>,
+    crate::Body(body): crate::Body<ReadBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    bisa_engine::messaging::mark_read(state.engine.inner(), &body.scope)?;
-    Ok(Json(json!({"ok": true})))
+    let at = bisa_engine::messaging::mark_read(state.engine.inner(), &body.scope, body.at)?;
+    Ok(Json(json!({"ok": true, "at": at})))
 }
 
 async fn mark_unread(
@@ -480,11 +480,11 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/read",
-        summary: "Mark a scope read: `{scope}`.",
+        summary: "Mark a scope read: `{scope, at?}` → `{ok, at}`. `scope` is a row's `key`; `at` is the newest moment its reader was shown (a row's `latest_at`), so what arrived after it stays unread — absent, the scope is read up to now. The mark never moves backwards and a moment in the future is now; the answer's `at` is the mark as it stands. A string no row could be keyed by is a 400.",
     },
     RouteDoc {
         method: "POST",
         path: "/unread",
-        summary: "Mark a scope unread: `{scope}`.",
+        summary: "Put a scope back unread: `{scope}`. Its true count is kept — a scope with nothing new counts one. A string no row could be keyed by is a 400.",
     },
 ];

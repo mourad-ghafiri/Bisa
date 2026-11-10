@@ -251,7 +251,11 @@ is a process that outlived its driver, ended at the next boot if nothing else do
 **A session that is stopped while it waits is released**, and one stopped while it starts never
 runs. A worker or a design wake at a permission, a question or a gate is blocked on the Inbox's
 answer; a stop or a cancelled step (`cancel_work`, a divert, an amendment) withdraws every gate the
-session opened (`GateEntry.session`, `Gates::pending_for_session`), journals a `withdrawn` fact on
+session opened (`GateEntry.session`, `Gates::pending_for_session`) — a worker's own question
+(`ask_human`) among them: its gate is bound to the session that asked, and whatever its work item
+asked through no session goes with the item (`Gates::pending_for_work_item`, from
+`executor::cancel_item`). The goal's own question, the designer's, is bound to no session and
+outlives its wake. Each withdrawal journals a `withdrawn` fact on
 the home, and answers the harness a refusal in words (`GateResolution.withdrawn`;
 `inputs::WITHDRAWN`) that is **never remembered as the person's *no*** — the guard's record of a
 person's decision is not written for it — so the driver's next pass sees the stop and the harness is

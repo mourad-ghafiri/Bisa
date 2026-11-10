@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingAbout, waitingOf, waitingWords, wantsList, withReadMark, askTitle, rank } from "./inboxModel.mjs";
+import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, moveTarget, actionTarget, askFocus, readsItself, allRead, markAt, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingAbout, waitingOf, waitingWords, wantsList, withReadMark, askTitle, rank } from "./inboxModel.mjs";
 
 /** A row with everything the node sends, so a test only states what it means. */
 function row(over = {}) {
@@ -464,6 +464,10 @@ test("the chords: j k move, Enter and o open, a focuses the ask, e and u mark, E
   assert.equal(keyAction("x", ctx), null);
   assert.equal(keyAction("j", { ...ctx, inInput: true }), null);
   assert.equal(keyAction("j", { ...ctx, inAsk: true }), null);
+  // Escape inside an ask leaves it — back to the row — and clears nothing.
+  assert.equal(keyAction("Escape", { ...ctx, inAsk: true, inInput: true }), "leave_ask");
+  assert.equal(keyAction("Escape", { ...ctx, inAsk: true, modifier: true }), null);
+  assert.equal(keyAction("Escape", { ...ctx, inInput: true }), null, "the composer's Escape is its own");
   assert.equal(keyAction("j", { ...ctx, modifier: true }), null);
   assert.equal(keyAction("j", { ...ctx, hasSelection: false }), "next", "moving needs no selection");
   assert.equal(keyAction("Enter", { ...ctx, hasSelection: false }), null, "opening does");
@@ -676,7 +680,7 @@ test("mark all read goes a few at a time, each row once, and nothing for nothing
   assert.ok(MARKS_AT_ONCE >= 2 && MARKS_AT_ONCE <= 16);
   const view = readFileSync(new URL("../Inbox.tsx", import.meta.url), "utf8");
   const mark = view.slice(view.indexOf("const markAllRead"), view.indexOf("const move = "));
-  assert.ok(mark.includes("for (const batch of markBatches(keys)) await Promise.all(batch.map((k) => api.markRead(k)))"), "the screen sends them as the model groups them");
+  assert.ok(mark.includes("for (const batch of markBatches(keys)) await Promise.all(batch.map((k) => api.markRead(k, shown.get(k))))"), "the screen sends them as the model groups them");
   assert.ok(/finally \{[\s\S]*ws\.refresh\(\);[\s\S]*await load\(\);/.test(mark), "whichever marks landed, the list is read: a mark that failed halfway leaves no row lying");
 });
 
@@ -752,4 +756,103 @@ test("a row's rank is its state's bucket — owed first, then unread, then read 
   assert.deepEqual([rowState(owed), rowState(unread), rowState(read)], ["waiting", "unread", "read"]);
   assert.deepEqual([rank(owed), rank(unread), rank(read)], [0, 1, 2]);
   assert.ok(compareRows(owed, unread) < 0 && compareRows(unread, read) < 0, "the sort follows the rank before the time");
+});
+
+// ---------------------------------------------------------------------------
+// The screen does what its model says: moves, Escape, focus, reading
+// ---------------------------------------------------------------------------
+
+test("j from a hidden selection lands on the first row, k on the last — never on the second", () => {
+  const visible = [row({ key: "a" }), row({ key: "b" }), row({ key: "c" })];
+  // The selection is a row a filter has hidden: the move starts the list, it does not skip its first row.
+  assert.equal(moveTarget(visible, "hidden", 1), "a");
+  assert.equal(moveTarget(visible, "hidden", -1), "c");
+  assert.equal(moveTarget(visible, null, 1), "a");
+  // In view: one step, held at the ends.
+  assert.equal(moveTarget(visible, "a", 1), "b");
+  assert.equal(moveTarget(visible, "b", -1), "a");
+  assert.equal(moveTarget(visible, "a", -1), "a");
+  assert.equal(moveTarget(visible, "c", 1), "c");
+  assert.equal(moveTarget([], "a", 1), null, "nothing to move through");
+});
+
+test("escape clears and nothing re-picks: a selection dismissed stays none until the person picks again", () => {
+  const known = [row({ key: "a" }), row({ key: "b" })];
+  assert.equal(nextSelection(known, known, null, true), null, "dismissed: no row is chosen for them");
+  assert.equal(nextSelection(known, known, null, false), "a", "never dismissed: the first row, as before");
+  assert.equal(nextSelection(known, known, null), "a", "a caller from before the flag picks as it always has");
+  // A selection that stands is never moved by the flag, and one whose thing is gone is not replaced while dismissed.
+  assert.equal(nextSelection(known, known, "b", true), "b");
+  assert.equal(nextSelection(known, known, "vanished", true), null);
+});
+
+test("keys act on the focused row: the row focus stands on, else the selected one", () => {
+  assert.equal(actionTarget("b", "a"), "b", "Tab moved focus to another row: e, u, o and Enter are about it");
+  assert.equal(actionTarget(null, "a"), "a", "focus on the page or the list itself: the selection");
+  assert.equal(actionTarget(null, null), null);
+  assert.equal(actionTarget("", "a"), "a");
+});
+
+test("an ask takes focus when the person came for it — a click, the ask key, a link — never on a move or a frame", () => {
+  for (const cause of ["pointer", "ask_key", "link"]) assert.equal(askFocus(cause), true, cause);
+  // j and k walk the list: a card that grabbed focus would have the next j typed into its answer.
+  for (const cause of ["move", "frame", "auto", undefined, null]) assert.equal(askFocus(cause), false, String(cause));
+});
+
+test("a row marked unread is not read again while it stays open", () => {
+  const quiet = row({ key: "wf", kind: "workflow", read: false });
+  assert.equal(readsItself(quiet, null), true, "a row with no conversation reads itself after its beat");
+  assert.equal(readsItself(quiet, "wf"), false, "put back unread by hand: it stays so while it is open");
+  assert.equal(readsItself(quiet, "another"), true, "another row's hold is not this one's");
+  assert.equal(readsItself(row({ key: "wf", kind: "workflow", read: true }), null), false, "nothing to read");
+  assert.equal(readsItself(row({ key: "g", kind: "goal", read: false }), null), false, "a conversation reads itself in its own thread");
+  assert.equal(readsItself(null, null), false);
+});
+
+test("an ask on a workflow row is in its detail: every kind's asks are drawn, with or without a conversation", () => {
+  const wf = row({ key: "wf", kind: "workflow", needs_action: [gate({ subject: "approval:r/ship", step: "ship" })] });
+  assert.equal(conversationOf(wf), null, "a workflow has no thread of its own");
+  assert.equal(needsOf(wf).length, 1, "and its ask is still the row's to draw");
+  const view = readFileSync(new URL("../Inbox.tsx", import.meta.url), "utf8");
+  const quiet = view.slice(view.indexOf("function QuietDetail"), view.indexOf("export default function Inbox"));
+  assert.ok(quiet.includes("<Asks "), "the quiet pane draws the asks above what happened");
+});
+
+test("an unlisted frame reloads nothing, and a frame for a row nobody holds still does when it is listed", () => {
+  const rows = [row({ key: "a" })];
+  const frame = { key: "general", kind: "channel", unread_count: 1, needs_action_count: 0, latest_at: 9, read: false, handled: false, notice_count: 0, unread_notices: 0 };
+  assert.equal(needsReload(rows, { ...frame, listed: false }), false, "the node says there is no row: nothing to read again");
+  assert.equal(needsReload(rows, { ...frame, listed: true }), true, "a row we do not hold yet");
+  assert.equal(needsReload(rows, frame), true, "a node from before the word: as it always was");
+  // A row we hold that the node no longer lists is patched, never dropped under the reader.
+  const held = { ...frame, key: "a", listed: false, read: true, unread_count: 0 };
+  assert.equal(needsReload(rows, held), false);
+  assert.equal(applyDelta(rows, held).length, 1);
+});
+
+test("every retiring frame reloads the list", () => {
+  for (const type of ["goal_updated", "goal_deleted", "goal_archived", "workflow_deleted", "project_deleted", "project_archived"]) {
+    assert.ok(RELOAD_ON.includes(type), type);
+    assert.ok(wantsList({ stream: "engine", payload: { payload: { type } } }), type);
+  }
+});
+
+test("mark all read sends each row its own mark once, and shows them read at once", () => {
+  const rows = [row({ key: "a", read: false, unread_count: 2, latest_at: 50 }), row({ key: "b", read: true }), row({ key: "c", read: false, unread_notices: 1, notices: [notice()], needs_action: [gate()], latest_at: 70 })];
+  const next = allRead(rows, ["a", "c", "a"]);
+  assert.deepEqual(next.map((r) => [r.key, r.read, r.unread_count, r.unread_notices]), [["a", true, 0, 0], ["b", true, 0, 0], ["c", true, 0, 0]]);
+  assert.equal(next[1], rows[1], "a row already read is the same object");
+  assert.equal(next[2].needs_action.length, 1, "what is owed is never cleared by a read");
+  assert.equal(allRead(rows, []), rows, "nothing to mark, nothing moved");
+  // Each mark names what was shown: the row's own clock.
+  assert.equal(markAt(rows, "a"), 50);
+  assert.equal(markAt(rows, "c"), 70);
+  assert.equal(markAt(rows, "nobody"), undefined, "a scope with no row is read up to now");
+  assert.equal(markAt([row({ key: "z", latest_at: 0 })], "z"), undefined, "a row with no clock names no moment");
+});
+
+test("two rows of one second keep one order: by key, as the node sorts them", () => {
+  const rows = [row({ key: "b", latest_at: 5 }), row({ key: "a", latest_at: 5 }), row({ key: "c", latest_at: 5 })];
+  assert.deepEqual(visibleRows(rows, "all", "any").map((r) => r.key), ["a", "b", "c"]);
+  assert.deepEqual(visibleRows([...rows].reverse(), "all", "any").map((r) => r.key), ["a", "b", "c"]);
 });

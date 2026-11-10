@@ -721,6 +721,19 @@ pub async fn runs(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
 /// down. Shared with `new --workflow` and `approve`, which start a run inside
 /// a process that would otherwise exit and take the engine with it.
 pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> Result<()> {
+    let settled = follow_to(engine, out, id, watch).await?;
+    out.json_value(settled);
+    Ok(())
+}
+
+/// [`follow`], with where the goal settled handed back instead of printed
+/// for `--json` — for a verb whose one JSON answer holds it beside its own.
+pub async fn follow_to(
+    engine: Arc<Engine>,
+    out: &Out,
+    id: GoalId,
+    watch: bool,
+) -> Result<serde_json::Value> {
     let style = Style::stderr();
     let mut rx = engine.events();
     let mut poll = tokio::time::interval(Duration::from_secs(2));
@@ -791,9 +804,8 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
             .unwrap_or_default())
         .to_string()
     ));
-    out.json_value(json!({"goal": id.to_string(), "status": status, "run": run}));
     shutdown(engine).await;
-    Ok(())
+    Ok(json!({"goal": id.to_string(), "status": status, "run": run}))
 }
 
 /// One line per step that waits, with the verb that moves it — naming `id`,
@@ -1107,6 +1119,19 @@ async fn follow_via_node(
 /// engine until it settles: finished, or waiting on a person. Then shut the
 /// engine down: the work would die with this process otherwise.
 pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) -> Result<()> {
+    let settled = follow_run_to(engine, out, id, watch).await?;
+    out.json_value(settled);
+    Ok(())
+}
+
+/// [`follow_run`], with where the run settled handed back instead of
+/// printed for `--json`.
+pub async fn follow_run_to(
+    engine: Arc<Engine>,
+    out: &Out,
+    id: RunId,
+    watch: bool,
+) -> Result<serde_json::Value> {
     let style = Style::stderr();
     let mut rx = engine.events();
     let mut poll = tokio::time::interval(Duration::from_secs(2));
@@ -1155,9 +1180,9 @@ pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) 
             }
         }
     };
-    settled(out, &run);
+    let settled = settled(out, &run);
     shutdown(engine).await;
-    Ok(())
+    Ok(settled)
 }
 
 /// Follow one run by its id on the daemon — tail its activity, poll the run
@@ -1214,24 +1239,24 @@ pub async fn follow_run_via_node(
             }
         }
     };
-    settled(out, &run);
+    out.json_value(settled(out, &run));
     Ok(())
 }
 
-/// Where a followed run settled, said and handed to `--json`.
-fn settled(out: &Out, run: &WorkflowRun) {
+/// Where a followed run settled: said, and handed back for `--json`.
+fn settled(out: &Out, run: &WorkflowRun) -> serde_json::Value {
     out.say(&bisa_core::text!(
         "cli-run-run-is",
         run = run.id.to_string(),
         status = run.status().as_str().to_string()
     ));
-    out.json_value(json!({
+    json!({
         "run": run.id.to_string(),
         "scope": run.scope.as_str(),
         "goal": run.scope.goal().map(|g| g.to_string()),
         "status": run.status(),
         "outcome": run.outcome,
-    }));
+    })
 }
 
 #[cfg(test)]

@@ -587,6 +587,7 @@ fn main() {
     add!(dto::OpenDmBody, "OpenDmBody");
     add!(dto::ReactBody, "ReactBody");
     add!(dto::ScopeBody, "ScopeBody");
+    add!(dto::ReadBody, "ReadBody");
     add!(dto::NewAgentBody, "NewAgentBody");
     add!(dto::PatchAgentBody, "PatchAgentBody");
     add!(dto::NewSkillBody, "NewSkillBody");

@@ -1126,6 +1126,22 @@ impl Workspace {
 
     /// The newest `limit` activity rows under any of `kinds`, newest first
     /// — what the Inbox classifies into notices. One bounded read.
+    /// The sources — `(kind, id)`: a goal, or the workflow a run of the
+    /// workspace runs — the feed holds a row of `kind` for. Every journal
+    /// fact is a row of the feed, recorded on append and replayed by a
+    /// rebuild, so "which homes ever journaled a question" is one indexed
+    /// read instead of every home's journal.
+    pub fn activity_sources_of_kind(
+        &self,
+        kind: &str,
+    ) -> Result<std::collections::HashSet<(String, String)>, StoreError> {
+        Ok(self
+            .idx()
+            .activity_sources_of_kind(kind)?
+            .into_iter()
+            .collect())
+    }
+
     pub fn activity_by_kinds(
         &self,
         kinds: &[&str],

@@ -945,16 +945,34 @@ impl Workspace {
     // Read markers (local-only)
     // ------------------------------------------------------------------
 
+    /// Read a scope up to now — [`Self::mark_read_up_to`] with no moment named.
     pub fn mark_read(&self, scope: &str) -> Result<(), StoreError> {
-        self.idx().set_read_marker(scope, now_secs(), false)?;
+        self.mark_read_up_to(scope, None).map(|_| ())
+    }
+
+    /// Read a scope **up to what was shown**: `at` is the newest moment the
+    /// reader drew — a row's `latest_at`, the last message printed — so what
+    /// arrived after it stays unread; none named is now. A moment in the
+    /// future is now (nothing not yet said is read), and the watermark never
+    /// moves backwards: a slow client's older mark, or a clock stepped back,
+    /// unreads nothing. Answers the watermark as it stands, and says the
+    /// marker was set even when it did not move — the row is read again.
+    pub fn mark_read_up_to(&self, scope: &str, at: Option<u64>) -> Result<u64, StoreError> {
+        let now = now_secs();
+        let kept = self
+            .idx()
+            .advance_read_marker(scope, at.map_or(now, |at| at.min(now)))?;
         self.emit_store_event(StoreEvent::ReadMarkerSet {
             scope: scope.to_string(),
         });
-        Ok(())
+        Ok(kept)
     }
 
+    /// Put a scope back deliberately. The watermark stays where it was, so
+    /// what was truly unread still counts — three unread stay three — and a
+    /// scope with nothing new counts one.
     pub fn mark_unread(&self, scope: &str) -> Result<(), StoreError> {
-        self.idx().set_read_marker(scope, now_secs(), true)?;
+        self.idx().force_unread(scope)?;
         self.emit_store_event(StoreEvent::ReadMarkerSet {
             scope: scope.to_string(),
         });

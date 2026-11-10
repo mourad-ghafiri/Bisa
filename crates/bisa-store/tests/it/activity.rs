@@ -568,3 +568,45 @@ fn a_fact_the_log_holds_and_the_index_missed_is_a_row_again_after_a_rebuild() {
         "a second rebuild adds nothing"
     );
 }
+
+/// The homes that ever journaled a question are read from the index — one
+/// read, no journal — and are the same after a rebuild: a goal by its id, a
+/// home that asked nothing absent.
+#[test]
+fn the_homes_that_ever_asked_are_read_from_the_index_and_survive_a_rebuild() {
+    let (_d, ws) = ws();
+    let asked = ws.create_goal(NewGoal::captured("asked once")).unwrap();
+    let quiet = ws.create_goal(NewGoal::captured("never asked")).unwrap();
+    let owner = ws.owner_keys().clone();
+    ws.append_journal(
+        &bisa_core::Home::Goal { goal: asked.id },
+        JournalPayload::Question {
+            work_item: None,
+            gate: format!("ask_human:{}", asked.id),
+            text: "Which database?".into(),
+            expects: bisa_core::AskKind::free_text(),
+        },
+        &owner,
+        None,
+    )
+    .unwrap();
+    let read = |ws: &Workspace| {
+        let homes = ws.activity_sources_of_kind("question").unwrap();
+        (
+            homes.contains(&("goal".to_string(), asked.id.to_string())),
+            homes.contains(&("goal".to_string(), quiet.id.to_string())),
+            homes.len(),
+        )
+    };
+    assert_eq!(read(&ws), (true, false, 1));
+    assert!(ws
+        .activity_sources_of_kind("no_such_kind")
+        .unwrap()
+        .is_empty());
+    ws.rebuild_index().unwrap();
+    assert_eq!(
+        read(&ws),
+        (true, false, 1),
+        "the rebuild replays the journal's rows"
+    );
+}

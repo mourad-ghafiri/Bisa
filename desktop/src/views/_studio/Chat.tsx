@@ -706,7 +706,10 @@ export function Chat({
   restore,
   composerLeading,
   onComposerKeyDownCapture,
+  holdRead = false,
 }: {
+  /** The person put this thread back unread while it is open (the Inbox's `u`): it does not read itself until they leave. */
+  holdRead?: boolean;
   scope: string;
   kind: ScopeKind;
   /** What a conversation is about (13 § Origins), when the scope is one: who `@` offers and reaches. */
@@ -834,6 +837,7 @@ export function Chat({
     host: hosted?.host ?? null,
     unreadCount: hosted ? hostedUnread(ws.hosted, hosted.host, scope) : (ws.unread[scope] ?? 0),
     shown: shownToReader({ visible, atBottom, loaded: !conv.loading }),
+    held: holdRead,
   });
 
   const grouped = useMemo(() => threads(conv.messages), [conv.messages]);

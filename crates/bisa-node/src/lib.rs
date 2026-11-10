@@ -27,13 +27,17 @@
 //! `{stream: "engine", payload: EngineEvent}` |
 //! `{stream: "conversation", payload: {scope, kind, event_id, author, snippet, unread_count, latest}}` |
 //! `{stream: "inbox",  payload: {key, kind, unread_count, needs_action_count,
-//! latest_at, read, handled, notice_count?, unread_notices?}}`.
+//! latest_at, read, handled, listed, notice_count, unread_notices, waiting?}}`.
 //!
 //! The `inbox` frame rides alongside the frame that caused it — a message
 //! arriving, a gate opening or being decided, a goal moving, a notice on a
 //! workstream, a project or a workflow, a listener that failed, a read
-//! marker set — and carries one row's whole inbox state; the two notice
-//! counts ride only when the cause could have moved them. It exists so a
+//! marker set — and carries one row's whole inbox state: a projection of
+//! the row `GET /inbox` holds for the key, built by the same function
+//! (`bisa_engine::inbox`), so the two never disagree. `listed` says whether
+//! the key has a row at all; `false` — a channel nobody named you in, a
+//! session no longer waiting — is a frame with nothing owed, and a client
+//! holding no row for it has nothing to read again. It exists so a
 //! list can change a row *in place* rather than refetch and replace the
 //! array underneath a selection somebody is using.
 
@@ -1297,7 +1301,7 @@ async fn events(
                     Ok(ev) => ev,
                     Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)), // LCOV_EXCL_LINE: a reader that fell behind the bus; a race no test can time
                 };
-                let inbox = inbox_key_of(&ev).and_then(|key| inbox::delta(&st, &key, true));
+                let inbox = inbox_key_of(&ev).and_then(|key| inbox::delta(&st, &key));
                 let mut frames = vec![json!({"stream": "engine", "payload": ev})];
                 frames.extend(inbox.map(|p| json!({"stream": "inbox", "payload": p})));
                 Some(frames)
@@ -1348,7 +1352,7 @@ async fn events(
                             }
                         })];
                         frames.extend(
-                            inbox::delta(&st, &scope, false)
+                            inbox::delta(&st, &scope)
                                 .map(|p| json!({"stream": "inbox", "payload": p})),
                         );
                         Some(frames)
@@ -1357,7 +1361,7 @@ async fn events(
                     // claiming otherwise would put a phantom line in every
                     // activity timeline listening for one. Only the row's own state moved.
                     StoreEvent::ReadMarkerSet { scope } => Some(
-                        inbox::delta(&st, &scope, true)
+                        inbox::delta(&st, &scope)
                             .map(|p| vec![json!({"stream": "inbox", "payload": p})])
                             .unwrap_or_default(),
                     ),

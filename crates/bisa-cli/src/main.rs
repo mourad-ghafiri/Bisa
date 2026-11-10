@@ -30,6 +30,7 @@ mod decisions;
 mod files;
 mod gitsetup;
 mod identity;
+mod inbox;
 mod inputs;
 mod listening;
 mod localize;
@@ -159,10 +160,15 @@ enum Command {
         /// or `approval` steps waiting and no gate id was given
         #[arg(long)]
         step: Option<String>,
+        /// Which question is meant, by its subject — `bisa inbox` prints it
+        /// when a goal or a run owes several
+        #[arg(long)]
+        subject: Option<String>,
     },
-    /// List pending approvals
+    /// What concerns you, one row a thing: its asks with the command that
+    /// settles each, its notices, what is unread
     Inbox,
-    /// Decide a pending gate (pass a goal's id, or a run's)
+    /// Decide a pending gate (pass a goal's id, a run's, or the gate's)
     Approve {
         id: String,
         /// Reject instead of approving
@@ -177,6 +183,10 @@ enum Command {
         /// or `human` steps waiting
         #[arg(long)]
         step: Option<String>,
+        /// Which question is meant, by its subject — `bisa inbox` prints it
+        /// when a goal or a run owes several
+        #[arg(long)]
+        subject: Option<String>,
     },
     /// Begin a goal's work and follow it — or follow the live run: a goal
     /// whose workflow begins on events listens, any other runs; `--new`
@@ -480,7 +490,13 @@ enum Command {
         concept: String,
     },
     /// Mark a conversation read
-    Read { scope: String },
+    Read {
+        scope: String,
+        /// Read up to this moment (Unix seconds) — what arrived after it
+        /// stays unread. Absent, up to now
+        #[arg(long)]
+        at: Option<u64>,
+    },
     /// Mark a conversation unread
     Unread { scope: String },
     /// The relays this node talks through (`sync.relays`) and direct peers
@@ -867,6 +883,7 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             options,
             unsure,
             step,
+            subject,
         } => {
             answer(
                 ctx,
@@ -875,7 +892,10 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
                 text.as_deref(),
                 &options,
                 unsure,
-                parse_step(step.as_deref())?,
+                Named {
+                    step: parse_step(step.as_deref())?,
+                    subject,
+                },
             )
             .await
         }
@@ -884,13 +904,14 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
         Command::Step { command } => step::step(ctx, out, command).await,
         Command::Design { goal } => design(ctx, out, &goal).await,
         Command::Amend { goal, from } => amend(ctx, out, &goal, &from).await,
-        Command::Inbox => inbox(ctx, out).await,
+        Command::Inbox => inbox::inbox(ctx, out).await,
         Command::Approve {
             id,
             no,
             rationale,
             inputs,
             step,
+            subject,
         } => {
             approve(
                 ctx,
@@ -899,7 +920,10 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
                 !no,
                 rationale.as_deref(),
                 inputs::Typed::parse(&inputs)?,
-                parse_step(step.as_deref())?,
+                Named {
+                    step: parse_step(step.as_deref())?,
+                    subject,
+                },
             )
             .await
         }
@@ -1044,8 +1068,8 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
         } => studio::messages(ctx, out, &scope, limit, before).await,
         Command::Dm { command } => studio::dm(ctx, out, command).await,
         Command::Pulse { limit, concept } => studio::pulse(ctx, out, limit, &concept).await,
-        Command::Read { scope } => studio::read_marker(ctx, out, &scope, true).await,
-        Command::Unread { scope } => studio::read_marker(ctx, out, &scope, false).await,
+        Command::Read { scope, at } => studio::read_marker(ctx, out, &scope, true, at).await,
+        Command::Unread { scope } => studio::read_marker(ctx, out, &scope, false, None).await,
         Command::Relay { command } => match command {
             RelayCmd::Add { url } => net::relay_add(ctx, out, &url).await,
             RelayCmd::List => net::relay_list(ctx, out).await,
@@ -1432,6 +1456,78 @@ fn parse_step(raw: Option<&str>) -> Result<Option<bisa_core::StepId>> {
         .transpose()
 }
 
+/// Which of several asks a decision is about, as the person named it: a
+/// waiting step, or a question by its subject.
+struct Named {
+    step: Option<bisa_core::StepId>,
+    subject: Option<String>,
+}
+
+/// The body of a decide, as the node takes it. `subject` rides only when
+/// the person named one: a node from before it refuses a key it does not
+/// know, and every other decide is the body it always was.
+fn decide_body(
+    approve: bool,
+    rationale: Option<&str>,
+    answer: Option<&Answer>,
+    inputs: Option<serde_json::Value>,
+    gate: Option<&str>,
+    named: &Named,
+) -> serde_json::Value {
+    let mut body = json!({"approve": approve, "gate": gate, "step": named.step});
+    if let Some(rationale) = rationale {
+        body["rationale"] = json!(rationale);
+    }
+    if let Some(answer) = answer {
+        body["answer"] = json!(answer);
+    }
+    if let Some(inputs) = inputs {
+        body["inputs"] = inputs;
+    }
+    if let Some(subject) = &named.subject {
+        body["subject"] = json!(subject);
+    }
+    body
+}
+
+/// The home an id names with no node to ask: a goal's, or a run's. A gate's
+/// id is a running node's to know, so one given here is refused in a
+/// sentence that says what to pass.
+fn home_offline(ws: &bisa_store::Workspace, id: &str) -> Result<bisa_core::Home> {
+    match target::Target::resolve(ws, id) {
+        Ok(found) => found.home(ws),
+        Err(_) => bail!(bisa_core::text!(
+            "cli-main-no-goal-or-run-and-gates-need-node",
+            id = format!("{id:?}")
+        )),
+    }
+}
+
+/// The decision made on an embedded engine: the question named by its
+/// subject, else whatever the home owes.
+fn decide_offline(
+    engine: &bisa_engine::Engine,
+    home: &bisa_core::Home,
+    approve: bool,
+    rationale: Option<&str>,
+    answer: Option<&Answer>,
+    inputs: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+    named: &Named,
+) -> std::result::Result<DecideOutcome, bisa_engine::EngineError> {
+    match &named.subject {
+        Some(subject) => engine.decide_subject(home, subject, approve, rationale, answer, inputs),
+        None => engine.decide_durable(
+            home,
+            approve,
+            rationale,
+            answer,
+            inputs,
+            None,
+            named.step.as_ref(),
+        ),
+    }
+}
+
 async fn answer(
     ctx: &Ctx,
     out: &Out,
@@ -1439,7 +1535,7 @@ async fn answer(
     text: Option<&str>,
     options: &[String],
     unsure: bool,
-    step: Option<bisa_core::StepId>,
+    named: Named,
 ) -> Result<()> {
     let answer = Answer {
         selected: options.to_vec(),
@@ -1456,11 +1552,11 @@ async fn answer(
     }
     // A gate id is accepted too — resolve it to its home first.
     if let Some(client) = ctx.node_client().await {
-        let (home, gate) = resolve_answer_target_via_node(ctx, &client, id).await?;
+        let (home, gate) = resolve_decide_target_via_node(ctx, &client, id).await?;
         let v = client
             .post(
                 &target::decide_route(&home),
-                json!({"approve": true, "answer": answer, "gate": gate, "step": step}),
+                decide_body(true, None, Some(&answer), None, gate.as_deref(), &named),
             )
             .await?;
         let outcome: DecideOutcome = serde_json::from_value(v).context(bisa_core::text!(
@@ -1470,10 +1566,9 @@ async fn answer(
         return Ok(());
     }
     let ws = ctx.workspace()?;
-    let home = target::Target::resolve(&ws, id)?.home(&ws)?;
+    let home = home_offline(&ws, id)?;
     let (engine, _) = ctx.engine().await?;
-    let outcome =
-        engine.decide_durable(&home, true, None, Some(&answer), None, None, step.as_ref());
+    let outcome = decide_offline(&engine, &home, true, None, Some(&answer), None, &named);
     engine.shutdown().await;
     say_answered(out, &outcome?);
     Ok(())
@@ -1493,9 +1588,10 @@ fn say_answered(out: &Out, outcome: &DecideOutcome) {
     }));
 }
 
-/// Accept a goal's id, a run's, or a live gate's id for `answer`: the home
-/// it is decided through, and the gate when one was named.
-async fn resolve_answer_target_via_node(
+/// Accept a goal's id, a run's, or a live gate's id for `answer` and
+/// `approve`: the home it is decided through, and the gate when one was
+/// named.
+async fn resolve_decide_target_via_node(
     ctx: &Ctx,
     client: &client::NodeClient,
     id: &str,
@@ -1715,61 +1811,6 @@ async fn amend(ctx: &Ctx, out: &Out, goal: &str, from: &str) -> Result<()> {
     Ok(())
 }
 
-/// The inbox: the conversations that have ever wanted something from you,
-/// kept once earned and marked read rather than deleted. Rows come from a
-/// running daemon (which knows about live gates); without one, the durable
-/// blocked-overlay view is the fallback — and that fallback is still the old
-/// "open gate or unread" query, because the membership facts it would need
-/// live behind the node's inbox route.
-async fn inbox(ctx: &Ctx, out: &Out) -> Result<()> {
-    let rows: Vec<serde_json::Value> = if let Some(client) = ctx.node_client().await {
-        let v = client.get("/inbox").await?;
-        v["rows"].as_array().cloned().unwrap_or_default()
-    } else {
-        let ws = ctx.workspace()?;
-        let mut rows = Vec::new();
-        let unread: std::collections::HashMap<String, u64> =
-            ws.unread_counts()?.into_iter().collect();
-        for goal in ws.list_goals(None)? {
-            let key = goal.id.to_string();
-            let n = unread.get(&key).copied().unwrap_or(0);
-            let run = ws.get_current_run(goal.id)?;
-            let status = goal.status(run.as_ref());
-            // One rule for "whose move": the core's holder projection —
-            // the same word the node and the desktop print.
-            let owed = goal.holder(run.as_ref(), false) == bisa_core::Holder::You;
-            if !owed && n == 0 {
-                continue;
-            }
-            rows.push(json!({
-                "key": key,
-                "kind": "goal",
-                "title": goal.title.clone().unwrap_or_else(|| goal.statement.chars().take(80).collect()),
-                "unread_count": n,
-                "status": status,
-                "needs_action": [],
-            }));
-        }
-        for (scope, n) in unread {
-            if rows.iter().any(|r| r["key"] == json!(scope)) || n == 0 {
-                continue;
-            }
-            let title = bisa_core::ChannelId::new(&scope)
-                .ok()
-                .and_then(|c| ws.get_channel(&c).ok())
-                .map(|c| c.name)
-                .unwrap_or_else(|| scope.clone());
-            rows.push(json!({
-                "key": scope, "kind": "channel", "title": title,
-                "unread_count": n, "needs_action": [],
-            }));
-        }
-        rows
-    };
-    render_inbox(out, &rows);
-    Ok(())
-}
-
 /// Gate decision. A running daemon owns the live gates (waiters resolve
 /// immediately); otherwise the durable mirror applies the decision.
 ///
@@ -1782,35 +1823,44 @@ async fn approve(
     approve: bool,
     rationale: Option<&str>,
     inputs: inputs::Typed,
-    step: Option<bisa_core::StepId>,
+    named: Named,
 ) -> Result<()> {
-    let ws = ctx.workspace()?;
-    let home = target::Target::resolve(&ws, id)?.home(&ws)?;
-    let listened = listens(&ws, &home);
-    let inputs = inputs.read_for_home(&ws, &home);
-    drop(ws);
     if let Some(client) = ctx.node_client().await {
+        let (home, gate) = resolve_decide_target_via_node(ctx, &client, id).await?;
+        let inputs = inputs.read_for_home(&ctx.workspace()?, &home);
         let outcome = client
             .post(
                 &target::decide_route(&home),
-                json!({"approve": approve, "rationale": rationale, "inputs": inputs, "step": step}),
+                decide_body(
+                    approve,
+                    rationale,
+                    None,
+                    Some(json!(inputs)),
+                    gate.as_deref(),
+                    &named,
+                ),
             )
             .await?;
         let outcome: DecideOutcome = serde_json::from_value(outcome).context(bisa_core::text!(
             "cli-main-unexpected-decide-payload-from-node"
         ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
-        render_decision(out, &outcome);
+        out.json_value(say_decision(out, &outcome));
         return Ok(());
     }
+    let ws = ctx.workspace()?;
+    let home = home_offline(&ws, id)?;
+    let listened = listens(&ws, &home);
+    let inputs = inputs.read_for_home(&ws, &home);
+    drop(ws);
     let (engine, _) = ctx.engine().await?;
-    let outcome = engine.decide_durable(
+    let outcome = decide_offline(
+        &engine,
         &home,
         approve,
         rationale,
         None,
         Some(inputs),
-        None,
-        step.as_ref(),
+        &named,
     );
     let outcome = match outcome {
         Ok(o) => o,
@@ -1819,7 +1869,7 @@ async fn approve(
             return Err(e.into());
         }
     };
-    render_decision(out, &outcome);
+    let mut decided = say_decision(out, &outcome);
     // An adoption that made the goal listen armed it where nothing hears.
     if !listened && listens(engine.workspace(), &home) {
         out.say(&bisa_core::text!("cli-listening-no-node")); // LCOV_EXCL_LINE an adoption that listens, approved offline, which no journey stages; out by decision
@@ -1827,14 +1877,18 @@ async fn approve(
     // An approval that started or moved a run would die with this process:
     // follow it to a settlement the way `bisa run` does — the goal's, or the
     // run of the workspace itself. (With a daemon the running engine
-    // already carries it.)
+    // already carries it.) Where it settled rides in the one JSON answer,
+    // as `followed`.
     if approve && outcome.status.is_running() {
         let engine = std::sync::Arc::new(engine);
-        return match home {
-            bisa_core::Home::Goal { goal } => run::follow(engine, out, goal, true).await,
-            bisa_core::Home::Run { run } => run::follow_run(engine, out, run, true).await, // LCOV_EXCL_LINE a run of the workspace followed after its approval offline, which no journey stages; out by decision
+        decided["followed"] = match home {
+            bisa_core::Home::Goal { goal } => run::follow_to(engine, out, goal, true).await?,
+            bisa_core::Home::Run { run } => run::follow_run_to(engine, out, run, true).await?, // LCOV_EXCL_LINE a run of the workspace followed after its approval offline, which no journey stages; out by decision
         };
+        out.json_value(decided);
+        return Ok(());
     }
+    out.json_value(decided);
     engine.shutdown().await;
     Ok(())
 }
@@ -1845,7 +1899,7 @@ fn listens(ws: &bisa_store::Workspace, home: &bisa_core::Home) -> bool {
         bisa_core::Home::Goal { goal } => ws
             .get_goal(*goal)
             .is_ok_and(|goal| goal.listening.is_some()),
-        bisa_core::Home::Run { .. } => false,
+        bisa_core::Home::Run { .. } => false, // LCOV_EXCL_LINE a run of the workspace approved with no node, which no journey stages; out by decision
     }
 }
 
@@ -2798,136 +2852,9 @@ fn spent_line(spent: &bisa_core::goal::BudgetSpent) -> String {
     ))
 }
 
-/// Conversation rows, questions first. A question shows how to answer it;
-/// a gate shows how to decide it.
-fn render_inbox(out: &Out, rows: &[serde_json::Value]) {
-    if rows.is_empty() {
-        out.say(&bisa_core::text!(
-            "cli-main-inbox-empty-nothing-waiting-you"
-        ));
-    }
-    for r in rows {
-        let key = r["key"].as_str().unwrap_or("");
-        let title = r["title"].as_str().unwrap_or("");
-        let unread = r["unread_count"].as_u64().unwrap_or(0);
-        let badge = if unread > 0 {
-            format!("  {unread} unread")
-        } else {
-            String::new()
-        };
-        // Rows are kept once earned, so the list holds conversations you have
-        // already dealt with. Without a mark for read the terminal has no way
-        // to say so, and every row looks equally owed.
-        let mark = if r["read"].as_bool().unwrap_or(false) {
-            "·"
-        } else {
-            "●"
-        };
-        out.human(&format!(
-            "{mark} {key}  {}  {title}{badge}",
-            r["kind"].as_str().unwrap_or("")
-        ));
-        if r["handled"].as_bool().unwrap_or(false) {
-            let d = &r["decided"];
-            out.human(&format!(
-                "   ✓ {} {}",
-                d["gate_kind"].as_str().unwrap_or("gate"),
-                if d["approve"].as_bool().unwrap_or(false) {
-                    "approved"
-                } else {
-                    "declined"
-                }
-            ));
-        }
-        for a in r["needs_action"].as_array().cloned().unwrap_or_default() {
-            // The id the printed command takes: the row's own for a goal, the
-            // run's for a decision filed on a run of the workspace — whose
-            // row is keyed by its workflow, which `answer` and `approve`
-            // do not take.
-            let key = target::hint_id(key, &a);
-            let question = a["question"].as_str().unwrap_or("");
-            if a["expects"]["kind"].as_str() == Some("answer") {
-                let offered: Vec<String> = a["expects"]["options"]
-                    .as_array()
-                    .map(|os| {
-                        os.iter()
-                            .map(|o| {
-                                format!(
-                                    "[{}] {}{}",
-                                    o["id"].as_str().unwrap_or(""),
-                                    o["label"].as_str().unwrap_or(""),
-                                    if o["recommended"].as_bool().unwrap_or(false) {
-                                        " (recommended)"
-                                    } else {
-                                        ""
-                                    }
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                // The two escape hatches are always shown, whether or not the
-                // asker offered options: they belong to the platform, so a
-                // narrower question cannot take them away.
-                let hint = if offered.is_empty() {
-                    format!("     → bisa answer {key} \"…\"  |  --unsure")
-                } else {
-                    format!(
-                        "     {}\n     → bisa answer {key} -o <id> [\"…\"]  |  --unsure",
-                        offered.join("  ")
-                    )
-                };
-                out.human(&format!("   ? {question}\n{hint}"));
-            } else {
-                let inputs_hint =
-                    if a["gate_kind"].as_str() == Some("approval") && a["step"].is_null() {
-                        " [--input k=v]"
-                    } else {
-                        ""
-                    };
-                out.human(&format!(
-                    "   ⏸ {question}\n     → bisa approve {key} [--no]{inputs_hint}"
-                ));
-            }
-        }
-        if let Some(status) = r["status"].as_str() {
-            if status == "waiting" && r["needs_action"].as_array().is_none_or(|a| a.is_empty()) {
-                out.human(&format!("   ⏸ waiting — see: bisa status {key}"));
-            }
-        }
-        if let Some(rep) = r["representative"].as_object() {
-            out.human(&format!(
-                "   ✉ {}",
-                rep.get("snippet").and_then(|s| s.as_str()).unwrap_or("")
-            ));
-        }
-        // What happened to it, the unread ones only: a notice is read here
-        // and opened there, and the row says how many the terminal did not print.
-        let unread_notices = r["unread_notices"].as_u64().unwrap_or(0) as usize;
-        let notices = r["notices"].as_array().cloned().unwrap_or_default();
-        for n in notices.iter().take(unread_notices) {
-            out.human(&format!(
-                "   • {}{}",
-                n["notice"].as_str().unwrap_or("").replace('_', " "),
-                n["title"]
-                    .as_str()
-                    .map(|t| format!(" — {t}"))
-                    .unwrap_or_default()
-            ));
-        }
-        if notices.len() > unread_notices && unread_notices > 0 {
-            // LCOV_EXCL_START the read notices counted, which no journey stages; out by decision
-            out.say(&bisa_core::text!(
-                "cli-main-you-have-read",
-                a0 = (notices.len() - unread_notices).to_string()
-            ));
-            // LCOV_EXCL_STOP
-        }
-    }
-    out.json_value(json!({"rows": rows}));
-}
-
-fn render_decision(out: &Out, outcome: &DecideOutcome) {
+/// A decision said to its person; its JSON answer is handed back, for the
+/// verb to print once.
+fn say_decision(out: &Out, outcome: &DecideOutcome) -> serde_json::Value {
     let decided = if outcome.approve {
         "approved"
     } else {
@@ -2975,13 +2902,13 @@ fn render_decision(out: &Out, outcome: &DecideOutcome) {
     if let bisa_core::Home::Goal { goal } = home {
         say_minted(out, goal, &secrets);
     }
-    out.json_value(json!({
+    json!({
         "home": home,
         "gate": outcome.gate,
         "approve": outcome.approve,
         "status": status,
         "secrets": secrets,
-    }));
+    })
 }
 
 /// `bisa doctor`: the setup gate's five checks, in the terminal (16 — The

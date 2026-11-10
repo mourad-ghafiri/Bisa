@@ -116,10 +116,27 @@ pub fn react(inner: &Arc<Inner>, event_id: &str, emoji: &str) -> Result<String, 
     Ok(inner.ws.react(event_id, emoji, None)?)
 }
 
-pub fn mark_read(inner: &Arc<Inner>, scope: &str) -> Result<(), EngineError> {
-    Ok(inner.ws.mark_read(scope)?)
+/// Read a scope up to `at` — the newest moment its reader was shown — or up
+/// to now when none is named; answers the mark as it stands, which never
+/// moves backwards ([`bisa_store::Workspace::mark_read_up_to`]).
+pub fn mark_read(inner: &Arc<Inner>, scope: &str, at: Option<u64>) -> Result<u64, EngineError> {
+    a_key(scope)?;
+    Ok(inner.ws.mark_read_up_to(scope, at)?)
 }
 
+/// Put a scope back unread; its true count is kept.
 pub fn mark_unread(inner: &Arc<Inner>, scope: &str) -> Result<(), EngineError> {
+    a_key(scope)?;
     Ok(inner.ws.mark_unread(scope)?)
+}
+
+/// A mark is kept only for a key a row could have ([`crate::inbox::is_key`]).
+fn a_key(scope: &str) -> Result<(), EngineError> {
+    if crate::inbox::is_key(scope) {
+        return Ok(());
+    }
+    Err(EngineError::Invalid(bisa_core::text!(
+        "error-engine-invalid-not-a-key",
+        scope = scope.to_string()
+    )))
 }

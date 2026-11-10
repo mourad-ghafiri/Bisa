@@ -200,7 +200,15 @@ On the desktop:
   row saying its `origin` — its door *Open the conversation*; the Pulse files its messages
   under Channels; an `ConversationCreated` or `ConversationChanged` frame moves every list.
 - **Read is the thread's own doing.** One local watermark per scope (`read_markers`, `POST /read`;
-  a row is read when the watermark stands at or past its newest message, gate or notice), moved by
+  a row is read when the watermark stands at or past its newest message, gate or notice). The
+  store's mark is *read up to* (`Workspace::mark_read_up_to(scope, at)`): it moves forward only —
+  an older mark, or a clock stepped back, unreads nothing — and a moment in the future is now.
+  `POST /read` carries the moment as `at` (a row's `latest_at`; none named is now) and answers the
+  mark as it stands; a string no row could be keyed by (`bisa_engine::inbox::is_key`) is refused on
+  `/read` and `/unread`, so no marker is kept for nothing.
+  Putting a scope back (`mark_unread`) sets a flag and leaves the watermark, so what was truly
+  unread still counts — three unread stay three, and a scope with nothing new counts one, its
+  notices by the same rule. The watermark is moved by
   the one component that shows a thread, `views/_studio/Chat.tsx`, through `useReadAsShown` over
   `readModel.mjs` — never by a route: when the scope has something to read (`readWanted`: unread
   messages, or an inbox row unread for a gate or a notice alone) and the person can see the newest

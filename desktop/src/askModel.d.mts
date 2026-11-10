@@ -43,6 +43,8 @@ export interface NormalizedOption {
 export interface DecideRequest {
   approve: boolean;
   gate?: string;
+  /** The question by its subject — sent for an ask with no gate and no step, so that question alone is decided. */
+  subject?: string;
   rationale?: string;
   answer?: Answer;
   /** Run inputs, sent only with an approval — an adoption starts the run with them. */

@@ -343,11 +343,18 @@ fn orphaned_items(inner: &Arc<Inner>, run: &WorkflowRun) -> Vec<WorkItemId> {
 }
 
 /// The subjects of questions no durable ask stands behind: a publish, a
-/// guard's escalation, a permission. Their asker died with the process.
-fn dies_with_its_asker(subject: &str) -> bool {
+/// guard's escalation, a permission — and a work item's own question
+/// (`ask_human:<work item>`): its session died with the process, the item
+/// runs again and asks again, and an answer to the old one would reach
+/// nobody. The home's own question (`ask_human:<home>`, the designer's)
+/// stays: the design is told the answer when it comes.
+fn dies_with_its_asker(subject: &str, home: &Home) -> bool {
     subject.starts_with("workstream:")
         || subject.starts_with("guard:")
         || subject.starts_with("permission:")
+        || subject
+            .strip_prefix("ask_human:")
+            .is_some_and(|asker| asker != home.id())
 }
 
 /// Withdraw every such question still open on an unclosed goal or a run of
@@ -441,7 +448,9 @@ fn open_dead_questions(inner: &Arc<Inner>, home: &Home) -> Vec<(String, String)>
     let Ok(journal) = inner.ws.journal(home) else {
         return Vec::new();
     };
-    still_open(journal.iter().map(|e| &e.payload), dies_with_its_asker)
+    still_open(journal.iter().map(|e| &e.payload), |subject| {
+        dies_with_its_asker(subject, home)
+    })
 }
 
 /// The questions of a journal, oldest fact first, that nothing settled,
@@ -475,18 +484,211 @@ pub(crate) fn still_open<'a>(
     open
 }
 
+/// One question a journal still holds open: what was asked, how it may be
+/// answered, by which work item, and when.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenQuestion {
+    pub subject: String,
+    pub text: String,
+    pub expects: bisa_core::AskKind,
+    pub work_item: Option<bisa_core::WorkItemId>,
+    pub at: u64,
+}
+
+/// [`still_open`] with everything a card needs: the questions nothing
+/// settled, newest first, among the subjects `applies` picks out — the one
+/// reader the Inbox rebuilds its asks from and the durable decide finds its
+/// question with, so what is shown is what can be decided.
+///
+/// `applies` names a **family of subjects** (`adopt:`, `amend:`,
+/// `ask_human:` …), never everything: a step's own question is journaled
+/// under its gate's id while its decision is filed under
+/// `approval:<run>/<step>` or `step:<run>/<step>`, so no fact ever settles
+/// that id and a reader of every subject would call each one open for good.
+/// A step's question is read from its run, where its state says it waits.
+pub fn open_questions(
+    journal: &[bisa_core::event::JournalEvent],
+    applies: impl Fn(&str) -> bool,
+) -> Vec<OpenQuestion> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut open = Vec::new();
+    for e in journal.iter().rev() {
+        match &e.payload {
+            JournalPayload::Question {
+                work_item,
+                gate,
+                text,
+                expects,
+            } if applies(gate) => {
+                if seen.insert(gate) {
+                    open.push(OpenQuestion {
+                        subject: gate.clone(),
+                        text: text.clone(),
+                        expects: expects.clone(),
+                        work_item: *work_item,
+                        at: e.at,
+                    });
+                }
+            }
+            JournalPayload::Decision { subject, .. }
+            | JournalPayload::Withdrawn { subject, .. }
+                if applies(subject) =>
+            {
+                seen.insert(subject);
+            }
+            _ => {}
+        }
+    }
+    open
+}
+
+/// Where one subject stands in a journal: its newest fact says.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QuestionStanding {
+    /// Asked, and nothing settled it since.
+    Open(OpenQuestion),
+    /// A decision is its newest fact.
+    Decided,
+    /// Taken back — by the asker, a person's own act, or a restart.
+    Withdrawn,
+    /// The journal holds no fact on it.
+    NeverAsked,
+}
+
+/// The standing of `subject` alone — what a decision that names its
+/// question asks before it records anything.
+pub fn standing_of(journal: &[bisa_core::event::JournalEvent], subject: &str) -> QuestionStanding {
+    for e in journal.iter().rev() {
+        match &e.payload {
+            JournalPayload::Question {
+                work_item,
+                gate,
+                text,
+                expects,
+            } if gate == subject => {
+                return QuestionStanding::Open(OpenQuestion {
+                    subject: gate.clone(),
+                    text: text.clone(),
+                    expects: expects.clone(),
+                    work_item: *work_item,
+                    at: e.at,
+                });
+            }
+            JournalPayload::Decision { subject: s, .. } if s == subject => {
+                return QuestionStanding::Decided;
+            }
+            JournalPayload::Withdrawn { subject: s, .. } if s == subject => {
+                return QuestionStanding::Withdrawn;
+            }
+            _ => {}
+        }
+    }
+    QuestionStanding::NeverAsked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn event(at: u64, payload: JournalPayload) -> bisa_core::event::JournalEvent {
+        bisa_core::event::JournalEvent {
+            home: Home::Run {
+                run: bisa_core::RunId::from_ulid(ulid::Ulid::from_parts(4, 1)),
+            },
+            author: bisa_core::PrincipalId::new("ab".repeat(32)).unwrap(),
+            at,
+            payload,
+        }
+    }
+
+    /// Two work items' questions stand apart: answering the newer leaves the
+    /// older open — the reader that stopped at the first settled fact of the
+    /// family hid it for good — and each subject's own newest fact says
+    /// where it stands.
+    #[test]
+    fn two_work_items_questions_stand_apart() {
+        let journal = vec![
+            event(1, asked("ask_human:W1", "one?")),
+            event(2, asked("ask_human:W2", "two?")),
+            event(3, decided("ask_human:W2")),
+        ];
+        let family = |s: &str| s.starts_with("ask_human:");
+        let open = open_questions(&journal, family);
+        assert_eq!(open.len(), 1);
+        assert_eq!(
+            (open[0].subject.as_str(), open[0].text.as_str(), open[0].at),
+            ("ask_human:W1", "one?", 1)
+        );
+        assert!(matches!(
+            standing_of(&journal, "ask_human:W1"),
+            QuestionStanding::Open(q) if q.text == "one?"
+        ));
+        assert_eq!(
+            standing_of(&journal, "ask_human:W2"),
+            QuestionStanding::Decided
+        );
+        assert_eq!(
+            standing_of(&journal, "ask_human:W3"),
+            QuestionStanding::NeverAsked
+        );
+        // Asked again after its answer: open again; taken back: withdrawn.
+        let mut again = journal.clone();
+        again.push(event(4, asked("ask_human:W2", "two, again?")));
+        again.push(event(
+            5,
+            JournalPayload::Withdrawn {
+                subject: "ask_human:W1".into(),
+                reason: "stopped".into(),
+            },
+        ));
+        let open = open_questions(&again, family);
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].text, "two, again?");
+        assert_eq!(
+            standing_of(&again, "ask_human:W1"),
+            QuestionStanding::Withdrawn
+        );
+        // The two readers agree on what is open.
+        let subjects: Vec<String> = still_open(again.iter().map(|e| &e.payload), family)
+            .into_iter()
+            .map(|(subject, _)| subject)
+            .collect();
+        assert_eq!(subjects, vec!["ask_human:W2".to_string()]);
+    }
+
+    /// A step's question is journaled under its gate's id and decided under
+    /// `step:<run>/<step>`: nothing ever settles the id, so a family is
+    /// always named — a reader of every subject calls the step's question
+    /// open after its answer.
+    #[test]
+    fn a_steps_question_under_its_gate_id_is_nobodys_open_question() {
+        let journal = vec![
+            event(1, asked("01GATEULID", "Which database?")),
+            event(2, decided("step:01RUN/ask")),
+        ];
+        for family in ["adopt:", "amend:", "ask_human:"] {
+            assert!(open_questions(&journal, |s| s.starts_with(family)).is_empty());
+        }
+        assert_eq!(
+            open_questions(&journal, |_| true).len(),
+            1,
+            "why no caller asks for every subject"
+        );
+    }
+
     #[test]
     fn the_questions_that_die_with_their_asker_are_the_three_with_nobody_durable_behind_them() {
-        assert!(dies_with_its_asker("workstream:01J"));
-        assert!(dies_with_its_asker("guard:sh"));
-        assert!(dies_with_its_asker("permission:Bash"));
-        assert!(!dies_with_its_asker("ask_human:01J"));
-        assert!(!dies_with_its_asker("amend:01J@2"));
-        assert!(!dies_with_its_asker("approval:01J/step"));
+        let goal = bisa_core::GoalId::from_ulid(ulid::Ulid::from_parts(2, 2));
+        let home = Home::Goal { goal };
+        assert!(dies_with_its_asker("workstream:01J", &home));
+        assert!(dies_with_its_asker("guard:sh", &home));
+        assert!(dies_with_its_asker("permission:Bash", &home));
+        // A work item's question dies with its session; the home's own —
+        // the designer's — is answered when the answer comes.
+        assert!(dies_with_its_asker("ask_human:01J", &home));
+        assert!(!dies_with_its_asker(&format!("ask_human:{goal}"), &home));
+        assert!(!dies_with_its_asker("amend:01J@2", &home));
+        assert!(!dies_with_its_asker("approval:01J/step", &home));
     }
 
     fn asked(subject: &str, text: &str) -> JournalPayload {
@@ -516,7 +718,12 @@ mod tests {
     }
 
     fn open_in(journal: &[JournalPayload]) -> Vec<(String, String)> {
-        still_open(journal.iter(), dies_with_its_asker)
+        let home = Home::Goal {
+            goal: bisa_core::GoalId::from_ulid(ulid::Ulid::from_parts(2, 2)),
+        };
+        still_open(journal.iter(), |subject| {
+            dies_with_its_asker(subject, &home)
+        })
     }
 
     #[test]

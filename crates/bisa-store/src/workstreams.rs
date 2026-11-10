@@ -228,11 +228,27 @@ impl Workspace {
     }
 
     /// Workstreams matching a filter: each project's primary first, then
-    /// oldest first.
+    /// oldest first. Strict: one record that cannot be read fails the list —
+    /// a caller about to act on every workstream must not act on some.
     pub fn list_workstreams(
         &self,
         filter: WorkstreamFilter,
     ) -> Result<Vec<Workstream>, StoreError> {
+        let (listed, mut skipped) = self.list_workstreams_readable(filter)?;
+        match skipped.is_empty() {
+            true => Ok(listed),
+            false => Err(skipped.remove(0)),
+        }
+    }
+
+    /// [`Self::list_workstreams`] for a reader that shows what it can: every
+    /// record this node can read, in the same order, and beside them why each
+    /// of the others could not be — one torn record costs its own row, never
+    /// the list. Only the index itself failing is an error.
+    pub fn list_workstreams_readable(
+        &self,
+        filter: WorkstreamFilter,
+    ) -> Result<(Vec<Workstream>, Vec<StoreError>), StoreError> {
         let (column, value) = match filter {
             WorkstreamFilter::All => (None, None),
             WorkstreamFilter::Project(p) => (Some("project_id"), Some(p.to_string())),
@@ -241,26 +257,35 @@ impl Workspace {
             WorkstreamFilter::WorkItem(w) => (Some("work_item"), Some(w.to_string())),
         };
         let locators = self.idx().workstream_locators(column, value.as_deref())?;
-        let mut out = Vec::with_capacity(locators.len());
+        let mut listed = Vec::with_capacity(locators.len());
+        let mut skipped = Vec::new();
         for (id, project) in locators {
-            let id = id.parse::<WorkstreamId>().map_err(|e| {
-                StoreError::Invalid(bisa_core::text!(
-                    "error-store-invalid-bad-workstream-id-index",
-                    e = e.to_string()
-                ))
-            })?;
-            let project = project.parse::<ProjectId>().map_err(|e| {
-                // LCOV_EXCL_START: `workstreams.project_id` is a foreign key onto a project row, which carries an id the store made
-                StoreError::Invalid(bisa_core::text!(
-                    "error-store-invalid-bad-project-id-index",
-                    e = e.to_string()
-                ))
-                // LCOV_EXCL_STOP
-            })?;
-            let slug = self.workstream_slug(project)?;
-            out.push(self.read_workstream(&slug, id)?);
+            match self.workstream_at(&id, &project) {
+                Ok(workstream) => listed.push(workstream),
+                Err(e) => skipped.push(e),
+            }
         }
-        Ok(out)
+        Ok((listed, skipped))
+    }
+
+    /// One workstream from its index row: the ids parsed, the record read.
+    fn workstream_at(&self, id: &str, project: &str) -> Result<Workstream, StoreError> {
+        let id = id.parse::<WorkstreamId>().map_err(|e| {
+            StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-bad-workstream-id-index",
+                e = e.to_string()
+            ))
+        })?;
+        let project = project.parse::<ProjectId>().map_err(|e| {
+            // LCOV_EXCL_START: `workstreams.project_id` is a foreign key onto a project row, which carries an id the store made
+            StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-bad-project-id-index",
+                e = e.to_string()
+            ))
+            // LCOV_EXCL_STOP
+        })?;
+        let slug = self.workstream_slug(project)?;
+        self.read_workstream(&slug, id)
     }
 
     /// Move a workstream. **The only writer of a workstream's state.**
@@ -416,6 +441,42 @@ mod tests {
         assert!(text.contains("not a workstream record"), "{text}");
         // The primary workstream is still there: one record cost its own row.
         assert!(ws.primary_workstream(p.id).is_ok());
+    }
+
+    /// One record this node cannot read costs its own row: the tolerant list
+    /// names it and lists the rest, where the strict one fails whole.
+    #[test]
+    fn one_unreadable_workstream_record_is_named_and_the_rest_are_listed() {
+        let (_dir, ws) = ws();
+        let p = ws
+            .create_project(NewProject::managed("app").unwrap())
+            .unwrap();
+        let good = workstream(p.id, None, "feature/good");
+        let torn = workstream(p.id, None, "feature/torn");
+        ws.put_workstream(&good).unwrap();
+        ws.put_workstream(&torn).unwrap();
+        let path = ws
+            .project_paths(&p)
+            .workstreams()
+            .join(format!("{}.json", torn.id));
+        std::fs::write(&path, "{ not a record").unwrap();
+
+        assert!(ws.list_workstreams(WorkstreamFilter::All).is_err());
+        let (listed, skipped) = ws.list_workstreams_readable(WorkstreamFilter::All).unwrap();
+        let ids: Vec<WorkstreamId> = listed.iter().map(|w| w.id).collect();
+        assert!(ids.contains(&good.id) && !ids.contains(&torn.id), "{ids:?}");
+        assert_eq!(listed.len(), 2, "the primary and the good one");
+        assert_eq!(skipped.len(), 1);
+        assert!(
+            skipped[0].to_string().contains(&torn.id.to_string()),
+            "{}",
+            skipped[0]
+        );
+        // Nothing unreadable: the two lists agree.
+        ws.put_workstream(&torn).unwrap();
+        let (listed, skipped) = ws.list_workstreams_readable(WorkstreamFilter::All).unwrap();
+        assert!(skipped.is_empty());
+        assert_eq!(listed, ws.list_workstreams(WorkstreamFilter::All).unwrap());
     }
 
     #[test]

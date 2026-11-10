@@ -303,11 +303,18 @@ export function rank(row) {
   return 2;
 }
 
-/** What is owed, then what is new, then everything kept; newest first inside. */
+/**
+ * What is owed, then what is new, then everything kept; newest first
+ * inside, and by key where two are of one second — the node's order
+ * (`bisa_engine::inbox::rows`), so a re-sort here never shuffles two rows a
+ * refetch would have left alone.
+ */
 export function compareRows(a, b) {
   const byRank = rank(a) - rank(b);
   if (byRank !== 0) return byRank;
-  return b.latest_at - a.latest_at;
+  const byTime = b.latest_at - a.latest_at;
+  if (byTime !== 0) return byTime;
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
 /** The visible list: filtered by bucket and source, then ordered. */
@@ -389,11 +396,55 @@ export function groupRows(visible) {
  * *replaced* when the conversation itself is gone from the workspace, not
  * merely filtered out of view. `known` is the unfiltered set for exactly that
  * distinction: switching to "Needs you" must not re-point the detail pane.
+ *
+ * `dismissed` is the person having cleared the selection (Escape): nothing
+ * is chosen for them until they pick a row again — a selection re-picked at
+ * once is a key that does nothing.
  */
-export function nextSelection(visible, known, selected) {
+export function nextSelection(visible, known, selected, dismissed = false) {
   if (selected && known.some((r) => r.key === selected)) return selected;
+  if (dismissed) return null;
   if (visible.length > 0) return visible[0].key;
   return known.length > 0 ? known[0].key : null;
+}
+
+/**
+ * The row a move lands on: one step from the selection, held at the ends.
+ * A selection that is not in view — a row a filter has hidden, or none —
+ * starts the list: its first row going down, its last going up, never the
+ * row after the first.
+ * @param {readonly {key: string}[]} visible
+ * @param {string | null | undefined} selected
+ * @param {number} delta `1` down, `-1` up
+ * @returns {string | null}
+ */
+export function moveTarget(visible, selected, delta) {
+  if (visible.length === 0) return null;
+  const at = visible.findIndex((r) => r.key === selected);
+  if (at < 0) return visible[delta < 0 ? visible.length - 1 : 0].key;
+  return visible[Math.min(visible.length - 1, Math.max(0, at + delta))].key;
+}
+
+/**
+ * The row a key acts on: the one focus stands on — Tab reaches a row
+ * without selecting it — else the selected one.
+ * @param {string | null | undefined} focused the key of the row holding focus, if any
+ * @param {string | null | undefined} selected
+ * @returns {string | null}
+ */
+export function actionTarget(focused, selected) {
+  return focused || selected || null;
+}
+
+/**
+ * Whether an ask's card takes focus as its row is shown: when the person
+ * came for it — a click on the row, the ask key, a link to it — and never
+ * on a move through the list or a row a frame brought: a card that grabbed
+ * focus on `j` would have the next `j` typed into its answer.
+ * @param {"pointer" | "ask_key" | "link" | "move" | "frame" | "auto" | null | undefined} cause how the row came to be selected
+ */
+export function askFocus(cause) {
+  return cause === "pointer" || cause === "ask_key" || cause === "link";
 }
 
 /**
@@ -423,9 +474,10 @@ export function applyDelta(rows, frame) {
       // gate, so the count only ever *clears* the list.
       needs_action: frame.needs_action_count === 0 ? [] : needsOf(r),
     };
-    // The notice counts ride only when the cause could have moved them; a
-    // frame without them leaves what is held. The same rule: a count of
-    // zero clears, a count the row cannot fill is `needsReload`'s to say.
+    // The notice counts ride on every frame of a node that projects the
+    // row; one from before leaves them out, and what is held stays. The
+    // same rule: a count of zero clears, a count the row cannot fill is
+    // `needsReload`'s to say.
     if (typeof frame.notice_count === "number") {
       patched.notices = frame.notice_count === 0 ? [] : noticesOf(r);
       patched.unread_notices = frame.unread_notices ?? 0;
@@ -441,6 +493,11 @@ export function applyDelta(rows, frame) {
  * A frame for a row nobody holds is the list's to fetch too.
  */
 export function needsReload(rows, frame) {
+  // The node says the key has no row (`listed`): there is nothing the list
+  // could hold that it does not, so nothing is read again. A row held here
+  // is patched where it sits and leaves with the next read of the list —
+  // never dropped under its reader.
+  if (frame.listed === false) return false;
   const row = rows.find((r) => r.key === frame.key);
   // A session's frame for a row nobody holds is a new wait only while it
   // waits; a wait that ended before the row was ever shown moves nothing.
@@ -706,6 +763,51 @@ export function readOnSelect(row) {
   return conversationOf(row) === null;
 }
 
+/**
+ * Whether the screen reads the selected row after its beat: a row with no
+ * conversation of its own, not yet read — and not one the person put back
+ * unread while it is open (`heldUnread`, its key): a row marked unread that
+ * read itself again a moment later is a key that does nothing.
+ * @param {{key: string, kind: string, read: boolean} | null | undefined} row
+ * @param {string | null | undefined} heldUnread
+ */
+export function readsItself(row, heldUnread) {
+  if (!row || row.read || !readOnSelect(row)) return false;
+  return row.key !== heldUnread;
+}
+
+/**
+ * The rows with every key of `keys` shown read — what *Mark all read* draws
+ * the moment it is pressed, before the node confirms each. A read clears
+ * what was new and never what is owed; a row already read is the same
+ * object, and nothing to mark is the same array.
+ * @param {readonly object[]} rows
+ * @param {readonly string[]} keys
+ */
+export function allRead(rows, keys) {
+  const marked = new Set(keys);
+  let changed = false;
+  const next = rows.map((r) => {
+    if (!marked.has(r.key) || r.read) return r;
+    changed = true;
+    return { ...r, read: true, unread_count: 0, unread_notices: 0 };
+  });
+  return changed ? next : rows;
+}
+
+/**
+ * The moment a read of `key` names — the row's own clock, the newest thing
+ * it showed — so what arrives after it stays unread. Nothing for a scope
+ * with no row, or a row with no clock: that read is up to now.
+ * @param {readonly {key: string, latest_at?: number}[]} rows
+ * @param {string} key
+ * @returns {number | undefined}
+ */
+export function markAt(rows, key) {
+  const at = rows.find((r) => r.key === key)?.latest_at;
+  return typeof at === "number" && at > 0 ? at : undefined;
+}
+
 /** The rows in view that a *Mark all read* would mark: the unread ones. */
 export function unreadKeys(visible) {
   return visible.filter((r) => !r.read).map((r) => r.key);
@@ -751,9 +853,12 @@ export function isNewestRead(asked, newest) {
  * when nothing holds focus; an Escape that closes a menu clears nothing.
  * @param {string} key the `KeyboardEvent.key`
  * @param {{inInput: boolean, inAsk: boolean, modifier: boolean, hasSelection: boolean, onControl?: boolean}} ctx
- * @returns {"next" | "prev" | "open" | "focus_ask" | "mark_read" | "mark_unread" | "clear" | null}
+ * @returns {"next" | "prev" | "open" | "focus_ask" | "mark_read" | "mark_unread" | "clear" | "leave_ask" | null}
  */
 export function keyAction(key, ctx) {
+  // Escape inside an ask's own controls leaves the ask: focus goes back to
+  // its row, where the list's keys act again. Nothing is cleared.
+  if (key === "Escape" && ctx.inAsk && !ctx.modifier) return "leave_ask";
   if (ctx.inInput || ctx.inAsk || ctx.modifier || ctx.onControl) return null;
   switch (key) {
     case "j":
@@ -830,6 +935,14 @@ export const RELOAD_ON = Object.freeze([
   "message_held",
   "workflow_changed",
   "workflow_archived",
+  // A thing renamed, put away or deleted: its row's title, or the row
+  // itself, moves with it.
+  "goal_updated",
+  "goal_deleted",
+  "goal_archived",
+  "workflow_deleted",
+  "project_deleted",
+  "project_archived",
 ]);
 
 /** How long frames are gathered before one reload answers them all. */

@@ -14,8 +14,9 @@ import { readFileSync } from "node:fs";
 
 import { FIRST_CONN, connAfter } from "../busModel.mjs";
 import { reloadOnReconnect } from "../shell/workspaceLoadModel.mjs";
-import { applyDelta, counts, doorLabel, doorOf, emptyWords, filterOf, groupRows, isHandled, isNewestRead, markBatches, needsReload, nextSelection, rowState, sourceIdOf, summarize, unreadKeys, visibleRows, wantsList, withReadMark } from "../views/_studio/inboxModel.mjs";
+import { actionTarget, allRead, askFocus, markAt, moveTarget, readsItself, keyAction, applyDelta, counts, doorLabel, doorOf, emptyWords, filterOf, groupRows, isHandled, isNewestRead, markBatches, needsReload, nextSelection, rowState, sourceIdOf, summarize, unreadKeys, visibleRows, wantsList, withReadMark } from "../views/_studio/inboxModel.mjs";
 import { inboxBadge } from "../shell/sidebarModel.mjs";
+import { decideBody } from "../askModel.mjs";
 import { trayReport } from "../shell/trayModel.mjs";
 import { badgeText } from "../ui/badgeModel.mjs";
 
@@ -198,4 +199,81 @@ test("every row opens somewhere, in words that say where", () => {
     assert.equal(doorLabel(r.kind), words);
     assert.equal(doorOf(r).route.name, route);
   }
+});
+
+test("an afternoon at the keys: walking the list types nothing, Escape lets go, a row put back unread stays unread", () => {
+  const rows = [
+    row({ key: "asking", needs_action: [{ ...ask, expects: { kind: "answer" } }], read: false }),
+    row({ key: "flow", kind: "workflow", read: false, unread_notices: 1, notices: [{ notice: "run_failed" }] }),
+    row({ key: "done", read: true }),
+  ];
+  const all = visibleRows(rows, "all", "any");
+  const ctx = { inInput: false, inAsk: false, modifier: false, hasSelection: true, onControl: false };
+
+  // The screen opens with nothing picked: the first row, chosen for the person — and its ask takes no focus.
+  let selected = nextSelection(all, rows, null, false);
+  assert.equal(selected, "asking");
+  assert.equal(askFocus("auto"), false);
+  // j walks down: the next row, and still no card grabs the keyboard — the next j is a move, not a letter in an answer.
+  assert.equal(keyAction("j", ctx), "next");
+  selected = moveTarget(all, selected, 1);
+  assert.equal(selected, "flow");
+  assert.equal(askFocus("move"), false);
+  // Under "Needs you" the open row is hidden; j starts that list rather than skipping its first row.
+  const owed = visibleRows(rows, "needs_you", "any");
+  assert.equal(moveTarget(owed, selected, 1), "asking");
+
+  // The workflow's row reads itself after its beat; put back unread with u, it stays so while it is open.
+  assert.equal(readsItself(rows[1], null), true);
+  assert.equal(keyAction("u", ctx), "mark_unread");
+  assert.equal(readsItself(withReadMark(rows, "flow", false)[1], "flow"), false);
+  // Tab reaches another row without selecting it: e is about the row focus stands on.
+  assert.equal(actionTarget("done", selected), "done");
+
+  // a goes to the ask; Escape inside it comes back to the row, and a second Escape lets the selection go — for good.
+  assert.equal(askFocus("ask_key"), true);
+  assert.equal(keyAction("Escape", { ...ctx, inAsk: true, inInput: true }), "leave_ask");
+  assert.equal(keyAction("Escape", ctx), "clear");
+  assert.equal(nextSelection(all, rows, null, true), null, "nothing is picked again until the person picks");
+});
+
+test("a gate decided elsewhere, a thing renamed, a row gone: the open row is patched, re-read, or let go — never swapped under the reader", () => {
+  let rows = [row({ key: "asking", needs_action: [ask], read: false }), row({ key: "other", read: true })];
+  // Decided in another window: the frame clears what was owed and the row says it was handled, in place.
+  const decided = hear(rows, { stream: "inbox", payload: frame({ key: "asking", handled: true, listed: true, notice_count: 0, unread_notices: 0 }) });
+  assert.equal(decided.reload, false);
+  assert.equal(rowState(decided.rows[0]), "read");
+  assert.equal(isHandled(decided.rows[0]), true);
+  rows = decided.rows;
+  // The goal is renamed while its row is open: the frame names no title, so the list is read again.
+  assert.equal(hear(rows, { stream: "engine", payload: { payload: { type: "goal_updated" } } }).reload, true);
+  // The node stops listing a key nobody holds here — a channel read elsewhere: nothing to read again.
+  assert.equal(hear(rows, { stream: "inbox", payload: frame({ key: "general", kind: "channel", listed: false }) }).reload, false);
+  // The goal is deleted: the next list has no such row, and only then does the selection move on.
+  assert.equal(nextSelection(rows, rows, "asking"), "asking");
+  const after = rows.filter((r) => r.key !== "asking");
+  assert.equal(nextSelection(after, after, "asking"), "other");
+});
+
+test("a read is up to what was shown, a project is one row, and a rebuilt card names its own question", () => {
+  // Three unread; the person reads the row as it stood at 100. One more lands at 130 while the mark is on its way.
+  let rows = [row({ key: "lounge", kind: "channel", read: false, unread_count: 3, latest_at: 100 })];
+  assert.equal(markAt(rows, "lounge"), 100, "the mark names what was shown");
+  rows = withReadMark(rows, "lounge", true);
+  // The node counts from the mark: its frame restores the one that landed after it.
+  rows = applyDelta(rows, frame({ key: "lounge", kind: "channel", read: false, unread_count: 1, latest_at: 130 }));
+  assert.deepEqual([rows[0].read, rows[0].unread_count, markAt(rows, "lounge")], [false, 1, 130]);
+  // Mark all read shows every row read at once, each mark naming its own row's clock.
+  assert.equal(allRead(rows, unreadKeys(rows))[0].read, true);
+
+  // A project and its primary checkout are one row, the project's: one key, one door, one read mark.
+  const project = row({ key: "P", kind: "project", notices: [{ notice: "script_failed" }], unread_notices: 1, read: false });
+  assert.deepEqual(doorOf(project).route, { name: "workbench", scope: "workstream", id: "P" });
+  assert.equal(visibleRows([project], "all", "projects").length, 1);
+
+  // After a restart an amendment's card has no gate id, and a step waits beside it: the card names its subject.
+  const amend = { gate_id: null, step: null, durable: true, subject: "amend:R@W", expects: { kind: "decision" } };
+  assert.deepEqual(decideBody(amend, { selected: [], text: "" }), { approve: true, subject: "amend:R@W" });
+  const step = { gate_id: null, step: "ship", durable: true, subject: "approval:R/ship", expects: { kind: "decision" } };
+  assert.deepEqual(decideBody(step, { selected: [], text: "" }), { approve: true, step: "ship" }, "a step is named by its step, as before");
 });

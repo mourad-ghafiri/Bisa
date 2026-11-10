@@ -211,6 +211,27 @@ async fn a_failed_run_still_reads_through_inbox_pulse_and_goals() {
         !row["notices"].as_array().unwrap().is_empty(),
         "the notice stays, read"
     );
+    // Put back: the watermark stays where it was, so nothing is newly
+    // unread — the row counts the one the person asked for, not every
+    // notice it holds — and reading it again clears it.
+    let held = row["notices"].as_array().unwrap().len();
+    assert!(held >= 2, "the step's failure and the run's: {row}");
+    node.post("/unread", json!({"scope": goal.to_string()}))
+        .await;
+    let back = node.get("/inbox").await;
+    let row = back["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["key"] == json!(goal.to_string()))
+        .expect("kept");
+    assert_eq!(row["read"], json!(false), "{row}");
+    assert_eq!(
+        row["unread_notices"],
+        json!(1),
+        "one, not all {held}: {row}"
+    );
+    node.post("/read", json!({"scope": goal.to_string()})).await;
     let goals = node.get("/goals").await;
     let row = goals["goals"]
         .as_array()
@@ -991,5 +1012,87 @@ async fn an_unreadable_journal_keeps_the_goal_page_and_the_inbox_answering() {
         rows.iter().any(|r| r.to_string().contains(&gate)),
         "the goal's row carries its live gate: {inbox}"
     );
+    node.shutdown().await;
+}
+
+/// One workstream record this node cannot read costs no row but its own:
+/// the Inbox answers, with every other row — it answered *not found*, as if
+/// there were no Inbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_unreadable_workstream_record_never_costs_the_inbox() {
+    let node = Node::start().await;
+    let goal = node.new_goal("still listed").await;
+    node.ask(goal).await;
+    let (code, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "new", "slug": "site"})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let pid: bisa_core::ProjectId = v["project"]["id"].as_str().unwrap().parse().unwrap();
+    let project = node.ws.get_project(pid).unwrap();
+    let record = node
+        .ws
+        .project_paths(&project)
+        .workstreams()
+        .join(format!("{pid}.json"));
+    assert!(record.is_file(), "{}", record.display());
+    poison(&record);
+
+    for path in [
+        "/inbox",
+        "/inbox?source=projects",
+        "/inbox?filter=needs_you",
+    ] {
+        let (code, v) = node.req("GET", path, None).await;
+        assert_eq!(code, 200, "{path}: {v}");
+    }
+    let inbox = node.get("/inbox").await;
+    assert!(
+        inbox["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["key"] == json!(goal.to_string())
+                && !r["needs_action"].as_array().unwrap().is_empty()),
+        "the goal's ask is still there: {inbox}"
+    );
+    node.shutdown().await;
+}
+
+/// A run's ask outlives its workflow's file: the row is the workflow's
+/// still, titled by the name the run carries, with the ask on it — it
+/// vanished with the file, and the run waited on nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_whose_workflow_file_is_gone_keeps_its_ask() {
+    let node = Node::start().await;
+    let wf = node.workflow(crate::node::human_workflow()).await;
+    let started = node.post(&format!("/workflows/{wf}/runs"), json!({})).await;
+    assert_eq!(started["status"], json!("waiting"), "{started}");
+    poison(&Paths::new(node.data_dir()).library_workflow_snapshot(wf));
+
+    let inbox = node.get("/inbox").await;
+    let row = inbox["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["key"] == json!(wf.to_string()))
+        .unwrap_or_else(|| panic!("the workflow's row stays: {inbox}"));
+    assert_eq!(row["kind"], json!("workflow"));
+    assert_eq!(row["title"], json!("Ask first"), "the name the run carries");
+    assert_eq!(row["needs_action"].as_array().unwrap().len(), 1, "{row}");
+    assert_eq!(
+        node.get("/inbox?filter=needs_you&source=workflows").await["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    // The frame for the key finds the same row, by the run's ask alone.
+    let frame = crate::node::assert_frame_is_its_rows(&node, &wf.to_string()).await;
+    assert_eq!(frame["kind"], json!("workflow"), "{frame}");
+    assert_eq!(frame["needs_action_count"], json!(1), "{frame}");
     node.shutdown().await;
 }

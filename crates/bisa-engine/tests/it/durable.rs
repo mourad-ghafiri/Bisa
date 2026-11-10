@@ -453,3 +453,540 @@ async fn closing_a_goal_twice_is_a_conflict() {
     assert!(engine.workspace().get_goal(goal.id).unwrap().is_closed());
     engine.shutdown().await;
 }
+
+/// Words typed at a rebuilt adoption are no verdict: the durable decide
+/// refuses them, naming the verb that decides, and adopts nothing — before,
+/// "no, use postgres" was recorded as an approval and the run started.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_answer_on_a_rebuilt_adoption_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine
+        .submit_goal(guided("not adopted by a sentence"))
+        .unwrap();
+    let (wf, _) = engine
+        .design_workflow(goal.id, plain("Proposed"), None)
+        .unwrap();
+    let subject = format!("adopt:{}@{}", wf.id, wf.revision);
+    let owner = engine.workspace().owner_keys().clone();
+    engine
+        .workspace()
+        .append_journal(
+            &Home::Goal { goal: goal.id },
+            JournalPayload::Question {
+                work_item: None,
+                gate: subject.clone(),
+                text: "Adopt \"Proposed\"?".into(),
+                expects: AskKind::Decision,
+            },
+            &owner,
+            None,
+        )
+        .unwrap();
+    let typed = Answer::text("no, use postgres");
+    let refused = decide_durably(&engine, goal.id, Some(&typed)).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            EngineError::Answer(bisa_core::AnswerError::TextOnDecision)
+        ),
+        "{refused:?}"
+    );
+    assert!(refused.to_string().contains("bisa approve"), "{refused}");
+    assert_eq!(facts_on(&engine, goal.id, &subject), "Q", "still asked");
+    assert!(engine.runs(goal.id).unwrap().is_empty(), "nothing started");
+    // The verdict alone adopts.
+    decide_durably(&engine, goal.id, None).unwrap();
+    assert_eq!(facts_on(&engine, goal.id, &subject), "QD");
+    engine.shutdown().await;
+}
+
+/// An `approval` step and a held `wait` step take a verdict, never an
+/// answer: `step answer` and `step done` on either decide nothing and leave
+/// the step waiting — before, they approved the one and released the other.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_typed_answer_on_an_approval_or_a_held_wait_decides_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (approving, run) = run_on(
+        &engine,
+        "approved by a verdict",
+        new_workflow(
+            "sign off",
+            vec![step(
+                "ok",
+                StepKind::Approval {
+                    prompt: "Ship it?".into(),
+                },
+            )],
+        ),
+    );
+    step_in_state(&engine, approving.id, "ok", "waiting").await;
+    let typed = Answer::text("looks fine");
+    for refused in [
+        engine.answer_step(run.id, &sid("ok"), &typed),
+        engine.mark_step_done(run.id, &sid("ok")),
+    ] {
+        let refused = refused.unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                EngineError::Answer(bisa_core::AnswerError::TextOnDecision)
+            ),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(
+        current_run(&engine, approving.id).steps[&sid("ok")]
+            .state
+            .as_str(),
+        "waiting"
+    );
+    assert_eq!(
+        decisions_of(&engine, approving.id),
+        0,
+        "nothing was decided"
+    );
+
+    let (held, run) = run_on(
+        &engine,
+        "released by its verb",
+        new_workflow(
+            "held",
+            vec![step(
+                "hold",
+                StepKind::Wait {
+                    until: WaitFor::Release,
+                },
+            )],
+        ),
+    );
+    step_in_state(&engine, held.id, "hold", "waiting").await;
+    let refused = engine
+        .answer_step(run.id, &sid("hold"), &typed)
+        .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            EngineError::Answer(bisa_core::AnswerError::TextOnDecision)
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        current_run(&engine, held.id).steps[&sid("hold")]
+            .state
+            .as_str(),
+        "waiting",
+        "still held"
+    );
+    engine.release_step(run.id, &sid("hold"), None).unwrap();
+    assert_eq!(
+        finished_run(&engine, held.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+    engine.shutdown().await;
+}
+
+/// A question journaled for `goal` under `subject`, as an earlier process
+/// left it: no live gate, a durable one.
+fn journaled(engine: &Engine, goal: GoalId, subject: &str, text: &str, expects: AskKind) {
+    let owner = engine.workspace().owner_keys().clone();
+    engine
+        .workspace()
+        .append_journal(
+            &Home::Goal { goal },
+            JournalPayload::Question {
+                work_item: None,
+                gate: subject.to_string(),
+                text: text.to_string(),
+                expects,
+            },
+            &owner,
+            None,
+        )
+        .unwrap();
+}
+
+/// A rebuilt amendment card decided **by its subject** decides the
+/// amendment — never the `approval` step that happens to wait beside it,
+/// which an unnamed decide takes (one step waiting is "the" step).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rebuilt_amendment_decided_by_subject_leaves_the_waiting_approval_step_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (goal, run) = run_on(
+        &engine,
+        "amended beside an approval",
+        new_workflow(
+            "sign off",
+            vec![step(
+                "ok",
+                StepKind::Approval {
+                    prompt: "Ship it?".into(),
+                },
+            )],
+        ),
+    );
+    step_in_state(&engine, goal.id, "ok", "waiting").await;
+    let home = Home::Goal { goal: goal.id };
+    // The amendment an earlier process proposed and held.
+    let held = engine.create_workflow(plain("Amended")).unwrap();
+    let subject = format!("amend:{}@{}", run.id, held.id);
+    journaled(
+        &engine,
+        goal.id,
+        &subject,
+        "Amend the running workflow?",
+        AskKind::Decision,
+    );
+
+    // Declined by its subject: the amendment is settled, the step untouched.
+    let outcome = engine
+        .decide_subject(&home, &subject, false, Some("not this way"), None, None)
+        .unwrap();
+    assert!(!outcome.approve);
+    assert_eq!(facts_on(&engine, goal.id, &subject), "QD");
+    assert_eq!(
+        current_run(&engine, goal.id).steps[&sid("ok")]
+            .state
+            .as_str(),
+        "waiting",
+        "the approval step was not decided in its place"
+    );
+    // A second hand on the same subject is told it was decided.
+    let again = engine
+        .decide_subject(&home, &subject, true, None, None, None)
+        .unwrap_err();
+    assert!(
+        matches!(again, EngineError::GateAlreadyDecided(_)),
+        "{again:?}"
+    );
+
+    // The step's own subject decides the step — through its live gate.
+    let step_subject = format!("approval:{}/ok", run.id);
+    engine
+        .decide_subject(&home, &step_subject, true, None, None, None)
+        .unwrap();
+    assert_eq!(
+        finished_run(&engine, goal.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+    // Once the run is over its step is no longer asked.
+    let gone = engine
+        .decide_subject(&home, &step_subject, true, None, None, None)
+        .unwrap_err();
+    assert!(gone.to_string().contains("no longer asked"), "{gone}");
+    engine.shutdown().await;
+}
+
+/// A subject taken back, one never asked, and one that lives with its asker
+/// alone are no longer asked — nothing is recorded; an adoption declined by
+/// its subject starts nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_subject_withdrawn_never_asked_or_its_askers_alone_is_no_longer_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine.submit_goal(guided("asked and taken back")).unwrap();
+    let home = Home::Goal { goal: goal.id };
+    let (wf, _) = engine
+        .design_workflow(goal.id, plain("Proposed"), None)
+        .unwrap();
+    let adopt = format!("adopt:{}@{}", wf.id, wf.revision);
+    journaled(&engine, goal.id, &adopt, "Adopt?", AskKind::Decision);
+    let before = decisions_of(&engine, goal.id);
+
+    for subject in ["adopt:01ARZ3NDEKTSV4RRFFQ69G5FAV@1", "permission:Bash"] {
+        let gone = engine
+            .decide_subject(&home, subject, true, None, None, None)
+            .unwrap_err();
+        assert!(
+            gone.to_string().contains("no longer asked"),
+            "{subject}: {gone}"
+        );
+    }
+    // A publish question journaled by a dead process has nobody to hear it.
+    journaled(
+        &engine,
+        goal.id,
+        "workstream:01J",
+        "Push?",
+        AskKind::Decision,
+    );
+    let gone = engine
+        .decide_subject(&home, "workstream:01J", true, None, None, None)
+        .unwrap_err();
+    assert!(gone.to_string().contains("no longer asked"), "{gone}");
+    assert_eq!(decisions_of(&engine, goal.id), before, "nothing recorded");
+
+    // Declined by its subject: decided, and nothing starts.
+    let declined = engine
+        .decide_subject(&home, &adopt, false, Some("not yet"), None, None)
+        .unwrap();
+    assert!(!declined.approve);
+    assert_eq!(facts_on(&engine, goal.id, &adopt), "QD");
+    assert!(engine.runs(goal.id).unwrap().is_empty());
+    engine.shutdown().await;
+}
+
+/// The designer's question, asked before a restart, is answered by its
+/// subject: the answer is recorded under it — once — and "not sure" is
+/// counted from the journal, so the budget is the same after a restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_design_question_answered_after_a_restart_is_recorded_and_its_budget_is_the_journals() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine.submit_goal(guided("which database")).unwrap();
+    let home = Home::Goal { goal: goal.id };
+    let subject = format!("ask_human:{}", goal.id);
+    journaled(
+        &engine,
+        goal.id,
+        &subject,
+        "Which database?",
+        AskKind::free_text(),
+    );
+
+    // Words typed at an answer-shaped question are its answer.
+    for round in 1..=2 {
+        engine
+            .decide_subject(&home, &subject, true, None, Some(&Answer::unsure()), None)
+            .unwrap();
+        journaled(
+            &engine,
+            goal.id,
+            &subject,
+            "Which database?",
+            AskKind::free_text(),
+        );
+        assert_eq!(
+            facts_on(&engine, goal.id, &subject).matches('D').count(),
+            round
+        );
+    }
+    engine
+        .decide_subject(
+            &home,
+            &subject,
+            true,
+            None,
+            Some(&Answer::text("sqlite")),
+            None,
+        )
+        .unwrap();
+    assert_eq!(facts_on(&engine, goal.id, &subject), "QDQDQD");
+    let again = engine
+        .decide_subject(
+            &home,
+            &subject,
+            true,
+            None,
+            Some(&Answer::text("postgres")),
+            None,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(again, EngineError::GateAlreadyDecided(_)),
+        "{again:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A worker's question on a goal nobody designs for — a manual goal — is
+/// answered by its subject with no gate live: the answer is recorded, and
+/// there is no design to tell.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workers_question_on_a_manual_goal_is_answered_by_its_subject() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..bisa_engine::SubmitRequest::captured("which region")
+        })
+        .unwrap();
+    let home = Home::Goal { goal: goal.id };
+    let subject = "ask_human:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    journaled(
+        &engine,
+        goal.id,
+        subject,
+        "Which region?",
+        AskKind::free_text(),
+    );
+    engine
+        .decide_subject(
+            &home,
+            subject,
+            true,
+            None,
+            Some(&Answer::text("eu-west")),
+            None,
+        )
+        .unwrap();
+    assert_eq!(facts_on(&engine, goal.id, subject), "QD");
+    engine.shutdown().await;
+}
+
+/// The "not sure" budget survives a restart: a second engine on the same
+/// workspace counts the rounds the first one recorded, where a counter in
+/// memory began again at nought and the step never failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_not_sure_budget_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (goal, run) = run_on(
+        &engine,
+        "unsure across a restart",
+        new_workflow("ask", vec![ask("pick")]),
+    );
+    step_in_state(&engine, goal.id, "pick", "waiting").await;
+    let max = EngineConfig::default().max_clarify_rounds as usize;
+    // All but the last allowed round, in the first process.
+    for _ in 0..max {
+        engine
+            .answer_step(run.id, &sid("pick"), &Answer::unsure())
+            .unwrap();
+        step_in_state(&engine, goal.id, "pick", "waiting").await;
+    }
+    engine.shutdown().await;
+
+    let engine = engine_on(&dir);
+    step_in_state(&engine, goal.id, "pick", "waiting").await;
+    // One more "not sure" is past the budget: the step fails with the words.
+    engine
+        .answer_step(run.id, &sid("pick"), &Answer::unsure())
+        .unwrap();
+    let ended = finished_run(&engine, goal.id).await;
+    assert_eq!(ended.outcome, Some(RunOutcome::Failed), "{ended:?}");
+    engine.shutdown().await;
+}
+
+/// By its subject, with no live gate: a step of the home's run after a
+/// restart, and an agent's question on a run of the workspace — each decided
+/// as itself, the other left owed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_subject_decides_a_step_after_a_restart_and_an_agents_question_on_a_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let approving = new_workflow(
+        "sign off",
+        vec![step(
+            "ok",
+            StepKind::Approval {
+                prompt: "Ship it?".into(),
+            },
+        )],
+    );
+    let (_, run) = workspace_run(&engine, approving);
+    run_step_in_state(&engine, run.id, "ok", "waiting").await;
+    engine.shutdown().await;
+
+    let engine = engine_on(&dir);
+    assert!(engine.inbox().is_empty(), "the gates died with the process");
+    let home = Home::Run { run: run.id };
+    let owner = engine.workspace().owner_keys().clone();
+    let asked = "ask_human:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    engine
+        .workspace()
+        .append_journal(
+            &home,
+            JournalPayload::Question {
+                work_item: None,
+                gate: asked.into(),
+                text: "Which region?".into(),
+                expects: AskKind::free_text(),
+            },
+            &owner,
+            None,
+        )
+        .unwrap();
+    // The agent's question, by its subject: answered, the step still waits.
+    engine
+        .decide_subject(&home, asked, true, None, Some(&Answer::text("eu")), None)
+        .unwrap();
+    assert_eq!(
+        run_of(&engine, run.id).steps[&sid("ok")].state.as_str(),
+        "waiting"
+    );
+    let again = engine
+        .decide_subject(&home, asked, true, None, Some(&Answer::text("us")), None)
+        .unwrap_err();
+    assert!(
+        matches!(again, EngineError::GateAlreadyDecided(_)),
+        "{again:?}"
+    );
+    // A step of another run is not this home's to decide.
+    let other = format!(
+        "approval:{}/ok",
+        bisa_core::RunId::from_ulid(ulid::Ulid::from_parts(9, 9))
+    );
+    let gone = engine
+        .decide_subject(&home, &other, true, None, None, None)
+        .unwrap_err();
+    assert!(gone.to_string().contains("no longer asked"), "{gone}");
+    // The step, by its subject, from durable state alone.
+    engine
+        .decide_subject(
+            &home,
+            &format!("approval:{}/ok", run.id),
+            true,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        run_finished(&engine, run.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+    engine.shutdown().await;
+}
+
+/// A restart withdraws a work item's question — its session died with the
+/// process, the item asks again — and keeps the designer's own, which is
+/// answered when the answer comes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_withdraws_a_work_items_question_and_keeps_the_designers() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let goal = engine.submit_goal(guided("asked by two")).unwrap();
+    let item = "ask_human:01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    let own = format!("ask_human:{}", goal.id);
+    journaled(
+        &engine,
+        goal.id,
+        item,
+        "Which region?",
+        AskKind::free_text(),
+    );
+    journaled(
+        &engine,
+        goal.id,
+        &own,
+        "Which database?",
+        AskKind::free_text(),
+    );
+    engine.shutdown().await;
+
+    let engine = engine_on(&dir);
+    until("the dead question to be withdrawn", || {
+        (facts_on(&engine, goal.id, item) == "QW").then_some(())
+    })
+    .await;
+    assert_eq!(
+        facts_on(&engine, goal.id, &own),
+        "Q",
+        "the designer's stays asked"
+    );
+    assert!(
+        notes(&engine, goal.id)
+            .iter()
+            .any(|n| n.contains("Which region?") && n.contains("restart")),
+        "the withdrawal is said on the goal"
+    );
+    // A second boot withdraws nothing again.
+    engine.shutdown().await;
+    let engine = engine_on(&dir);
+    assert_eq!(facts_on(&engine, goal.id, item), "QW");
+    engine.shutdown().await;
+}

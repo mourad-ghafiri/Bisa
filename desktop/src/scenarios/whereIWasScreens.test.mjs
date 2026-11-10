@@ -253,7 +253,7 @@ test("the Inbox is never empty on the way back, and what is kept of a row is kep
   assert.ok(inbox.includes("useViewScroll(root, rowPlace(PLACE, row.key))") && inbox.includes('data-scroll-keep="detail"') && inbox.includes("<QuietDetail key={current.key}"), "a row's detail keeps its scroll under the row's place");
   assert.equal(rowPlace(placeOf({ name: "inbox" }), "01GOAL"), "/inbox/01GOAL");
   // The ask's own focus is left alone: nothing here scrolls the detail of a row that has a conversation.
-  assert.ok(inbox.includes("autoFocus={i === 0}") && !between(inbox, "<Chat", "/>").includes("scroll"), "the pinned ask's focus wins");
+  assert.ok(inbox.includes("autoFocus={i === 0 && focus}") && !between(inbox, "<Chat", "/>").includes("scroll"), "the pinned ask's focus wins");
 });
 
 test("the Pulse keeps its place as a row, and the kit's list never fights the hand", () => {

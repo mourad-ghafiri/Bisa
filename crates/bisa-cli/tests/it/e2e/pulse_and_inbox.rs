@@ -144,11 +144,32 @@ fn what_concerns_a_person_is_a_row_until_it_is_answered_read_or_opened() {
     // A word that is no filter is refused by name, never answered with everything.
     let (status, refused) = ws.call("GET", "/inbox?filter=everything", &[], None);
     assert_eq!(status, 400, "{refused}");
+    // Without a node the inbox is read from the workspace by the same
+    // builder: the same rows in the same order, saying the same of each —
+    // the goal that still concerns the person, the conversation read.
+    let with_node = ws.json(&["inbox"]);
     ws.stop();
-    // Without a node the inbox is read from the workspace: the goal that
-    // still concerns the person, and the conversation left unread.
     let offline = ws.json(&["inbox"]);
-    assert!(offline["rows"].is_array(), "{offline}");
+    let said = |inbox: &Value| -> Vec<Value> {
+        inbox["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| {
+                json!({
+                    "key": row["key"], "kind": row["kind"], "source": row["source"],
+                    "title": row["title"], "read": row["read"],
+                    "handled": row["handled"], "unread_count": row["unread_count"],
+                    "unread_notices": row["unread_notices"],
+                    "latest_at": row["latest_at"],
+                    "asks": row["needs_action"].as_array().map(Vec::len),
+                    "notices": row["notices"].as_array().map(Vec::len),
+                })
+            })
+            .collect()
+    };
+    assert!(!said(&offline).is_empty(), "{offline}");
+    assert_eq!(said(&offline), said(&with_node));
 }
 
 #[test]

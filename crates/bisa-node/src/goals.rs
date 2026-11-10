@@ -634,16 +634,49 @@ async fn decide(
     crate::Body(body): crate::Body<DecideBody>,
 ) -> Result<Json<bisa_engine::DecideOutcome>, ApiError> {
     let id = parse_id(&id)?;
-    let outcome = state.engine.decide_durable(
-        &Home::Goal { goal: id },
+    Ok(Json(decide_at(&state, &Home::Goal { goal: id }, body)?))
+}
+
+/// Decide what `home` owes, as the body names it — the one door of
+/// `POST /goals/{id}/decide` and `POST /runs/{rid}/decide`. A `subject`
+/// decides exactly that question ([`bisa_engine::Engine::decide_subject`]);
+/// a `gate` named beside it has to be about it. With no subject the decide
+/// picks as it always has: the gate named, the step named, or the one thing
+/// pending.
+pub(crate) fn decide_at(
+    state: &Shared,
+    home: &Home,
+    body: DecideBody,
+) -> Result<bisa_engine::DecideOutcome, ApiError> {
+    let Some(subject) = body.subject.as_deref() else {
+        return Ok(state.engine.decide_durable(
+            home,
+            body.approve,
+            body.rationale.as_deref(),
+            body.answer.as_ref(),
+            body.inputs,
+            body.gate.as_deref(),
+            body.step.as_ref(),
+        )?);
+    };
+    if let Some(named) = body.gate.as_deref().and_then(|id| state.engine.gate(id)) {
+        if named.subject != subject {
+            return Err(crate::bad_request(bisa_core::text!(
+                "error-node-decide-gate-is-about-another-question",
+                gate = named.id.to_string(),
+                about = named.subject.clone(),
+                subject = subject.to_string()
+            )));
+        }
+    }
+    Ok(state.engine.decide_subject(
+        home,
+        subject,
         body.approve,
         body.rationale.as_deref(),
         body.answer.as_ref(),
         body.inputs,
-        body.gate.as_deref(),
-        body.step.as_ref(),
-    )?;
-    Ok(Json(outcome))
+    )?)
 }
 
 /// `DELETE /goals/{id}`: the plain retirement — the goal deleted, the
@@ -795,7 +828,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "PUT", path: "/goals/{id}/workflow", summary: "Point the goal at a workflow — `{workflow: <id | slug> | null}` → `{goal}` — or record `{definition: {name, steps, ...}, revision?}` as the goal’s own design, kept as a draft → `{goal, workflow, problems}` (`revision` names the design edited once the goal has one; 409 when it moved). Refused while a run is live or queued." },
     RouteDoc { method: "POST", path: "/goals/{id}/amend", summary: "Replace the not-yet-started steps of the current run: `{workflow: {name, steps, …}}` → `{run}`." },
     RouteDoc { method: "POST", path: "/goals/{id}/close", summary: "Close a goal: `{rationale?, superseded_by?}` (`superseded_by` another goal that exists — 400 for itself or one that does not). Cancels its live run and its queued runs (cause `closed`), withdraws its questions, releases workstreams. Waited for: every session of the goal and of the goals it spawned — closed with it, recursively — is gone when it answers. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
-    RouteDoc { method: "POST", path: "/goals/{id}/decide", summary: "Decide a gate: `{approve, rationale?, answer?, gate?, inputs?, step?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status`, `secrets?`). An approved adoption starts the run with `inputs` — or, for a design that begins on events, makes the goal listen with them, and `secrets` carries its public hooks' secrets, shown once; an approved amendment applies it; `step` names the waiting step when several wait — and a held `wait` step is released only by name while an adoption or an amendment is still owed a decision. A gate is decided once: a second decision is `409`; a `gate` that is another home's is `400` and decides nothing; an answer the gate does not offer leaves it open. A waiting step is also decided by its run (`POST /runs/{rid}/decide`)." },
+    RouteDoc { method: "POST", path: "/goals/{id}/decide", summary: "Decide a gate: `{approve, rationale?, answer?, gate?, inputs?, step?, subject?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status`, `secrets?`). An approved adoption starts the run with `inputs` — or, for a design that begins on events, makes the goal listen with them, and `secrets` carries its public hooks' secrets, shown once; an approved amendment applies it; `step` names the waiting step when several wait — and a held `wait` step is released only by name while an adoption or an amendment is still owed a decision. A gate is decided once: a second decision is `409`; a `gate` that is another home's is `400` and decides nothing; an answer the gate does not offer leaves it open, and words typed at a yes-or-no gate are refused. `subject` — what every ask of `GET /inbox` carries — decides exactly that question and never another the goal owes: the live gate about it, else the durable record of it (a card rebuilt after a restart has no `gate`); one already answered is `409`, one taken back or never asked is `400`, as is a `gate` named beside a subject it is not about. A waiting step is also decided by its run (`POST /runs/{rid}/decide`)." },
     RouteDoc { method: "POST", path: "/goals/{id}/design", summary: "Ask the Workflow Agent to design the goal’s workflow again — after a stall, a failure or a restart → `{guidance}`. 409 when the goal is manual, is closed, already has a workflow or a run, is being worked on, or designing is off on this node." },
     RouteDoc { method: "GET", path: "/goals/{id}/messages", summary: "The goal's conversation (`?before=&before_id=&limit=`)." },
     RouteDoc { method: "POST", path: "/goals/{id}/messages", summary: "Post into the goal's conversation: `{content, reply_to?, mentions?, attachments?, artifacts?}`." },

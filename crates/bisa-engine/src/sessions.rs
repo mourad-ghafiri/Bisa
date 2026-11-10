@@ -851,18 +851,38 @@ pub const STOPPED: &str = "the session that asked was stopped";
 /// journal says why, so the Inbox reads the question as settled and a later
 /// boot does not withdraw it again. Answers how many were withdrawn.
 pub fn withdraw_questions_of(inner: &Arc<Inner>, run: LiveRunId) -> usize {
+    withdraw_gates(inner, inner.gates.pending_for_session(run), STOPPED)
+}
+
+/// The questions a work item asked go with it when it is cancelled — the
+/// ones no session is bound to as well (an item whose session had not
+/// registered yet, a gate opened before its row): withdrawn in memory and
+/// in the journal, for `reason`.
+pub(crate) fn withdraw_questions_of_item(
+    inner: &Arc<Inner>,
+    item: bisa_core::WorkItemId,
+    reason: &str,
+) -> usize {
+    withdraw_gates(inner, inner.gates.pending_for_work_item(item), reason)
+}
+
+/// Take `gates` back for `reason`: each gone from the registry — its waiter
+/// hears a refusal that is nobody's — and a `Withdrawn` fact under its
+/// subject with a note, so the Inbox reads it settled and no later boot
+/// withdraws it again.
+fn withdraw_gates(inner: &Arc<Inner>, gates: Vec<crate::gates::GateEntry>, reason: &str) -> usize {
     let mut withdrawn = 0;
-    for gate in inner.gates.pending_for_session(run) {
+    for gate in gates {
         if inner.gates.withdraw(&gate.id).is_none() {
             // LCOV_EXCL_START: a gate withdrawn by another door between the list and the withdraw; a race
             continue;
             // LCOV_EXCL_STOP
         }
         let note = format!(
-            "a question the session was asking — \"{}\" — was withdrawn: {STOPPED}",
+            "a question the session was asking — \"{}\" — was withdrawn: {reason}",
             crate::recovery::first_line(&gate.question)
         );
-        crate::recovery::withdraw_question(inner, gate.home, &gate.subject, STOPPED, Some(note));
+        crate::recovery::withdraw_question(inner, gate.home, &gate.subject, reason, Some(note));
         withdrawn += 1;
     }
     withdrawn

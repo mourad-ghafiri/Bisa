@@ -3,7 +3,8 @@
  * and what happened to what you asked for.
  *
  * Rows are **things**, not events — a goal, a channel, a direct channel, a
- * workstream, a project, a workflow — mutated in place as activity arrives.
+ * conversation, a workstream, a project, a workflow, a person, a terminal
+ * session — mutated in place as activity arrives.
  * A row carries its **asks** (a gate, a question — answered here, in the
  * very card the goal page's *Your move* band mounts) and its **notices**
  * (a run that finished or failed, a script that failed, a start event that
@@ -11,7 +12,20 @@
  * worded by the same function a Pulse row gets). The detail pane is the real
  * conversation when the thing has one, so you answer a step's question,
  * adopt the Workflow Agent's proposal or reply to a teammate without being
- * bounced to another screen and losing your place.
+ * bounced to another screen and losing your place. A thing with no
+ * conversation of its own — a workflow, a project — draws its asks the same,
+ * above what happened to it.
+ *
+ * # The keys and the selection
+ *
+ * `j`/`k` move and focus follows; a move from a selection that is not in
+ * view starts the list (`moveTarget`). `Escape` clears, and nothing is
+ * picked again until the person picks (`nextSelection`'s `dismissed`).
+ * `Enter`, `o`, `e` and `u` act on the row focus stands on, else the
+ * selected one (`actionTarget`). An ask takes focus only when the person
+ * came for it — a click, `a`, a link — never on a move (`askFocus`), and
+ * `Escape` inside one goes back to its row. A row put back unread stays
+ * unread while it is open (`readsItself`, the chat's `holdRead`).
  *
  * # A row you read is a row you keep
  *
@@ -126,7 +140,13 @@ import {
   needsReload,
   nextSelection,
   noticesOf,
-  readOnSelect,
+  actionTarget,
+  allRead,
+  askFocus,
+  markAt,
+  moveTarget,
+  readsItself,
+  type SelectCause,
   rowState,
   sourceIdOf,
   sourceTabs,
@@ -200,6 +220,19 @@ function open(row: InboxRow): void {
  * the Project IDE with that terminal tab in front, where the prompt is
  * answered. Nothing here answers it.
  */
+/**
+ * The one door of a session row: the workstream in the Project IDE with the
+ * harness's own terminal tab in front — else, when the tab is not this
+ * window's, the workstream alone. The card's button, the header's, the menu
+ * and the keys all open it here.
+ */
+function openSession(row: InboxRow, terminals: readonly { key: string; sessionId?: string | null }[]): void {
+  const waiting = waitingOf(row);
+  if (!waiting) return;
+  const tab = tabOfSession(terminals, waiting.session);
+  if (!openHarnessSession({ id: waiting.session, workstream: waiting.workstream ?? null, terminalKey: tab?.key ?? null })) open(row);
+}
+
 function WaitingSessionCard({ row }: { row: InboxRow }) {
   const labels = useHarnessLabels();
   const { sessions: terminals } = useTerminals();
@@ -209,10 +242,7 @@ function WaitingSessionCard({ row }: { row: InboxRow }) {
   const waiting = waitingOf(row);
   if (!waiting) return null;
   const Mark = harnessMark(waiting.harness);
-  const tab = tabOfSession(terminals, waiting.session);
-  const openTerminal = () => {
-    if (!openHarnessSession({ id: waiting.session, workstream: waiting.workstream ?? null, terminalKey: tab?.key ?? null })) open(row);
-  };
+  const openTerminal = () => openSession(row, terminals);
   return (
     <section className="border-b border-hairline px-3 py-2" aria-label={tr("screens-inbox-waiting-terminal")}>
       <div className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
@@ -242,12 +272,17 @@ function JoinCard({ row, onDone }: { row: InboxRow; onDone: () => void }) {
   const toast = useToast();
   const join = joinOf(row);
   const [busy, setBusy] = useState(false);
+  // Decided once: the row goes quiet when the list says so, and a second
+  // press landing before it does must not decide the claim again.
+  const [decided, setDecided] = useState(false);
   if (!join) return null;
   const act = async (admit: boolean) => {
+    if (busy || decided) return;
     setBusy(true);
     try {
       if (admit) await api.admitInvite(join.invite);
       else await api.refuseInvite(join.invite);
+      setDecided(true);
       toast.ok(admit ? tr("screens-inbox-admitted") : tr("screens-inbox-refused"));
       onDone();
     } catch (e) {
@@ -262,8 +297,8 @@ function JoinCard({ row, onDone }: { row: InboxRow; onDone: () => void }) {
       <div className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
         <ICON.members size={13} aria-hidden className="shrink-0 text-accent-ink" />
         <span className="min-w-0 flex-1 truncate text-xs">{joinWords(row)}</span>
-        <Button size="sm" variant="primary" disabled={busy} onClick={() => void act(true)}>{tr("screens-inbox-admit")}</Button>
-        <Button size="sm" disabled={busy} onClick={() => void act(false)}>{tr("screens-inbox-refuse")}</Button>
+        <Button size="sm" variant="primary" disabled={busy || decided} onClick={() => void act(true)}>{tr("screens-inbox-admit")}</Button>
+        <Button size="sm" disabled={busy || decided} onClick={() => void act(false)}>{tr("screens-inbox-refuse")}</Button>
       </div>
       <p className="mt-1 text-2xs text-text-dim">{tr("screens-inbox-they-join-human-only-role-reach")}</p>
     </section>
@@ -315,28 +350,52 @@ function WhatHappened({ row, channelKind }: { row: InboxRow; channelKind: (id: s
 }
 
 /**
- * A thing with no conversation of its own — a workflow, a project: what
+ * What a row owes, each ask its own card — the first the one the ask key
+ * lands on, and the one that takes focus when the person came for it.
+ */
+function Asks({ row, focus, onResolved }: { row: InboxRow; focus: boolean; onResolved: () => void }) {
+  return (
+    <>
+      {needsOf(row).map((a, i) => (
+        <NeedsActionCard key={needsKey(a)} action={a} autoFocus={i === 0 && focus} askAnchor={i === 0} onResolved={onResolved} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * A thing with no conversation of its own — a workflow, a project: what it
+ * owes, answered here as on any row, then what
  * happened to it, scrolled back to where it was read. Mounted with the
  * row's key as its `key`, so another row is another detail with its own
  * place. The way to the thing is the header's own door (*Open workflow*,
  * *Open in the IDE*); the empty state names it rather than drawing a
  * second, vaguer one.
  */
-function QuietDetail({ row, channelKind }: { row: InboxRow; channelKind: (id: string) => "channel" | "dm" | null }) {
+function QuietDetail({ row, channelKind, focusAsk, onResolved }: { row: InboxRow; channelKind: (id: string) => "channel" | "dm" | null; focusAsk: boolean; onResolved: () => void }) {
   const root = useRef<HTMLDivElement>(null);
   useViewScroll(root, rowPlace(PLACE, row.key));
+  const owes = needsOf(row).length > 0;
   return (
     <div ref={root} className="h-full">
       <div data-scroll-keep="detail" className="flex h-full flex-col overflow-y-auto">
+        {owes && (
+          <section className="flex flex-col gap-2 border-b border-hairline p-3" aria-label={tr("screens-inbox-waiting")}>
+            <Asks row={row} focus={focusAsk} onResolved={onResolved} />
+          </section>
+        )}
         <WhatHappened row={row} channelKind={channelKind} />
-        <div className="flex flex-1 items-center justify-center p-6">
-          <EmptyState
-            icon={ICON[rowGlyph(row)]}
-            title={tr("screens-inbox-nothing-say-here")}
-            hint={tr("screens-inbox-has-no-conversation-own-what-happened", { kind: kindLabel(row.kind).toLowerCase(), door: doorLabel(row.kind) })}
-            action={null}
-          />
-        </div>
+        {/* With an ask on it the pane has its content; the note is for a row that only tells. */}
+        {!owes && (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <EmptyState
+              icon={ICON[rowGlyph(row)]}
+              title={tr("screens-inbox-nothing-say-here")}
+              hint={tr("screens-inbox-has-no-conversation-own-what-happened", { kind: kindLabel(row.kind).toLowerCase(), door: doorLabel(row.kind) })}
+              action={null}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -356,6 +415,16 @@ export default function Inbox() {
   useEffect(() => {
     if (loaded) keepRead(ROWS_READ, rows);
   }, [loaded, rows]);
+  /** The rows as they stand, for a mark that names what its row showed. */
+  const rowsNow = useRef(rows);
+  useEffect(() => {
+    rowsNow.current = rows;
+  }, [rows]);
+  const { sessions: terminals } = useTerminals();
+  /** A row's door: a session's is its terminal, every other its own place. */
+  const openRow = useCallback((row: InboxRow) => (waitingOf(row) ? openSession(row, terminals) : open(row)), [terminals]);
+  /** The node has answered once since this screen was opened: what is drawn is no longer only what the window kept. */
+  const [fresh, setFresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [at, setAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -366,7 +435,18 @@ export default function Inbox() {
   const source: SourceId = sourceIdOf(rawSource);
   const setFilter = useCallback((f: FilterId) => setSearch({ filter: f === "needs_you" ? null : f }, { replace: true }), []);
   const setSource = useCallback((s: SourceId) => setSearch({ source: s === "any" ? null : s }, { replace: true }), []);
-  const select = useCallback((key: string | null) => setSearch({ item: key }, { replace: true }), []);
+  /** How the selection came to be: a link when the address named a row as the screen opened. */
+  const cause = useRef<SelectCause>(selected ? "link" : "auto");
+  /** The person cleared the selection: nothing is picked for them until they pick. */
+  const [dismissed, setDismissed] = useState(false);
+  /** The row the person put back unread while it is open: it does not read itself again. */
+  const [heldUnread, setHeldUnread] = useState<string | null>(null);
+  const select = useCallback((key: string | null, why: SelectCause = "pointer") => {
+    cause.current = why;
+    setDismissed(key === null);
+    setHeldUnread(null);
+    setSearch({ item: key }, { replace: true });
+  }, []);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The number of the last read asked for: an older read's answer, landing later, is not drawn (`isNewestRead`). */
   const reads = useRef(0);
@@ -398,6 +478,7 @@ export default function Inbox() {
       setAt(Math.floor(Date.now() / 1000));
       setError(null);
       setLoaded(true);
+      setFresh(true);
     } catch (e) {
       if (signal?.aborted || !isNewestRead(asked, reads.current)) return;
       setError(e instanceof ApiError ? e.message : tr("screens-inbox-could-not-read-inbox"));
@@ -456,11 +537,16 @@ export default function Inbox() {
   // The selection never jumps. It is chosen when there is none and replaced
   // only when the thing has left the workspace entirely — never because a
   // filter stopped matching it, and never because you read it.
+  // A row the address names is judged against what the node says, not what
+  // the window kept: a link to a row that is new since then must not lose
+  // to the first of the kept ones.
   useEffect(() => {
-    if (!loaded) return;
-    const next = nextSelection(visible, rows, selected ?? null);
-    if (next !== selected) setSearch({ item: next }, { replace: true });
-  }, [loaded, rows, visible, selected]);
+    if (!loaded || (selected && !fresh)) return;
+    const next = nextSelection(visible, rows, selected ?? null, dismissed);
+    if (next === (selected ?? null)) return;
+    cause.current = "auto";
+    setSearch({ item: next }, { replace: true });
+  }, [loaded, fresh, rows, visible, selected, dismissed]);
 
   // Looked up in the unfiltered set, so switching to "Needs you" leaves the
   // thing you were reading on the right-hand side.
@@ -492,11 +578,16 @@ export default function Inbox() {
 
   const setRead = useCallback(
     async (row: InboxRow, read: boolean) => {
+      // Put back unread by hand, it stays so while it is open: neither the
+      // beat below nor the thread reads it again until the person leaves.
+      setHeldUnread((held) => (read ? (held === row.key ? null : held) : row.key));
+      // Read up to what the row showed, so what lands meanwhile stays unread.
+      const shown = markAt(rowsNow.current, row.key);
       // Marked here first (`inboxModel.withReadMark`); the node's `inbox` frame for the
       // marker follows, to this list and to the sidebar's, so nothing is read again.
       setRows((prev) => withReadMark(prev, row.key, read));
       try {
-        await (read ? api.markRead(row.key) : api.markUnread(row.key));
+        await (read ? api.markRead(row.key, shown) : api.markUnread(row.key));
       } catch (e) {
         log.warn("inbox", "a row could not be marked", { row: row.key, read, ...errorFields(e) });
         toast.error(tr("screens-inbox-could-not-update-read-state"));
@@ -509,19 +600,39 @@ export default function Inbox() {
 
   // A row with no conversation of its own — a workflow, a project — is read
   // by being looked at: after a beat, so a `j` on the way past reads nothing.
+  // Keyed on the row and its state, never on the object a read of the list
+  // rebuilds: a run that keeps the list moving must not keep restarting the
+  // beat, or a quiet row would never read itself.
+  const selfReads = readsItself(current, heldUnread);
+  const currentKey = current?.key ?? null;
   useEffect(() => {
-    if (!current || current.read || !readOnSelect(current)) return;
-    const row = current;
-    const t = setTimeout(() => void setRead(row, true), READ_AFTER_MS);
+    if (!selfReads || !currentKey) return;
+    const t = setTimeout(() => {
+      const row = rowsNow.current.find((r) => r.key === currentKey);
+      if (row) void setRead(row, true);
+    }, READ_AFTER_MS);
     return () => clearTimeout(t);
-  }, [current, setRead]);
+  }, [selfReads, currentKey, setRead]);
 
+  // Once a row's detail is drawn, how it was reached has been spent: an ask
+  // that arrives on the open row later is a frame's, and takes no focus from
+  // whatever the person is typing.
+  useEffect(() => {
+    if (currentKey) cause.current = "frame";
+  }, [currentKey]);
+
+  /** *Mark all read* is on its way: a second press sends nothing. */
+  const [marking, setMarking] = useState(false);
   const markAllRead = async () => {
     const keys = unreadKeys(visible);
-    if (keys.length === 0) return;
+    if (keys.length === 0 || marking) return;
+    setMarking(true);
+    // Each mark names what its row showed; the rows read at once, the node confirms behind.
+    const shown = new Map(keys.map((k) => [k, markAt(rowsNow.current, k)]));
+    setRows((prev) => allRead(prev, keys));
     try {
       // A few at a time (`markBatches`): a full Inbox is not a burst of a thousand requests.
-      for (const batch of markBatches(keys)) await Promise.all(batch.map((k) => api.markRead(k)));
+      for (const batch of markBatches(keys)) await Promise.all(batch.map((k) => api.markRead(k, shown.get(k))));
       toast.ok(keys.length === 1 ? tr("screens-inbox-marked-read") : tr("screens-inbox-marked-read-2", { keys: keys.length }));
     } catch (e) {
       log.warn("inbox", "the visible rows could not be marked read", errorFields(e));
@@ -530,17 +641,24 @@ export default function Inbox() {
       // Whichever marks landed, the list says what is so.
       ws.refresh();
       await load();
+      setMarking(false);
     }
   };
 
+  /** The row's own button in the list, to put focus on. */
+  const focusRow = useCallback((key: string) => {
+    list.current?.querySelector<HTMLElement>(`[data-inbox-row="${CSS.escape(key)}"] button`)?.focus();
+  }, []);
+
   const move = useCallback(
     (delta: number) => {
-      if (visible.length === 0) return;
-      const i = visible.findIndex((r) => r.key === selected);
-      const next = Math.min(visible.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta));
-      select(visible[next]!.key);
+      const next = moveTarget(visible, selected, delta);
+      if (!next) return;
+      select(next, "move");
+      // Focus follows the move, so Tab goes on from the row and it is in view.
+      focusRow(next);
     },
-    [visible, select, selected],
+    [visible, select, selected, focusRow],
   );
 
   useEffect(() => {
@@ -553,8 +671,12 @@ export default function Inbox() {
       // list itself, or the page with nothing focused. A tab, a filter, a
       // menu, a button in the detail keeps its own keys.
       const focus = document.activeElement as HTMLElement | null;
-      const inList = !!focus && (focus === listNav.current || focus.closest("[data-inbox-row]") !== null);
+      const focusedRow = focus?.closest<HTMLElement>("[data-inbox-row]")?.dataset.inboxRow ?? null;
+      const inList = !!focus && (focus === listNav.current || focusedRow !== null);
       const onControl = !!focus && focus !== document.body && !inList;
+      // The row a key is about: the one focus stands on, else the selected one.
+      const targetKey = actionTarget(focusedRow, selected);
+      const target = targetKey ? (rows.find((r) => r.key === targetKey) ?? null) : null;
       const action = keyAction(e.key, {
         inInput: !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable),
         // The pinned answer form has buttons in it — Send, "I'm not sure" —
@@ -562,7 +684,7 @@ export default function Inbox() {
         // than to buttons in general, because the list's rows are buttons.
         inAsk: !!el?.closest(`[${ASK_ATTR}]`),
         modifier: e.metaKey || e.ctrlKey || e.altKey,
-        hasSelection: current !== null,
+        hasSelection: target !== null,
         onControl,
       });
       if (!action) return;
@@ -575,25 +697,30 @@ export default function Inbox() {
           move(-1);
           break;
         case "open":
-          if (current) open(current);
+          if (target) openRow(target);
           break;
         case "focus_ask":
+          cause.current = "ask_key";
           document.querySelector<HTMLElement>(`[${FOCUS_ATTR}]`)?.focus();
           break;
         case "mark_read":
-          if (current) void setRead(current, true);
+          if (target) void setRead(target, true);
           break;
         case "mark_unread":
-          if (current) void setRead(current, false);
+          if (target) void setRead(target, false);
           break;
         case "clear":
           select(null);
+          break;
+        case "leave_ask":
+          // Out of the ask and back on its row, where the list's keys act.
+          if (selected) focusRow(selected);
           break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, move, select, setRead]);
+  }, [rows, selected, move, select, setRead, openRow, focusRow]);
 
   /**
    * One array behind the row's ⋮ menu, its right-click menu and the header,
@@ -602,11 +729,17 @@ export default function Inbox() {
    * item shows which way the action goes.
    */
   const actionsFor = (row: InboxRow): MenuItem[] => [
-    { label: tr("screens-inbox-open"), onSelect: () => open(row), icon: ICON.open },
+    { label: tr("screens-inbox-open"), onSelect: () => openRow(row), icon: ICON.open },
     row.read
       ? { label: tr("screens-inbox-mark-unread"), onSelect: () => void setRead(row, false), icon: ICON.unread }
       : { label: tr("screens-inbox-mark-read"), onSelect: () => void setRead(row, true), icon: ICON.read },
   ];
+
+  /** An ask was decided: the lists say what is owed now. */
+  const resolved = useCallback(() => {
+    ws.refresh();
+    void load();
+  }, [ws, load]);
 
   const empty = emptyWords(filter, source);
 
@@ -639,7 +772,7 @@ export default function Inbox() {
           <>
             <SegmentedControl size="sm" label={tr("screens-inbox-filter-inbox")} options={filterSegments(tally.buckets)} value={filter} onChange={setFilter} />
             {unreadInView > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => void markAllRead()} title={tr("screens-inbox-mark-every-row-view-read")}>
+              <Button size="sm" variant="ghost" disabled={marking} onClick={() => void markAllRead()} title={tr("screens-inbox-mark-every-row-view-read")}>
                 <ICON.read size={12} aria-hidden />
                 <span className="ml-1">{tr("screens-inbox-mark-all-read")}</span>
               </Button>
@@ -707,13 +840,13 @@ export default function Inbox() {
                       const fresh = row.unread_count + unreadNoticesOf(row);
                       return (
                         <ContextMenu items={actionsFor(row)} className="block">
-                          <div className="group relative" data-inbox-row>
+                          <div className="group relative" data-inbox-row={row.key}>
                             {/* A read row recedes by its words — dim ink, normal weight — never by fading them. */}
                             <button
                               type="button"
                               aria-current={active ? "true" : undefined}
                               onClick={() => select(row.key)}
-                              onDoubleClick={() => open(row)}
+                              onDoubleClick={() => openRow(row)}
                               className={`anim min-h-row-lg w-full px-3 py-2 text-left ${active ? "bg-selected text-text" : "hover:bg-surface-2/60"}`}
                             >
                               <div className="flex items-center gap-1.5">
@@ -811,7 +944,7 @@ export default function Inbox() {
                 }
                 actions={
                   <>
-                    <Button size="sm" onClick={() => open(current)}>
+                    <Button size="sm" onClick={() => openRow(current)}>
                       {doorLabel(current.kind)}
                     </Button>
                     <MoreMenu label={tr("screens-inbox-row-actions")} items={actionsFor(current)} className="h-7 w-7 rounded-control border border-border hover:bg-surface-2" />
@@ -837,27 +970,18 @@ export default function Inbox() {
                     kind={conversation.kind}
                     channel={currentChannel}
                     placeholder={tr("screens-inbox-reply")}
+                    holdRead={heldUnread === current.key}
                     pinned={
                       needsOf(current).length > 0 || noticesOf(current).length > 0 ? (
                         <>
-                          {needsOf(current).map((a, i) => (
-                            <NeedsActionCard
-                              key={needsKey(a)}
-                              action={a}
-                              autoFocus={i === 0}
-                              onResolved={() => {
-                                ws.refresh();
-                                void load();
-                              }}
-                            />
-                          ))}
+                          <Asks row={current} focus={askFocus(cause.current)} onResolved={resolved} />
                           <WhatHappened row={current} channelKind={channelKind} />
                         </>
                       ) : undefined
                     }
                   />
                 ) : (
-                  <QuietDetail key={current.key} row={current} channelKind={channelKind} />
+                  <QuietDetail key={current.key} row={current} channelKind={channelKind} focusAsk={askFocus(cause.current)} onResolved={resolved} />
                 )}
               </div>
             </>

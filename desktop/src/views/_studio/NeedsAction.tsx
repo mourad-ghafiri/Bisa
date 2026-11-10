@@ -33,6 +33,7 @@ export function NeedsActionCard({
   inputs,
   onResolved,
   autoFocus = false,
+  askAnchor = false,
 }: {
   /** The ask — decided through its own home, the goal or the run of the workspace. */
   action: NeedsAction;
@@ -40,6 +41,8 @@ export function NeedsActionCard({
   inputs?: InputDef[];
   onResolved: () => void;
   autoFocus?: boolean;
+  /** Answer to the Inbox's ask key without taking focus as the card is shown. */
+  askAnchor?: boolean;
 }) {
   const isQuestion = isAnswerAsk(action.expects);
   // An adoption carries the workflow it proposes: the card shows
@@ -70,7 +73,7 @@ export function NeedsActionCard({
           asterisks in the other — and the Inbox is where the question is
           usually met first. */}
       {proposal && proposalGoal ? (
-        <ProposalCard goal={proposalGoal} action={action} proposal={proposal} onResolved={onResolved} autoFocus={autoFocus} />
+        <ProposalCard goal={proposalGoal} action={action} proposal={proposal} onResolved={onResolved} autoFocus={autoFocus} askAnchor={askAnchor} />
       ) : (
         <>
           <Markdown text={action.question} className="mb-3 text-text" />
@@ -79,6 +82,7 @@ export function NeedsActionCard({
             inputs={inputs}
             onResolved={onResolved}
             autoFocus={autoFocus}
+            askAnchor={askAnchor}
             labels={askVerbs(action)}
           />
           {askHint(action) && <p className="mt-2 text-2xs text-text-dim">{askHint(action)}</p>}

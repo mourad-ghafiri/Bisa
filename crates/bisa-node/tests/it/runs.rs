@@ -575,3 +575,224 @@ async fn a_goals_test_run_is_a_run_on_the_goal() {
     }
     node.shutdown().await;
 }
+
+/// Two work items of one run each asked a question an earlier process
+/// journaled: both are cards on the workflow's row, each with its work item,
+/// and answering the newer leaves the older owed — the reader that stopped
+/// at the family's first settled fact showed neither, and the older could
+/// never be answered.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_work_items_questions_are_two_cards_and_one_answer_leaves_the_other() {
+    use bisa_core::event::JournalPayload;
+    let node = Node::start().await;
+    let wf = node.workflow(human_workflow()).await;
+    let run = start(&node, wf).await;
+    let home = bisa_core::Home::Run { run };
+    let owner = node.ws.owner_keys().clone();
+    let items: Vec<bisa_core::WorkItemId> = (1..=2)
+        .map(|n| bisa_core::WorkItemId::from_ulid(ulid::Ulid::from_parts(7, n)))
+        .collect();
+    for (item, text) in items.iter().zip(["Which region?", "Which tier?"]) {
+        node.ws
+            .append_journal(
+                &home,
+                JournalPayload::Question {
+                    work_item: Some(*item),
+                    gate: format!("ask_human:{item}"),
+                    text: text.into(),
+                    expects: bisa_core::AskKind::free_text(),
+                },
+                &owner,
+                None,
+            )
+            .unwrap();
+    }
+    let asked = |row: &Value| -> Vec<(String, String)> {
+        row["needs_action"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|a| {
+                a["subject"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("ask_human:"))
+            })
+            .map(|a| {
+                (
+                    a["question"].as_str().unwrap().to_string(),
+                    a["work_item"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect()
+    };
+    let row = workflow_row(&node, wf).await.expect("the workflow's row");
+    assert_eq!(
+        asked(&row),
+        vec![
+            ("Which region?".to_string(), items[0].to_string()),
+            ("Which tier?".to_string(), items[1].to_string()),
+        ],
+        "{row}"
+    );
+    // The run's own page carries the same cards.
+    let page = node.get(&format!("/runs/{run}")).await;
+    assert_eq!(
+        page["needs_actions"].as_array().unwrap().len(),
+        row["needs_action"].as_array().unwrap().len(),
+        "{page}"
+    );
+
+    // The newer is answered: the older is still owed.
+    node.ws
+        .record_decision(
+            &home,
+            bisa_core::Gate::Escalation,
+            true,
+            &format!("ask_human:{}", items[1]),
+            None,
+            Some(&bisa_core::Answer::text("standard")),
+        )
+        .unwrap();
+    let row = workflow_row(&node, wf).await.expect("still a row");
+    assert_eq!(
+        asked(&row),
+        vec![("Which region?".to_string(), items[0].to_string())],
+        "{row}"
+    );
+    node.shutdown().await;
+}
+
+/// A card rebuilt from the journal has no gate id; `subject` on the decide
+/// names its question. With a `human` step waiting beside it — which an
+/// unnamed decide would take — the subject's question is the one decided,
+/// once: a second answer is a conflict, a subject nobody asked is refused,
+/// and a gate named beside a subject it is not about decides nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rebuilt_card_decides_its_own_subject() {
+    use bisa_core::event::JournalPayload;
+    let node = Node::start().await;
+    let wf = node.workflow(human_workflow()).await;
+    let run = start(&node, wf).await;
+    let home = bisa_core::Home::Run { run };
+    let owner = node.ws.owner_keys().clone();
+    let item = bisa_core::WorkItemId::from_ulid(ulid::Ulid::from_parts(7, 1));
+    let subject = format!("ask_human:{item}");
+    node.ws
+        .append_journal(
+            &home,
+            JournalPayload::Question {
+                work_item: Some(item),
+                gate: subject.clone(),
+                text: "Which region?".into(),
+                expects: bisa_core::AskKind::free_text(),
+            },
+            &owner,
+            None,
+        )
+        .unwrap();
+    let row = workflow_row(&node, wf).await.expect("the workflow's row");
+    let cards = row["needs_action"].as_array().unwrap();
+    assert_eq!(cards.len(), 2, "the step's question and the agent's: {row}");
+    let step_gate = cards
+        .iter()
+        .find_map(|a| a["gate_id"].as_str())
+        .expect("the live step's gate")
+        .to_string();
+    let answer = json!({"selected": [], "text": "eu-west", "unsure": false});
+
+    // A gate that is about something else, named beside the subject.
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/runs/{run}/decide"),
+            Some(json!({"approve": true, "answer": answer, "subject": subject, "gate": step_gate})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("is about"), "{v}");
+
+    // The subject alone: its question, not the waiting step.
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/runs/{run}/decide"),
+            Some(json!({"approve": true, "answer": answer, "subject": subject})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let row = workflow_row(&node, wf).await.expect("still a row");
+    let left = row["needs_action"].as_array().unwrap();
+    assert_eq!(left.len(), 1, "{row}");
+    assert_eq!(left[0]["gate_id"], json!(step_gate), "the step still waits");
+    let page = node.get(&format!("/runs/{run}")).await;
+    assert_eq!(
+        page["run"]["steps"]["ask"]["state"]["state"],
+        json!("waiting")
+    );
+
+    // Decided once.
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/runs/{run}/decide"),
+            Some(json!({"approve": true, "answer": answer, "subject": subject})),
+        )
+        .await;
+    assert_eq!(code, 409, "{v}");
+    // A subject nobody asked.
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/runs/{run}/decide"),
+            Some(json!({"approve": true, "answer": answer,
+                        "subject": "ask_human:01ARZ3NDEKTSV4RRFFQ69G5FAV"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("no longer asked"), "{v}");
+
+    // The live gate's own subject decides the gate: its waiter resolves.
+    let step_subject = left[0]["subject"].as_str().unwrap().to_string();
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/runs/{run}/decide"),
+            Some(
+                json!({"approve": true, "subject": step_subject, "gate": step_gate,
+                        "answer": {"selected": ["sqlite"], "text": null, "unsure": false}}),
+            ),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    node.shutdown().await;
+}
+
+/// A step that waits on the clock waits on nobody: a run held by a `wait`
+/// for a delay owes no ask, on its row or on its page — only a step a person
+/// can answer, decide or release is one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_waiting_on_the_clock_is_no_ask() {
+    let node = Node::start().await;
+    let wf = node
+        .workflow(json!({
+            "name": "Later",
+            "steps": [{"id": "later", "name": "Later", "kind": "wait",
+                       "until": {"until": "delay", "secs": 3600}}]
+        }))
+        .await;
+    let run = start(&node, wf).await;
+    let page = node.get(&format!("/runs/{run}")).await;
+    assert_eq!(
+        page["run"]["steps"]["later"]["state"]["state"],
+        json!("waiting"),
+        "{page}"
+    );
+    assert_eq!(page["needs_actions"], json!([]), "{page}");
+    let row = workflow_row(&node, wf).await;
+    assert!(
+        row.as_ref()
+            .is_none_or(|r| r["needs_action"].as_array().unwrap().is_empty()),
+        "{row:?}"
+    );
+    node.shutdown().await;
+}

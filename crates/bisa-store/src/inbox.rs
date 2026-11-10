@@ -86,6 +86,14 @@ impl Workspace {
         self.idx().scope_activity()
     }
 
+    /// `(scope, newest message by somebody else)` — what a read mark is
+    /// compared with: a scope whose newest message is your own has nothing
+    /// you have yet to read, though it is the newest thing in it.
+    pub fn scope_activity_of_others(&self) -> Result<Vec<(String, u64)>, StoreError> {
+        self.idx()
+            .scope_activity_of_others(self.owner_principal().as_hex())
+    }
+
     /// Every read watermark this machine holds.
     pub fn read_markers(&self) -> Result<Vec<ReadMarker>, StoreError> {
         self.idx().read_markers()

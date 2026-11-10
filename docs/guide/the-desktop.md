@@ -189,7 +189,8 @@ has a row under *Waiting on you* (and under *Projects*) for as long as it waits,
 harness and the checkout it stands in, with the same words the rail's raised hand says; **Open the
 terminal** lands on that workstream with the tab in front, where the prompt is answered, and the
 row goes when it is, or when the tab closes. *Read* is yours — one local watermark per row, never synced,
-covering its messages and its notices alike. *Handled* is the workspace's — a signed fact. **The
+covering its messages and its notices alike; it only moves forward, and a row you put back unread
+keeps its count — what was unread still is. *Handled* is the workspace's — a signed fact. **The
 sidebar's badge** counts everything not yet dealt with: the rows you have not read and the rows that
 need you, one number, accented while any needs you and neutral when it is only unread (hover it:
 *1 needs you · 2 unread*); reading a row lowers it, answering an ask lowers it. What is
@@ -202,8 +203,10 @@ about a goal is under *Goals*, its row saying *about goal …* with the goal's g
 checkout under *Projects*; *Messages* is channels, direct channels and conversations about nothing
 in particular), and the three buckets — *Needs you · Unread · All* — with
 theirs; the words are always drawn (only a window too narrow for them folds the tabs to their glyphs, the word on hover); both stay in the address, so a link to *Unread · Projects* is that
-list. *Mark all read* takes what is in view — a few rows at a time, and the list is read again
-whatever happened, so a row whose mark failed still reads as new. The list is drawn in three groups — **Waiting on
+list. *Mark all read* takes what is in view — the rows read at once, the marks sent a few at a
+time, one press at a time — and the list is read again
+whatever happened, so a row whose mark failed still reads as new. A read is **up to what the row
+showed**: a message that lands while the mark is on its way stays unread. The list is drawn in three groups — **Waiting on
 you**, **New**, **Kept** — newest first inside each. A row wears its state's mark — the accent for
 something owed, a plain dot for something new, an opened envelope once read — the glyph of the kind
 of thing it is, its title, and one line that says what it wants: the ask in the accent, the newest
@@ -217,8 +220,10 @@ door opens that run's page.
 Under it, the asks first, as the very cards the goal page's *Your move* band mounts, so answering
 here or there is one act; then **What happened** — the notices newest first, each the Pulse's own
 row with its door, the unread ones marked, folded past five; then the conversation when the thing
-has one — a goal's thread, a channel, a direct channel, a conversation with agents. A workflow has no conversation of its own here: its notices and its door are the pane.
-Selecting a row with no conversation of its own reads it after a beat. **A conversation reads
+has one — a goal's thread, a channel, a direct channel, a conversation with agents. A workflow or a project has no conversation of its own here: its asks, its notices and its door are the pane — a run's approval or question is answered on the workflow's row like any other.
+Selecting a row with no conversation of its own reads it after a beat. A row you put back unread
+(`u`) stays unread while it is open — neither the beat nor its thread reads it again until you
+leave it. **A conversation reads
 itself as it is shown** — here, in the Project IDE's Agent pane, on a goal, on a workflow, in a
 channel, a direct message or a hosted channel alike: the moment you can see its newest message —
 the window in front of you, the thread at its bottom — and a beat has passed, the row is read and
@@ -235,8 +240,12 @@ work. A **held step** — a `wait` step waiting for you to release it — has on
 Gates opened by another process are reconstructed from the run — a waiting `human` step, a running
 `approval` step, a held `wait` step, an un-adopted proposal — so nothing waiting on you can hide
 behind a restarted daemon. A pending push or pull request lands here as a `publish` gate. The
-screen's own chords: `j` · `k` move, `Enter` · `o` open, `a` focuses the action control, `e` marks
-read, `u` marks unread, `Esc` clears the selection — nothing while you type or inside an answer form.
+screen's own chords: `j` · `k` move — focus follows, and from a row a filter has hidden the move
+starts the list — `Enter` · `o` open, `a` focuses the action control, `e` marks
+read, `u` marks unread, `Esc` clears the selection, and nothing is picked again until you pick —
+nothing while you type or inside an answer form, where `Esc` goes back to the row. `Enter`, `o`,
+`e` and `u` act on the row focus stands on, else the selected one. Walking the list never puts
+the keyboard in an answer: an ask takes focus when you came for it — a click, `a`, a link.
 
 ```sh
 bisa inbox                       # the same rows, each ask's command and each unread notice under it

@@ -862,6 +862,16 @@ impl Presence {
         self.rows.get(&id).map(|e| e.presence.clone())
     }
 
+    /// Every harness a person opened in a terminal, waiting or not — what
+    /// the Inbox's view of a running engine holds (`inbox::LiveView`).
+    pub fn terminals(&self) -> Vec<SessionPresence> {
+        self.rows
+            .iter()
+            .map(|e| e.presence.clone())
+            .filter(|p| p.kind == crate::registry::SessionKind::Terminal)
+            .collect()
+    }
+
     /// The harnesses a person opened in a terminal that are waiting on them
     /// right now — the Inbox's `session` rows (ide/06 §Reporting). Newest
     /// wait first.
@@ -872,11 +882,7 @@ impl Presence {
             .map(|e| e.presence.clone())
             .filter(|p| p.kind == crate::registry::SessionKind::Terminal && p.wait().is_some())
             .collect();
-        rows.sort_by(|a, b| {
-            b.wait_since()
-                .cmp(&a.wait_since())
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        newest_wait_first(&mut rows);
         rows
     }
 
@@ -968,6 +974,16 @@ fn emit(inner: &Inner, presence: &SessionPresence) {
             presence: Box::new(presence.clone()),
         },
     ));
+}
+
+/// The order waiting sessions are read in everywhere: the newest wait first,
+/// and by id where two began in one second, so two reads agree.
+pub(crate) fn newest_wait_first(rows: &mut [SessionPresence]) {
+    rows.sort_by(|a, b| {
+        b.wait_since()
+            .cmp(&a.wait_since())
+            .then_with(|| a.id.cmp(&b.id))
+    });
 }
 
 /// The wait a harness's own request puts a session in — before the engine has

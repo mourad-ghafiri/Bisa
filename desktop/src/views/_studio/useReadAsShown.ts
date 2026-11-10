@@ -21,6 +21,7 @@ export function useReadAsShown({
   host,
   unreadCount,
   shown,
+  held = false,
 }: {
   /** The conversation's scope id. */
   scope: string;
@@ -30,10 +31,12 @@ export function useReadAsShown({
   unreadCount: number;
   /** Whether the person can see the newest message right now. */
   shown: boolean;
+  /** The person put the scope back unread while it is open: nothing reads it until they leave. */
+  held?: boolean;
 }): void {
   const ws = useWorkspace();
   const row = host ? null : (ws.inbox.find((r) => r.key === scope) ?? null);
-  const wanted = readWanted(unreadCount, row);
+  const wanted = readWanted(unreadCount, row) && !held;
   const markRead = ws.markRead;
   useEffect(() => {
     if (!wanted || !shown) return;

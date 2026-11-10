@@ -152,6 +152,12 @@ export function decideBody(action, form) {
   // `wait` step is released only by name while an adoption or an amendment
   // is still owed a decision — an unnamed approval goes to that instead.
   const step = typeof action?.step === "string" && action.step ? action.step : undefined;
+  // An ask rebuilt after a restart has no gate; one that is no step's — a
+  // proposal, an amendment, an agent's question — is named by its subject,
+  // so that question is decided and never a step that waits beside it. It
+  // rides only then: a live gate and a step are named already, and a node
+  // from before the key never sees it.
+  const subject = !gate && !step && typeof action?.subject === "string" && action.subject ? action.subject : undefined;
   const typed = text(form?.text);
 
   if (!isAnswerAsk(action?.expects)) {
@@ -166,6 +172,7 @@ export function decideBody(action, form) {
       approve,
       ...(gate ? { gate } : {}),
       ...(step ? { step } : {}),
+      ...(subject ? { subject } : {}),
       ...(typed ? { rationale: typed } : {}),
       ...(inputs ? { inputs } : {}),
     };
@@ -183,6 +190,7 @@ export function decideBody(action, form) {
     approve: true,
     ...(gate ? { gate } : {}),
     ...(step ? { step } : {}),
+    ...(subject ? { subject } : {}),
     answer: { selected, ...(typed ? { text: typed } : {}), unsure },
   };
 }

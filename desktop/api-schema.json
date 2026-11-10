@@ -1654,6 +1654,9 @@
     "ScopeBody": {
       "$ref": "#/definitions/ScopeBody"
     },
+    "ReadBody": {
+      "$ref": "#/definitions/ReadBody"
+    },
     "NewAgentBody": {
       "$ref": "#/definitions/NewAgentBody"
     },
@@ -22860,6 +22863,14 @@
           ],
           "description": "Which waiting step is meant, when no `gate` is named and the run has\nseveral `approval` or `human` steps waiting. Refused, not guessed,\nwhen it is needed and absent. A held `wait` step is released only by\nname while an adoption or an amendment is still owed a decision: an\nunnamed approval decides that instead.",
           "default": null
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The question meant, by its subject — what every ask of `GET /inbox`\ncarries, and all a card rebuilt after a restart has (it has no\n`gate`). Exactly that question is decided: a live gate about it as\nitself, else the durable record of it — never another the home owes.\nA question already answered is a 409; one taken back or never asked\nis refused, as is a `gate` named beside a subject it is not about.\nAbsent, the decide picks as it always has.",
+          "default": null
         }
       },
       "required": [
@@ -23598,6 +23609,30 @@
       "required": [
         "scope"
       ]
+    },
+    "ReadBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "The row's `key`."
+        },
+        "at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Unix seconds of the newest thing the reader drew — a row's\n`latest_at`. What arrived after it stays unread. Absent, the scope is\nread up to now; a moment in the future is now; the mark never moves\nbackwards.",
+          "default": null
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "description": "`POST /read` — read a scope, up to what its reader was shown."
     },
     "NewAgentBody": {
       "type": "object",

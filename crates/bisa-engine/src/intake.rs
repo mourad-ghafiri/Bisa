@@ -3300,7 +3300,25 @@ async fn ask_human(
         Some(wi) => format!("ask_human:{wi}"),
         None => format!("ask_human:{}", home.id()),
     };
-    let (gate_id, _rx) = inner.gates.open(
+    // One gate per question. The same question asked again — a retried
+    // call — is the gate already open, with nothing journaled twice; a
+    // reworded one replaces it: the old gate goes (its waiter hears it
+    // vanished) and the new question is the newest fact on the subject.
+    if let Some(open) = inner
+        .gates
+        .pending_for_home(&home)
+        .into_iter()
+        .find(|g| g.subject == subject)
+    {
+        if open.question == question && open.expects == expects {
+            return json!({"ok": true, "gate": open.id});
+        }
+        inner.gates.withdraw(&open.id);
+    }
+    // A work item's question is its session's: it goes when the session is
+    // stopped. The home's own — the designer's — outlives its wake.
+    let (gate_id, _rx) = inner.gates.open_for_session(
+        work_item.and_then(|wi| inner.presence.by_work_item(wi)),
         home,
         work_item,
         Gate::Escalation,
@@ -3386,7 +3404,9 @@ async fn await_decision(inner: &Arc<Inner>, gate: String) -> serde_json::Value {
                     return resolved(r);
                 }
             }
-            None => return err("gate vanished"), // LCOV_EXCL_LINE: the gate left between two polls of a wait: a race
+            // Taken back while it was waited on: the asker was stopped, its
+            // step cancelled, or it asked the question again in other words.
+            None => return err("gate vanished"),
         }
     }
 }

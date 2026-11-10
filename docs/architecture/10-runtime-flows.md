@@ -104,7 +104,9 @@ in this order, before it serves anyone:
 3. **Guided work** (`guided::resume_interrupted`) — a design or a repair the dead process was in the
    middle of is scheduled again.
 4. **Questions nobody can answer** (`recovery::withdraw_dead_questions`). A publish gate, a guard
-   escalation or a permission escalation is a journaled question whose live gate died with the
+   escalation, a permission escalation or a work item's own question (`ask_human:<work item>` —
+   never the home's own, the designer's, which is answered when the answer comes) is a journaled
+   question whose live gate died with the
    process — on an open goal or a live workspace run; each with neither a decision nor a withdrawal
    after it gets a `withdrawn` fact on that home with the reason and a note — *a decision you were asked for was interrupted by a restart — "Publish:
    push …" — ask again from where it came*. The inbox reads the withdrawal as a decision would be.

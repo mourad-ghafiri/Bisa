@@ -503,7 +503,7 @@ bisa run <goal> --input k=v --watch              # a goal's run: start, and foll
 bisa run <goal> --new                            # another run of the goal, queued behind its live one
 bisa stop <goal> · bisa restart <goal>           # the goal's live run stopped (its queue withdrawn), or started again
 bisa status <goal-or-run>                        # one line per step with its mark
-bisa inbox                                       # the human and approval steps waiting on you
+bisa inbox                                       # everything waiting on you, each with the command that answers it
 bisa approve <goal-or-run> [--no] [--step <id>]  # an approval step, an adoption, an amendment
 bisa step answer <goal-or-run> <step> "…" | -o <id> | --unsure
 bisa step release <goal-or-run> <step>           # a wait step of kind release

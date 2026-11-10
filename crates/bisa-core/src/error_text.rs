@@ -97,6 +97,9 @@ impl Localize for crate::ask::AnswerError {
             crate::ask::AnswerError::UnsureOnDecision => {
                 crate::text!("error-core-answer-unsure-on-decision")
             }
+            crate::ask::AnswerError::TextOnDecision => {
+                crate::text!("error-core-answer-text-on-decision")
+            }
             crate::ask::AnswerError::UnknownOption(v0) => {
                 crate::text!("error-core-answer-unknown-option", v0 = format!("{v0:?}"))
             }
@@ -959,6 +962,7 @@ mod tests {
             AnswerError::Empty,
             AnswerError::SelectionOnDecision,
             AnswerError::UnsureOnDecision,
+            AnswerError::TextOnDecision,
             AnswerError::UnknownOption("x".into()),
             AnswerError::MultiNotOffered,
             AnswerError::ManyRecommended,

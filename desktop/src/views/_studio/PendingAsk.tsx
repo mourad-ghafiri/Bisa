@@ -95,6 +95,7 @@ export function AskControls({
   inputs,
   onResolved,
   autoFocus = false,
+  askAnchor = false,
   labels,
   extra,
 }: {
@@ -112,6 +113,8 @@ export function AskControls({
   onResolved: () => void;
   /** Take focus and answer to the Inbox's `a`. One card per screen, at most. */
   autoFocus?: boolean;
+  /** Answer to the Inbox's `a` without taking focus as the card is shown — a row walked past with `j` must not have the next key typed into its answer. */
+  askAnchor?: boolean;
   /** The two doors' words, when the gate is about something particular — an adoption says *Adopt and start*. */
   /** The decision's verbs; a `decline` of `null` draws no Decline — a held step's release has nothing to decline. */
   labels?: { approve?: string; decline?: string | null };
@@ -173,7 +176,7 @@ export function AskControls({
           <InputsForm inputs={inputs} values={values} errors={inputErrors} home="goal" onChange={setValues} disabled={busy || sent} />
         )}
         <TextInput
-          {...{ [FOCUS_ATTR]: autoFocus ? "true" : undefined }}
+          {...{ [FOCUS_ATTR]: autoFocus || askAnchor ? "true" : undefined }}
           autoFocus={autoFocus}
           value={text}
           placeholder={t("studio-pending-ask-reason-optional")}
@@ -226,8 +229,8 @@ export function AskControls({
                   // conversation do not become one radio group between them.
                   name={multi ? undefined : group}
                   checked={checked}
-                  {...(autoFocus && anchor === "option" && first
-                    ? { [FOCUS_ATTR]: "true", autoFocus: true }
+                  {...((autoFocus || askAnchor) && anchor === "option" && first
+                    ? { [FOCUS_ATTR]: "true", autoFocus }
                     : {})}
                   onChange={() => setSelected((s) => toggleChoice(s, o.id, multi))}
                   onClick={() => {
@@ -273,7 +276,7 @@ export function AskControls({
           the answers that exist, and a question that only accepts its own
           three is a form, not a conversation. */}
       <TextArea
-        {...(autoFocus && anchor === "text" ? { [FOCUS_ATTR]: "true", autoFocus: true } : {})}
+        {...((autoFocus || askAnchor) && anchor === "text" ? { [FOCUS_ATTR]: "true", autoFocus } : {})}
         rows={options.length > 0 ? 2 : 3}
         value={text}
         placeholder={options.length > 0 ? t("studio-pending-ask-anything-options-miss") : t("studio-pending-ask-answer")}

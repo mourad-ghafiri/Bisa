@@ -7533,3 +7533,254 @@ fn search_never_lists_an_archived_goal_unless_asked() {
         vec![put_away]
     );
 }
+
+/// `bisa answer` and `bisa step done` on a decision gate are refused in a
+/// sentence that names `bisa approve`, and decide nothing: before, the
+/// typed words were dropped and the step approved.
+#[test]
+fn answer_and_step_done_on_a_decision_gate_are_refused_naming_approve() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let wf = workflow_new(dir.path(), &approval_workflow_file(dir.path()));
+    let id = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "new",
+            "Not shipped by a sentence",
+            "--workflow",
+            &wf,
+        ],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for args in [
+        vec!["answer", id.as_str(), "no, not yet"],
+        vec!["step", "done", id.as_str(), "ship"],
+        vec!["step", "answer", id.as_str(), "ship", "fine by me"],
+    ] {
+        let refused = bisa(dir.path(), &args);
+        assert!(!refused.status.success(), "{args:?} must be refused");
+        let said = String::from_utf8_lossy(&refused.stderr).to_string();
+        assert!(said.contains("bisa approve"), "{args:?}: {said}");
+    }
+    let status = json(&bisa(dir.path(), &["--json", "status", &id]));
+    assert_eq!(
+        status["run"]["steps"]["ship"]["state"]["state"], "waiting",
+        "nothing was decided: {status}"
+    );
+    let approved = bisa(dir.path(), &["--json", "approve", &id]);
+    assert_ok(&approved, "approve");
+    assert_eq!(json(&approved)["status"], "done");
+}
+
+/// A goal on the one-approval workflow, begun: its id.
+fn approval_goal(dir: &Path, statement: &str) -> String {
+    let wf = workflow_new(dir, &approval_workflow_file(dir));
+    json(&bisa(dir, &["--json", "new", statement, "--workflow", &wf]))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// The row `bisa inbox` holds for `key`.
+fn inbox_row_of(dir: &Path, key: &str) -> serde_json::Value {
+    let inbox = bisa(dir, &["--json", "inbox"]);
+    assert_ok(&inbox, "inbox");
+    json(&inbox)["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["key"] == key).cloned())
+        .unwrap_or_else(|| panic!("no row for {key}: {}", stdout(&inbox)))
+}
+
+/// With no node, `bisa inbox` is the builder's rows over the workspace
+/// alone: the ask a waiting step owes, with its subject and the command
+/// that settles it, the row's read state and its notices — where it printed
+/// a goal's name and no ask. A node that then starts says the same row.
+#[test]
+fn inbox_offline_shows_the_rows_the_node_would_minus_live_gates() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let id = approval_goal(dir.path(), "Shown without a node");
+
+    let offline = inbox_row_of(dir.path(), &id);
+    assert_eq!(offline["kind"], "goal", "{offline}");
+    assert_eq!(offline["source"], "goals", "{offline}");
+    assert_eq!(offline["read"], false, "an ask nobody has seen: {offline}");
+    let asks = offline["needs_action"].as_array().unwrap();
+    assert_eq!(asks.len(), 1, "{offline}");
+    assert_eq!(asks[0]["step"], "ship");
+    assert_eq!(asks[0]["question"], "Ship the release?");
+    assert_eq!(asks[0]["durable"], true);
+    assert!(asks[0]["gate_id"].is_null(), "no gate is live: {offline}");
+    let subject = asks[0]["subject"].as_str().unwrap().to_string();
+    assert!(subject.starts_with("approval:"), "{subject}");
+    // The line a person copies.
+    let said = stdout(&bisa(dir.path(), &["inbox"]));
+    assert!(
+        said.contains(&format!("→ bisa approve {id} [--no]")),
+        "{said}"
+    );
+    assert!(!said.contains("--input"), "a step takes no inputs: {said}");
+
+    // The node's row for the key is the same thing, asked the same.
+    let node = spawn_daemon(dir.path());
+    let live = inbox_row_of(dir.path(), &id);
+    for field in ["key", "kind", "source", "title", "handled"] {
+        assert_eq!(live[field], offline[field], "{field}: {live} vs {offline}");
+    }
+    let live_asks = live["needs_action"].as_array().unwrap();
+    assert_eq!(live_asks.len(), 1, "{live}");
+    assert_eq!(live_asks[0]["subject"], subject.as_str());
+    drop(node);
+
+    // Read up to a moment: the mark is said back, and never moves back.
+    let read = json(&bisa(dir.path(), &["--json", "read", &id]));
+    let at = read["at"].as_u64().expect("the mark as it stands");
+    let earlier = json(&bisa(
+        dir.path(),
+        &["--json", "read", &id, "--at", &(at - 60).to_string()],
+    ));
+    assert_eq!(earlier["at"], at, "{earlier}");
+    assert_eq!(inbox_row_of(dir.path(), &id)["read"], true);
+    // A string no row could be keyed by is refused, as the node refuses it.
+    let refused = bisa(dir.path(), &["read", "Not A Key!"]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("not a key"),
+        "{refused:?}"
+    );
+}
+
+/// `bisa approve` takes a live gate's id, as `bisa answer` does — the id the
+/// engine's own refusal tells a person to name.
+#[test]
+fn approve_takes_a_live_gates_id_through_the_node() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let node = spawn_daemon(dir.path());
+    let id = approval_goal(dir.path(), "Decided by its gate");
+    let gate = inbox_row_of(dir.path(), &id)["needs_action"][0]["gate_id"]
+        .as_str()
+        .expect("the live gate")
+        .to_string();
+    let approved = bisa(dir.path(), &["--json", "approve", &gate]);
+    assert_ok(&approved, "approve <gate>");
+    assert_eq!(json(&approved)["approve"], true);
+    assert_eq!(json(&approved)["status"], "done");
+    // Decided once: the gate is no longer pending, and the node says so.
+    let again = bisa(dir.path(), &["approve", &gate]);
+    assert!(!again.status.success());
+    // The subject rides to the node the same: the question it names, and
+    // one nobody asked decides nothing.
+    let other = approval_goal(dir.path(), "Decided by its subject");
+    let subject = inbox_row_of(dir.path(), &other)["needs_action"][0]["subject"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let stray = bisa(dir.path(), &["approve", &other, "--subject", "amend:x@y"]);
+    assert!(!stray.status.success());
+    let by_subject = bisa(
+        dir.path(),
+        &["--json", "approve", &other, "--subject", &subject],
+    );
+    assert_ok(&by_subject, "approve --subject via node");
+    assert_eq!(json(&by_subject)["status"], "done");
+    drop(node);
+}
+
+/// A gate's id is a running node's to know. With none, one given to
+/// `approve` or `answer` is refused in a sentence that says what to pass —
+/// and a subject names the question instead.
+#[test]
+fn a_gate_id_offline_is_refused_in_a_sentence() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let id = approval_goal(dir.path(), "Named by its subject");
+    for args in [
+        vec!["approve", "01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+        vec!["answer", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "yes"],
+    ] {
+        let refused = bisa(dir.path(), &args);
+        assert!(!refused.status.success(), "{args:?}");
+        let said = String::from_utf8_lossy(&refused.stderr).to_string();
+        assert!(said.contains("running node"), "{args:?}: {said}");
+        assert!(said.contains("--subject"), "{args:?}: {said}");
+    }
+    // A subject nobody asked decides nothing.
+    let stray = bisa(
+        dir.path(),
+        &[
+            "approve",
+            &id,
+            "--subject",
+            "amend:01ARZ3NDEKTSV4RRFFQ69G5FAV@x",
+        ],
+    );
+    assert!(!stray.status.success());
+    assert!(
+        String::from_utf8_lossy(&stray.stderr).contains("no longer asked"),
+        "{stray:?}"
+    );
+    // The row's own subject decides its question.
+    let subject = inbox_row_of(dir.path(), &id)["needs_action"][0]["subject"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let approved = bisa(
+        dir.path(),
+        &["--json", "approve", &id, "--subject", &subject],
+    );
+    assert_ok(&approved, "approve --subject");
+    assert_eq!(json(&approved)["status"], "done");
+}
+
+/// `--json approve` with no node prints one JSON document, even when the
+/// approval moves the run on and the verb follows it to a settlement: where
+/// it settled is the answer's `followed`, not a second document.
+#[test]
+fn json_approve_offline_prints_one_document() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let path = dir.path().join("ship-then-work.json");
+    std::fs::write(
+        &path,
+        serde_json::json!({
+            "name": "Ship, then work",
+            "steps": [
+                {"id": "ship", "name": "Ship?", "kind": "approval",
+                 "prompt": "Ship the release?", "then": ["work"]},
+                // The stub harness says words and hands nothing in: the
+                // step settles on its own, which is all the follow needs.
+                {"id": "work", "name": "Work", "kind": "agent",
+                 "instructions": "do it", "harness": ["custom:stub"]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let wf = workflow_new(dir.path(), &path.to_string_lossy());
+    let id = json(&bisa(
+        dir.path(),
+        &["--json", "new", "One answer", "--workflow", &wf],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let approved = bisa(dir.path(), &["--json", "approve", &id]);
+    assert_ok(&approved, "approve");
+    let said = json(&approved); // one document, or this does not parse
+    assert_eq!(said["approve"], true, "{said}");
+    assert_eq!(said["status"], "running", "the run went on: {said}");
+    assert_eq!(said["followed"]["goal"], id.as_str(), "{said}");
+    let settled = said["followed"]["status"]
+        .as_str()
+        .expect("where it settled");
+    assert_ne!(settled, "running", "followed to a settlement: {said}");
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "status", &id]))["status"],
+        settled,
+        "what the answer said is where the goal stands"
+    );
+}

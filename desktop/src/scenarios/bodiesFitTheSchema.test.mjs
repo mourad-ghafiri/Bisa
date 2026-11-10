@@ -490,7 +490,7 @@ const ROUTE_TYPES = Object.freeze({
   "POST /hosts/{}/messages/{}/react": "ReactBody",
   "POST /dms": "OpenDmBody",
   "POST /hosts/{}/dms": "OpenDmBody",
-  "POST /read": "ScopeBody",
+  "POST /read": "ReadBody",
   "POST /unread": "ScopeBody",
   "POST /hosts/{}/read": "ScopeBody",
   "POST /ide/lsp/{}/{}/change": "LspDocument",

@@ -2193,6 +2193,8 @@ pub(crate) fn cancel_item(inner: &Arc<Inner>, home: &Home, item: WorkItemId, why
     if let Some(run) = inner.presence.by_work_item(item) {
         crate::sessions::withdraw_questions_of(inner, run);
     }
+    // And whatever the item asked that no session is bound to.
+    crate::sessions::withdraw_questions_of_item(inner, item, why);
     inner.inflight.remove(&item);
     inner.active_items.remove(&item);
     match cancelled {

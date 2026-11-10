@@ -6589,6 +6589,10 @@ async fn a_push_that_fails_after_its_gate_was_approved_is_said() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(row["kind"], json!("workstream"));
+    // Its frame is that row's: a checkout that is not its project's own
+    // answers to its own key.
+    let frame = assert_frame_is_its_rows(&node, &wid.to_string()).await;
+    assert_eq!(frame["kind"], json!("workstream"), "{frame}");
 
     // The fact itself: what was asked, and the remote's own refusal.
     let feed = node.get("/pulse?limit=50&concept=projects").await;
@@ -10950,16 +10954,18 @@ async fn a_gate_whose_goal_is_gone_keeps_its_row_and_a_quiet_row_sorts_last() {
         owed < new && new < read,
         "what is owed, then what is new, then what is kept: {keys:?}"
     );
-    // The row's frame, for a key no record names: the gate alone.
+    // The row's frame, for a key no record names: the gate alone — and the
+    // kind the list gives the row, since the frame is that row's.
     let frame = bisa_node_inbox_frame(&node, &gone.to_string()).await;
     assert_eq!(frame["needs_action_count"], json!(1), "{frame}");
-    assert!(frame["kind"].is_null(), "{frame}");
+    assert_eq!(frame["kind"], json!("goal"), "{frame}");
+    assert_eq!(frame["listed"], json!(true), "{frame}");
     node.shutdown().await;
 }
 
 /// One inbox frame for `key`, read off the event stream after the row is
 /// marked read — the delta a list view updates itself from.
-async fn bisa_node_inbox_frame(node: &Node, key: &str) -> Value {
+pub(crate) async fn bisa_node_inbox_frame(node: &Node, key: &str) -> Value {
     let stream = UnixStream::connect(&node.socket).await.expect("connect");
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
@@ -11158,12 +11164,29 @@ async fn the_inbox_has_rows_for_a_dm_a_channel_a_project_and_an_untitled_convers
     assert_eq!(direct["unread_count"], json!(0), "kept with nothing said");
     let standing = row("general", "channel");
     assert_eq!(standing["unread_count"], json!(1));
-    // The project's root is its primary workstream, under the same id:
-    // the project's own row is the one typed project.
+    // The project's root is its primary workstream, under the same id: one
+    // thing, one row — the project's — carrying what happened in its
+    // primary checkout (a committer wanted) beside the notice that it was
+    // made. Two rows under one key shared one read mark and one selection.
     let project = row(&pid, "project");
     assert_eq!(project["title"], json!("site"));
-    assert_eq!(project["notices"].as_array().unwrap().len(), 1, "{project}");
-    assert_eq!(project["unread_notices"], json!(1));
+    let kinds: Vec<&str> = project["notices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["notice"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds.len(), 2, "{project}");
+    assert!(
+        kinds.contains(&"project_made") && kinds.contains(&"committer_needed"),
+        "{kinds:?}"
+    );
+    assert_eq!(project["unread_notices"], json!(2));
+    assert_eq!(
+        rows.iter().filter(|r| r["key"] == json!(pid)).count(),
+        1,
+        "one key, one row: {v}"
+    );
     let talk = row(&conversation.id.to_string(), "conversation");
     assert_eq!(talk["unread_count"], json!(1));
     assert_eq!(
@@ -11173,10 +11196,9 @@ async fn the_inbox_has_rows_for_a_dm_a_channel_a_project_and_an_untitled_convers
     );
 
     let wf = node.workflow(human_workflow()).await;
-    // A project's root is its primary workstream, under the same id: a frame
-    // for that key is the workstream's.
+    // A frame is its row's: a project key is the project's.
     for (key, kind) in [
-        (pid.as_str(), json!("workstream")),
+        (pid.as_str(), json!("project")),
         (&wf.to_string(), json!("workflow")),
         (dm.id.as_str(), json!("dm")),
         ("general", json!("channel")),
@@ -12079,5 +12101,424 @@ async fn a_retirement_over_http_says_retired_and_refuses_keep() {
         json!("abandoned"),
         "it stays closed"
     );
+    node.shutdown().await;
+}
+
+/// Words typed at a decision gate are a 400 in words over HTTP too, and the
+/// step is left waiting: a decision takes a verdict and, beside it, a
+/// rationale — never an answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_typed_answer_on_a_decision_is_a_400_in_words() {
+    let node = Node::start().await;
+    let id = node.new_goal("signed off by a verdict").await;
+    let wf = node
+        .workflow(json!({
+            "name": "Sign off",
+            "steps": [{"id": "ship", "name": "Ship?", "kind": "approval", "prompt": "Ship it?"}]
+        }))
+        .await;
+    node.start_run(id, wf).await;
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/goals/{id}/decide"),
+            Some(json!({"approve": true,
+                        "answer": {"selected": [], "text": "no, not yet", "unsure": false}})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("bisa approve"), "{v}");
+    let run = node.get(&format!("/goals/{id}")).await;
+    assert_eq!(
+        run["run"]["steps"]["ship"]["state"]["state"],
+        json!("waiting")
+    );
+    // The verdict with its reason decides it.
+    let decided = node
+        .post(
+            &format!("/goals/{id}/decide"),
+            json!({"approve": false, "rationale": "not yet"}),
+        )
+        .await;
+    assert_eq!(decided["approve"], json!(false), "{decided}");
+    node.shutdown().await;
+}
+
+/// The row `/inbox` holds for `key`, when it has one.
+async fn inbox_row(node: &Node, key: &str) -> Option<Value> {
+    node.get("/inbox").await["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["key"] == json!(key))
+        .cloned()
+}
+
+/// A frame is a projection of its row: read one for `key` and hold it
+/// against what the list says of the same key a moment later.
+pub(crate) async fn assert_frame_is_its_rows(node: &Node, key: &str) -> Value {
+    let frame = bisa_node_inbox_frame(node, key).await;
+    match inbox_row(node, key).await {
+        Some(row) => {
+            assert_eq!(frame["listed"], json!(true), "{key}: {frame}");
+            for field in [
+                "kind",
+                "unread_count",
+                "latest_at",
+                "read",
+                "handled",
+                "unread_notices",
+            ] {
+                assert_eq!(frame[field], row[field], "{key}.{field}: {frame} vs {row}");
+            }
+            let owed = row["needs_action"].as_array().unwrap().len()
+                + usize::from(!row["waiting"].is_null());
+            assert_eq!(
+                frame["needs_action_count"],
+                json!(owed),
+                "{key}: {frame} vs {row}"
+            );
+            assert_eq!(
+                frame["notice_count"],
+                json!(row["notices"].as_array().unwrap().len()),
+                "{key}: {frame} vs {row}"
+            );
+        }
+        None => {
+            assert_eq!(frame["listed"], json!(false), "{key}: {frame}");
+            assert_eq!(frame["needs_action_count"], json!(0), "{key}: {frame}");
+        }
+    }
+    frame
+}
+
+/// A frame and the list say the same of every kind of row: its clock,
+/// whether it is read, what it owes and its notices — the frame was a
+/// second copy of that arithmetic, with a floor of nought, no notices on a
+/// message's frame, and no people at all. A key with no row says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_frame_and_the_list_say_the_same_of_every_kind() {
+    let node = Node::start().await;
+    // A goal that owes an answer.
+    let asked = node.new_goal("answer me").await;
+    node.ask(asked).await;
+    // A goal kept by a decision alone: its row's clock is not nought.
+    let decided = node.new_goal("decided, then quiet").await;
+    node.ask(decided).await;
+    let run = node.current_run(decided).await;
+    node.post(
+        &format!("/runs/{run}/steps/ask/answer"),
+        json!({"answer": {"selected": ["sqlite"]}}),
+    )
+    .await;
+    // A direct channel, kept with nothing said; a standing one with a
+    // message from somebody else.
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let agent = AgentId::new(v["agent"]["id"].as_str().unwrap()).unwrap();
+    let scout = node.ws.get_agent(&agent).unwrap();
+    let dm = node
+        .ws
+        .open_dm(std::slice::from_ref(&scout.pubkey))
+        .unwrap();
+    node.ws
+        .post_message(
+            "general",
+            MessageBody::post("hello all"),
+            None,
+            &[],
+            &[],
+            Some(&agent),
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    // A workflow whose run of the workspace asks.
+    let wf = node.workflow(human_workflow()).await;
+    node.post(&format!("/workflows/{wf}/runs"), json!({})).await;
+    // A project a step made.
+    let (status, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "new", "slug": "site"})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let pid = v["project"]["id"].as_str().unwrap().to_string();
+
+    for key in [
+        asked.to_string(),
+        decided.to_string(),
+        dm.id.to_string(),
+        wf.to_string(),
+        pid.clone(),
+    ] {
+        let frame = assert_frame_is_its_rows(&node, &key).await;
+        assert_eq!(frame["listed"], json!(true), "{key} has a row: {frame}");
+    }
+    let goal_frame = assert_frame_is_its_rows(&node, &asked.to_string()).await;
+    assert_eq!(goal_frame["needs_action_count"], json!(1));
+    let kept = assert_frame_is_its_rows(&node, &decided.to_string()).await;
+    assert!(
+        kept["latest_at"].as_u64().unwrap() > 0,
+        "dated by the row, not nought: {kept}"
+    );
+    assert_eq!(kept["handled"], json!(true));
+    // The standing channel was read by the frame's own mark: no row now, and
+    // its frame says so — with what is still true of the channel.
+    let unlisted = assert_frame_is_its_rows(&node, "general").await;
+    assert_eq!(unlisted["listed"], json!(false), "{unlisted}");
+    assert_eq!(unlisted["kind"], json!("channel"));
+    assert_eq!(unlisted["unread_count"], json!(0));
+    let nobody = assert_frame_is_its_rows(&node, "nobody-knows-this-key").await;
+    assert!(nobody["kind"].is_null(), "{nobody}");
+    // The owner is not one of the people hosted here: their own key is no
+    // row's.
+    let me = node.ws.owner_principal().as_hex().to_string();
+    let own = assert_frame_is_its_rows(&node, &me).await;
+    assert_eq!(own["listed"], json!(false), "{own}");
+    assert!(own["kind"].is_null(), "{own}");
+    node.shutdown().await;
+}
+
+/// A decision dates its row — one taken while you were away is news — and
+/// your own decision, like your own post, is nothing you have yet to read:
+/// the row moves to the top of what is kept and stays read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_decision_and_your_own_post_date_a_row_and_leave_it_read() {
+    let node = Node::start().await;
+    let id = node.new_goal("decided by me").await;
+    node.ask(id).await;
+    node.post("/read", json!({"scope": id.to_string()})).await;
+    let before = inbox_row(&node, &id.to_string()).await.expect("owed");
+    assert_eq!(before["read"], json!(true));
+    let run = node.current_run(id).await;
+    node.post(
+        &format!("/runs/{run}/steps/ask/answer"),
+        json!({"answer": {"selected": ["sqlite"]}}),
+    )
+    .await;
+    let after = inbox_row(&node, &id.to_string())
+        .await
+        .expect("kept once decided");
+    assert_eq!(after["handled"], json!(true), "{after}");
+    let decided_at = after["decided"]["at"].as_u64().unwrap();
+    assert!(
+        after["latest_at"].as_u64().unwrap() >= decided_at,
+        "dated by its decision: {after}"
+    );
+    // My own decision is nothing I have yet to read: the row is unread only
+    // for what somebody else brought — here the run's end, a notice that
+    // lands a moment later.
+    assert_eq!(
+        after["read"],
+        json!(after["unread_notices"] == json!(0)),
+        "unread for its notice alone, never for my own decision: {after}"
+    );
+    until("the run's end to be a notice", || {
+        let rows = node.ws.activity_by_kinds(&["run_finished"], 10).ok()?;
+        (!rows.is_empty()).then_some(())
+    })
+    .await;
+    node.post("/read", json!({"scope": id.to_string()})).await;
+    let read = inbox_row(&node, &id.to_string()).await.expect("kept");
+    assert_eq!(read["read"], json!(true), "{read}");
+
+    // My own post in the goal's thread: the newest thing there, and read.
+    node.post(
+        &format!("/goals/{id}/messages"),
+        json!({"content": "noted, thanks"}),
+    )
+    .await;
+    let posted = inbox_row(&node, &id.to_string()).await.expect("kept");
+    assert_eq!(posted["unread_count"], json!(0));
+    assert_eq!(
+        posted["read"],
+        json!(true),
+        "my own post is not unread: {posted}"
+    );
+    // The filter agrees with the row.
+    let unread = node.get("/inbox?filter=unread").await;
+    assert!(
+        !unread["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["key"] == json!(id.to_string())),
+        "{unread}"
+    );
+    node.shutdown().await;
+}
+
+/// Two rows of one rank and one second keep one order — by key — so two
+/// reads of the list agree and a row does not trade places under a cursor.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_rows_of_one_second_keep_one_order() {
+    let node = Node::start().await;
+    let mut goals = Vec::new();
+    for n in 0..4 {
+        let id = node.new_goal(&format!("asked {n}")).await;
+        node.ask(id).await;
+        goals.push(id.to_string());
+    }
+    let keys = |v: &Value| -> Vec<(u64, String)> {
+        v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["latest_at"].as_u64().unwrap(),
+                    r["key"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    let first = keys(&node.get("/inbox").await);
+    assert_eq!(first, keys(&node.get("/inbox").await), "two reads agree");
+    for pair in first.windows(2) {
+        let ((at_a, key_a), (at_b, key_b)) = (&pair[0], &pair[1]);
+        assert!(at_a >= at_b, "newest first: {first:?}");
+        if at_a == at_b {
+            assert!(key_a < key_b, "one second, by key: {first:?}");
+        }
+    }
+    assert_eq!(first.len(), goals.len());
+    node.shutdown().await;
+}
+
+/// `POST /read` with `at` reads a scope **up to what was shown**: a message
+/// that arrived after the moment named stays unread. The mark never moves
+/// backwards, a moment in the future is now, and a client that names none
+/// reads everything, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_up_to_what_was_shown_leaves_the_newer_message_unread() {
+    let node = Node::start().await;
+    let id = node.new_goal("read as shown").await;
+    let key = id.to_string();
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let agent_id = AgentId::new(v["agent"]["id"].as_str().unwrap()).unwrap();
+    let say = |text: &str| {
+        node.ws
+            .post_message(
+                &key,
+                MessageBody::post(text),
+                None,
+                &[],
+                &[],
+                Some(&agent_id),
+                PostOrigin::Asked,
+            )
+            .expect("agent message");
+    };
+    say("the one on screen");
+    let shown = inbox_row(&node, &key).await.expect("the goal's row")["latest_at"]
+        .as_u64()
+        .unwrap();
+    // The clock has to tick for a later message to be later.
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    };
+    until("the second to pass", || (now() > shown).then_some(())).await;
+    say("arrived while the row was open");
+
+    let marked = node.post("/read", json!({"scope": key, "at": shown})).await;
+    assert_eq!(marked["ok"], json!(true), "{marked}");
+    assert_eq!(
+        marked["at"],
+        json!(shown),
+        "the mark as it stands: {marked}"
+    );
+    let row = inbox_row(&node, &key).await.unwrap();
+    assert_eq!(row["unread_count"], json!(1), "{row}");
+    assert_eq!(row["read"], json!(false), "{row}");
+
+    // An older mark, sent late, rewinds nothing.
+    let late = node
+        .post("/read", json!({"scope": key, "at": shown - 60}))
+        .await;
+    assert_eq!(late["at"], json!(shown), "{late}");
+    assert_eq!(
+        inbox_row(&node, &key).await.unwrap()["unread_count"],
+        json!(1)
+    );
+
+    // No moment named: everything, as a client before `at` reads.
+    let all = node.post("/read", json!({"scope": key})).await;
+    assert!(all["at"].as_u64().unwrap() > shown, "{all}");
+    // Nothing is unread there now — a goal that owes nothing and has
+    // nothing new keeps no row at all.
+    let row = inbox_row(&node, &key).await;
+    assert!(
+        row.as_ref()
+            .is_none_or(|r| r["unread_count"] == json!(0) && r["read"] == json!(true)),
+        "{row:?}"
+    );
+    assert!(
+        node.ws
+            .unread_counts()
+            .unwrap()
+            .iter()
+            .all(|(scope, n)| *scope != key || *n == 0),
+        "nothing is unread there"
+    );
+
+    // Nothing not yet said is read: a moment in the future is now.
+    let ahead = node
+        .post("/read", json!({"scope": key, "at": now() + 3600}))
+        .await;
+    assert!(ahead["at"].as_u64().unwrap() <= now(), "{ahead}");
+
+    // A key the body does not know is refused, as on every route.
+    let (code, v) = node
+        .req("POST", "/read", Some(json!({"scope": key, "until": shown})))
+        .await;
+    assert!((400..500).contains(&code), "{code} {v}");
+    let (code, v) = node
+        .req("POST", "/unread", Some(json!({"scope": key, "at": shown})))
+        .await;
+    assert!(
+        (400..500).contains(&code),
+        "`at` is the read's alone: {code} {v}"
+    );
+    node.shutdown().await;
+}
+
+/// A mark is kept for a key a thing could have. A string no row could be
+/// keyed by is refused in words on both routes and leaves no marker; a
+/// well-formed id whose thing is gone is taken, so a row deleted under the
+/// reader never turns its read into an error.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mark_for_a_key_no_row_could_have_is_refused() {
+    let node = Node::start().await;
+    for route in ["/read", "/unread"] {
+        for scope in ["", "Not A Key!", "../../etc", "UPPER-case"] {
+            let (code, v) = node.req("POST", route, Some(json!({"scope": scope}))).await;
+            assert_eq!(code, 400, "{route} {scope:?}: {v}");
+            assert!(v.to_string().contains("not a key"), "said in words: {v}");
+        }
+    }
+    // Every shape a row is keyed by is taken: a channel's handle, a ULID
+    // (a goal, a conversation, a project, a workflow, a session), a person's
+    // public key.
+    let gone = ulid::Ulid::from_parts(9, 9).to_string();
+    for scope in ["general", gone.as_str(), &"ab".repeat(32)] {
+        for route in ["/read", "/unread"] {
+            let (code, v) = node.req("POST", route, Some(json!({"scope": scope}))).await;
+            assert_eq!(code, 200, "{route} {scope}: {v}");
+        }
+    }
     node.shutdown().await;
 }

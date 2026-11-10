@@ -649,3 +649,109 @@ async fn the_executing_set_is_empty_once_an_item_settled() {
     .await;
     engine.shutdown().await;
 }
+
+/// A worker's own question is its session's: stopped while it asks, the
+/// gate is gone and the journal says the question was withdrawn — it stayed
+/// in the Inbox, answerable to nobody. The goal's own question, asked
+/// beside it, is bound to no session and stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_stopped_while_it_asks_has_its_question_withdrawn_in_the_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let (adapter, _closes) = at_work("mock");
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, _) = run_on(
+        &engine,
+        "asks, then is stopped",
+        new_workflow("asks", vec![agent_step("work", "mock")]),
+    );
+    let row = live_row(&engine, SessionKind::Worker).await;
+    let item = until("the worker's item", || {
+        items_of(&engine, goal.id).into_iter().next()
+    })
+    .await;
+    let asked = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "ask_human", "work_item": item.id.to_string(), "question": "Which region?"}),
+    )
+    .await;
+    let gate = asked["gate"].as_str().expect("a gate").to_string();
+    let entry = engine.inner().gates.get(&gate).expect("open");
+    assert_eq!(
+        entry.session,
+        Some(row.id),
+        "bound to the session that asked"
+    );
+    let own = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "ask_human", "goal": goal.id.to_string(), "question": "Which database?"}),
+    )
+    .await;
+    let own_gate = own["gate"].as_str().expect("a gate").to_string();
+    assert_eq!(engine.inner().gates.get(&own_gate).unwrap().session, None);
+
+    bisa_engine::sessions::stop_one(engine.inner(), row.id).unwrap();
+
+    assert!(
+        engine.inner().gates.get(&gate).is_none(),
+        "gone, not decided"
+    );
+    let subject = format!("ask_human:{}", item.id);
+    assert!(
+        journal_of(&engine, goal.id).iter().any(|p| matches!(
+            p,
+            JournalPayload::Withdrawn { subject: s, .. } if *s == subject
+        )),
+        "the journal says it was taken back"
+    );
+    assert!(
+        engine
+            .inner()
+            .gates
+            .get(&own_gate)
+            .is_some_and(|g| g.resolution.is_none()),
+        "the goal's own question outlives the worker"
+    );
+    engine.shutdown().await;
+}
+
+/// A question a work item asked through no session — its row not yet
+/// registered — goes with the item all the same when its step is cancelled:
+/// withdrawn in memory and in the journal.
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_a_step_withdraws_its_items_question_bound_to_a_session_or_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let (adapter, _closes) = at_work("mock");
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, _) = run_on(
+        &engine,
+        "asks, then its goal is stopped",
+        new_workflow("asks", vec![agent_step("work", "mock")]),
+    );
+    live_row(&engine, SessionKind::Worker).await;
+    let item = until("the worker's item", || {
+        items_of(&engine, goal.id).into_iter().next()
+    })
+    .await;
+    let subject = format!("ask_human:{}", item.id);
+    let (gate, _rx) = engine.inner().gates.open(
+        bisa_core::Home::Goal { goal: goal.id },
+        Some(item.id),
+        bisa_core::Gate::Escalation,
+        subject.clone(),
+        "Asked through no session?",
+        bisa_core::AskKind::free_text(),
+    );
+    engine.stop_goal(goal.id, None).await.unwrap();
+    assert!(
+        engine.inner().gates.get(&gate).is_none(),
+        "gone with the item"
+    );
+    assert!(
+        journal_of(&engine, goal.id).iter().any(|p| matches!(
+            p,
+            JournalPayload::Withdrawn { subject: s, .. } if *s == subject
+        )),
+        "and said in the journal"
+    );
+    engine.shutdown().await;
+}

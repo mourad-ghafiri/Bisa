@@ -944,7 +944,7 @@ export interface ConversationFrame {
  * and replacing the array — rebuilds every row on every message, which is how
  * a selection ends up under somebody's cursor mid-read.
  *
- * Source: `crates/bisa-node/src/inbox.rs::delta`.
+ * Source: `bisa_engine::inbox::delta` — a projection of the row `GET /inbox` holds for the key.
  */
 export interface InboxFrame {
   key: string;
@@ -955,9 +955,11 @@ export interface InboxFrame {
   latest_at: number;
   read: boolean;
   handled: boolean;
-  /** Ride only when the cause could have moved the notices — an engine fact, a read marker; a message leaves them out. */
+  /** The row's notice counts; absent on a frame from a node that sent them only when their cause could have moved them. */
   notice_count?: number;
   unread_notices?: number;
+  /** Whether the key has a row at all; `false` is a frame with nothing owed that no list needs to read again. Absent from a node before the word. */
+  listed?: boolean;
   /** A `session` row's frame: whether the harness still waits in its terminal — false drops the row. */
   waiting?: boolean;
 }

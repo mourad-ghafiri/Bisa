@@ -789,3 +789,91 @@ fn a_session_row_says_its_kind_and_the_conversation_it_is_a_turn_of() {
         "an ask stands in no checkout: never a row of one"
     );
 }
+
+/// What the count says of one scope.
+fn unread_of(ws: &Workspace, scope: &str) -> u64 {
+    ws.unread_counts()
+        .unwrap()
+        .into_iter()
+        .find(|(s, _)| s == scope)
+        .map_or(0, |(_, n)| n)
+}
+
+fn marker_of(ws: &Workspace, scope: &str) -> bisa_store::inbox::ReadMarker {
+    ws.read_markers()
+        .unwrap()
+        .into_iter()
+        .find(|m| m.scope_id == scope)
+        .expect("the scope has a marker")
+}
+
+/// A mark reads up to what was shown: what is newer than `at` stays unread,
+/// a later mark that names an earlier moment moves nothing back, and a
+/// moment in the future is no later than now.
+#[test]
+fn a_read_mark_reads_up_to_what_was_shown_and_never_moves_backwards() {
+    let (_d, ws) = ws();
+    let dev = agent(&ws, "Developer");
+    let c = make(&ws, ConversationOrigin::Workspace, Some("Marked"));
+    let scope = c.id.to_string();
+    say_as(&ws, &c, &dev.id, "one");
+    let said_at = ws.messages(&scope, None, 10).unwrap()[0].created_at;
+    assert_eq!(unread_of(&ws, &scope), 1);
+
+    // Shown up to the second before: the message that came after is unread.
+    assert_eq!(
+        ws.mark_read_up_to(&scope, Some(said_at - 1)).unwrap(),
+        said_at - 1
+    );
+    assert_eq!(unread_of(&ws, &scope), 1, "what came after stays unread");
+    // Shown up to the message: read.
+    assert_eq!(ws.mark_read_up_to(&scope, Some(said_at)).unwrap(), said_at);
+    assert_eq!(unread_of(&ws, &scope), 0);
+    // An older moment — a slow client, a clock stepped back — moves nothing.
+    assert_eq!(
+        ws.mark_read_up_to(&scope, Some(said_at - 30)).unwrap(),
+        said_at
+    );
+    assert_eq!(marker_of(&ws, &scope).last_read_at, said_at);
+    assert_eq!(unread_of(&ws, &scope), 0);
+    // A moment in the future is clamped: nothing not yet said is read.
+    let kept = ws.mark_read_up_to(&scope, Some(u64::MAX / 4)).unwrap();
+    assert!(
+        kept >= said_at && kept <= said_at + 60,
+        "clamped to now: {kept}"
+    );
+    // No moment named is now, as it always was.
+    assert!(ws.mark_read_up_to(&scope, None).unwrap() >= said_at);
+    ws.mark_read(&scope).unwrap();
+    assert_eq!(unread_of(&ws, &scope), 0);
+}
+
+/// Putting a scope back keeps what was truly unread: the watermark stays,
+/// so three unread stay three — it was collapsed to one — and a scope with
+/// nothing new counts the one the person asked for. Reading it again clears
+/// the flag.
+#[test]
+fn marking_unread_keeps_the_true_count_and_the_watermark() {
+    let (_d, ws) = ws();
+    let dev = agent(&ws, "Developer");
+    let c = make(&ws, ConversationOrigin::Workspace, Some("Put back"));
+    let scope = c.id.to_string();
+    for text in ["one", "two", "three"] {
+        say_as(&ws, &c, &dev.id, text);
+    }
+    assert_eq!(unread_of(&ws, &scope), 3);
+    ws.mark_unread(&scope).unwrap();
+    assert_eq!(unread_of(&ws, &scope), 3, "the true count, not one");
+    let put_back = marker_of(&ws, &scope);
+    assert!(put_back.forced_unread);
+    assert_eq!(put_back.last_read_at, 0, "the watermark did not move");
+
+    ws.mark_read(&scope).unwrap();
+    assert_eq!(unread_of(&ws, &scope), 0);
+    let read = marker_of(&ws, &scope);
+    assert!(!read.forced_unread);
+    // Nothing new, put back: the one the person asked for, the mark kept.
+    ws.mark_unread(&scope).unwrap();
+    assert_eq!(unread_of(&ws, &scope), 1);
+    assert_eq!(marker_of(&ws, &scope).last_read_at, read.last_read_at);
+}

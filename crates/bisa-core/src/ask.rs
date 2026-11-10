@@ -127,10 +127,16 @@ impl AskKind {
         match self {
             // A decision gate takes a verdict and, optionally, a reason. There
             // is no third door on a gate: not knowing whether to approve is a
-            // reason not to answer yet.
+            // reason not to answer yet. And words typed at one are no verdict:
+            // taken as an answer they were recorded as an approval and
+            // dropped — "no, use postgres" adopted the workflow. The reason
+            // for a verdict travels as its rationale.
             AskKind::Decision => match answer {
                 Some(a) if !a.selected.is_empty() => Err(AnswerError::SelectionOnDecision),
                 Some(a) if a.unsure => Err(AnswerError::UnsureOnDecision),
+                Some(a) if a.text.as_deref().is_some_and(|t| !t.trim().is_empty()) => {
+                    Err(AnswerError::TextOnDecision)
+                }
                 _ => Ok(()),
             },
             AskKind::Answer { options, multi } => {
@@ -225,6 +231,11 @@ pub enum AnswerError {
          approving it while unsure"
     )]
     UnsureOnDecision,
+    #[error(
+        "a decision gate takes a verdict, not an answer — `bisa approve <id> [--no] \
+         [--rationale \"…\"]` decides it, and says why"
+    )]
+    TextOnDecision,
     #[error("option {0:?} was never offered by this question")]
     UnknownOption(String),
     #[error("this question takes one answer, not several")]
@@ -240,6 +251,28 @@ pub enum AnswerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A decision is a verdict, never an answer: text typed at one is refused
+    /// — it would be recorded as an approval and the words dropped — while
+    /// no answer, an empty one and a blank one are the verdict alone.
+    #[test]
+    fn a_decision_gate_refuses_a_typed_answer_and_takes_an_empty_one() {
+        let gate = AskKind::Decision;
+        assert!(matches!(
+            gate.validate_answer(Some(&Answer::text("no, use postgres"))),
+            Err(AnswerError::TextOnDecision)
+        ));
+        assert!(gate.validate_answer(None).is_ok());
+        assert!(gate.validate_answer(Some(&Answer::text("   "))).is_ok());
+        let empty = Answer {
+            selected: vec![],
+            text: None,
+            unsure: false,
+        };
+        assert!(gate.validate_answer(Some(&empty)).is_ok());
+        let said = AnswerError::TextOnDecision.to_string();
+        assert!(said.contains("bisa approve"), "{said}");
+    }
 
     #[test]
     fn a_decision_gate_refuses_i_am_not_sure_and_selections() {

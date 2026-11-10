@@ -2842,14 +2842,7 @@ pub fn decide_showing(
     }
 
     let unsure = answer.map(|a| a.unsure).unwrap_or(false);
-    let round = if unsure {
-        Some(count_clarify_round(inner, entry.home, &entry.subject))
-    } else {
-        inner
-            .clarify_rounds
-            .remove(&(entry.home, entry.subject.clone()));
-        None
-    };
+    let round = unsure.then(|| count_clarify_round(inner, entry.home, &entry.subject, false));
     let clarify_rounds_left = round.map(|r| r.left);
     // A human step's answer is the run's to take: ask the machine first, on
     // a copy, so a run that refuses — the step is no longer waiting — leaves
@@ -3073,17 +3066,49 @@ struct ClarifyRound {
     over: bool,
 }
 
-fn count_clarify_round(inner: &Arc<Inner>, home: Home, subject: &str) -> ClarifyRound {
+fn count_clarify_round(
+    inner: &Arc<Inner>,
+    home: Home,
+    subject: &str,
+    recorded: bool,
+) -> ClarifyRound {
     let max = inner.config.max_clarify_rounds;
-    let mut used = inner
-        .clarify_rounds
-        .entry((home, subject.to_string()))
-        .or_insert(0);
-    *used = used.saturating_add(1);
+    // The journal is the count: it outlives a restart and is the same for a
+    // command with an engine of its own, where a counter in memory began at
+    // nought each time and the budget never ran out. `recorded` says this
+    // "not sure" is already among the facts.
+    let before = match inner.ws.journal(&home) {
+        Ok(journal) => clarify_rounds_used(&journal, subject),
+        Err(_) => 0, // LCOV_EXCL_LINE the home's journal cannot be read; disk-only
+    };
+    let used = before.saturating_add(u8::from(!recorded));
     ClarifyRound {
-        left: max.saturating_sub(*used),
-        over: *used > max,
+        left: max.saturating_sub(used),
+        over: used > max,
     }
+}
+
+/// How many times running a question was answered "not sure": the unsure
+/// decisions on its subject since the last sure one, or since it was taken
+/// back. Pure.
+pub(crate) fn clarify_rounds_used(journal: &[JournalEvent], subject: &str) -> u8 {
+    let mut used: u8 = 0;
+    for e in journal.iter().rev() {
+        match &e.payload {
+            JournalPayload::Decision {
+                subject: s, answer, ..
+            } if s == subject => {
+                if answer.as_ref().is_some_and(|a| a.unsure) {
+                    used = used.saturating_add(1);
+                } else {
+                    break;
+                }
+            }
+            JournalPayload::Withdrawn { subject: s, .. } if s == subject => break,
+            _ => {}
+        }
+    }
+    used
 }
 
 /// The newest adoption or amendment question in the journal that nothing
@@ -3298,6 +3323,9 @@ fn decide_waiting_step(
                     home = home.to_string()
                 )));
             }
+            // A release is a verdict like any decision: words typed at it
+            // released the step by accident.
+            AskKind::Decision.validate_answer(answer)?;
             crate::waits::release(inner, run.id, step, None)?;
             Ok(Some(outcome_of(inner, home, Gate::Escalation, true)?))
         }
@@ -3336,9 +3364,9 @@ fn decide_waiting_step(
                 rationale,
                 answer,
             )?;
-            let round = answer
-                .filter(|a| a.unsure)
-                .map(|_| count_clarify_round(inner, *home, &format!("step:{}/{step}", run.id)));
+            let round = answer.filter(|a| a.unsure).map(|_| {
+                count_clarify_round(inner, *home, &format!("step:{}/{step}", run.id), true)
+            });
             answer_step(inner, run.id, step, answer, round)?;
             Ok(Some(outcome_of(inner, home, Gate::Escalation, approve)?))
         }
@@ -3401,12 +3429,35 @@ fn decide_goal_without_engine(
             )));
         }
     };
-    if is_adoption(&subject) {
+    settle_goal_question(
+        inner, &goal, &subject, &expects, approve, rationale, answer, inputs,
+    )
+}
+
+/// Record the decision on one of a goal's own questions and apply what it
+/// means: an adoption begins the goal's work, an amendment is applied or
+/// dropped, the designer's question is answered to the design. The shared
+/// tail of the unnamed durable decide and of one that names its subject.
+#[allow(clippy::too_many_arguments)]
+fn settle_goal_question(
+    inner: &Arc<Inner>,
+    goal: &Goal,
+    subject: &str,
+    expects: &AskKind,
+    approve: bool,
+    rationale: Option<&str>,
+    answer: Option<&Answer>,
+    inputs: Option<BTreeMap<String, Value>>,
+) -> Result<DecideOutcome, EngineError> {
+    let ws = &inner.ws;
+    let goal_id = goal.id;
+    let home = Home::Goal { goal: goal_id };
+    if is_adoption(subject) {
         AskKind::Decision.validate_answer(answer)?;
         if approve {
             check_adoption_inputs(inner, goal_id, inputs.as_ref())?;
         } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
-        ws.record_decision(&home, Gate::Approval, approve, &subject, rationale, answer)?;
+        ws.record_decision(&home, Gate::Approval, approve, subject, rationale, answer)?;
         let secrets = if approve {
             let given = inputs.unwrap_or_default();
             begun_by_its_person(inner, goal_id, &given.clone(), || {
@@ -3414,35 +3465,118 @@ fn decide_goal_without_engine(
             })?
             .secrets()
         } else {
-            Vec::new() // LCOV_EXCL_LINE an adoption declined by its subject alone; out by decision
+            Vec::new()
         };
         return Ok(outcome_of(inner, &home, Gate::Approval, approve)?.showing(secrets));
     }
-    if is_amendment(&subject) {
+    if is_amendment(subject) {
         AskKind::Decision.validate_answer(answer)?;
-        ws.record_decision(&home, Gate::Approval, approve, &subject, rationale, answer)?;
-        settle_amendment(inner, goal_id, &subject, approve)?;
+        ws.record_decision(&home, Gate::Approval, approve, subject, rationale, answer)?;
+        settle_amendment(inner, goal_id, subject, approve)?;
         return outcome_of(inner, &home, Gate::Approval, approve);
     }
-    // LCOV_EXCL_START an open design question with no live gate: a restart withdraws the question whose gate it lost, so nothing reaches here while the engine runs; kept for the journal's own replay
+    // An agent's own question with no live gate — the designer's, asked
+    // before a restart: the answer is recorded and the design told.
     expects.validate_answer(answer)?;
-    ws.record_decision(
-        &home,
-        Gate::Escalation,
-        approve,
-        &subject,
-        rationale,
-        answer,
-    )?;
+    ws.record_decision(&home, Gate::Escalation, approve, subject, rationale, answer)?;
     if goal.mode.designs() {
         let left = answer
             .filter(|a| a.unsure)
-            .map(|_| count_clarify_round(inner, home, &subject).left);
-        let said = answer_or_verdict(&expects, approve, rationale, answer);
+            .map(|_| count_clarify_round(inner, home, subject, true).left);
+        let said = answer_or_verdict(expects, approve, rationale, answer);
         guided::notify_answered(inner, goal_id, said, left);
     }
     outcome_of(inner, &home, Gate::Escalation, approve)
-    // LCOV_EXCL_STOP
+}
+
+/// A durable decision that **names its question**: `subject` is the one a
+/// rebuilt card carries, and exactly that question is decided — never
+/// whatever else the home owes. A step's subject (`approval:`, `step:`,
+/// `release:<run>/<step>`) decides that step of the home's live run; an
+/// adoption, an amendment or an agent's question is decided where it
+/// stands: open, it is settled as an unnamed decide would settle it;
+/// decided already, the caller is told so; taken back or never asked, it is
+/// no longer asked. Without this an approval of a rebuilt amendment, with
+/// one `approval` step waiting beside it, decided the step.
+pub fn decide_subject_without_engine(
+    inner: &Arc<Inner>,
+    home: &Home,
+    subject: &str,
+    approve: bool,
+    rationale: Option<&str>,
+    answer: Option<&Answer>,
+    inputs: Option<BTreeMap<String, Value>>,
+) -> Result<DecideOutcome, EngineError> {
+    let _deciding = DecidingDurably::take(inner, *home)?;
+    let ws = &inner.ws;
+    let gone = || {
+        EngineError::Invalid(bisa_core::text!(
+            "error-engine-invalid-question-no-longer-asked",
+            subject = subject.to_string(),
+            home = home.to_string()
+        ))
+    };
+    let live = match home {
+        Home::Goal { goal } => ws.get_current_run(*goal)?,
+        Home::Run { run } => Some(ws.get_run(*run)?),
+    }
+    .filter(|r| !r.is_finished());
+    if let Some((run, step)) = step_of_subject(subject) {
+        let run = live.filter(|r| r.id == run).ok_or_else(gone)?;
+        return decide_waiting_step(
+            inner,
+            home,
+            &run,
+            approve,
+            rationale,
+            answer,
+            Some(&step),
+            false,
+        )?
+        .ok_or_else(gone); // LCOV_EXCL_LINE a step named is decided or refused by name; the `None` is the unnamed arm's
+    }
+    let journal = ws.journal(home)?;
+    let asked = match crate::recovery::standing_of(&journal, subject) {
+        crate::recovery::QuestionStanding::Open(asked) => asked,
+        crate::recovery::QuestionStanding::Decided => {
+            return Err(EngineError::GateAlreadyDecided(subject.to_string()));
+        }
+        crate::recovery::QuestionStanding::Withdrawn
+        | crate::recovery::QuestionStanding::NeverAsked => return Err(gone()),
+    };
+    match home {
+        Home::Goal { goal } if is_goal_question(subject) => {
+            let goal = ws.get_goal(*goal)?;
+            settle_goal_question(
+                inner,
+                &goal,
+                subject,
+                &asked.expects,
+                approve,
+                rationale,
+                answer,
+                inputs,
+            )
+        }
+        Home::Run { .. } if subject.starts_with("ask_human:") => {
+            asked.expects.validate_answer(answer)?;
+            ws.record_decision(home, Gate::Escalation, approve, subject, rationale, answer)?;
+            outcome_of(inner, home, Gate::Escalation, approve)
+        }
+        // A publish, a guard's or a permission's question lives with its
+        // asker: with no live gate there is nobody to hear the answer.
+        _ => Err(gone()),
+    }
+}
+
+/// The run and the step a step's own subject names: `approval:`, `step:`
+/// and `release:` are each followed by `<run>/<step>`.
+fn step_of_subject(subject: &str) -> Option<(RunId, StepId)> {
+    let rest = ["approval:", "step:", "release:"]
+        .iter()
+        .find_map(|family| subject.strip_prefix(family))?;
+    let (run, step) = rest.split_once('/')?;
+    Some((run.parse().ok()?, StepId::new(step).ok()?))
 }
 
 /// [`decide_without_engine`] for a run of the workspace: its waiting step,
@@ -3644,6 +3778,52 @@ pub(crate) fn journal_note_as(inner: &Inner, agent: Option<&str>, home: Home, te
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Not sure" is counted from the journal: the unsure decisions running
+    /// on one subject, back to its last sure answer or to its withdrawal —
+    /// another subject's spend nothing of it.
+    #[test]
+    fn the_not_sure_rounds_are_the_unsure_decisions_running_on_one_subject() {
+        let fact = |at: u64, payload: JournalPayload| JournalEvent {
+            home: Home::Run {
+                run: RunId::from_ulid(ulid::Ulid::from_parts(4, 1)),
+            },
+            author: bisa_core::PrincipalId::new("ab".repeat(32)).unwrap(),
+            at,
+            payload,
+        };
+        let said = |subject: &str, answer: Answer| JournalPayload::Decision {
+            gate: Gate::Escalation,
+            approve: true,
+            subject: subject.into(),
+            rationale: None,
+            answer: Some(answer),
+        };
+        let unsure = |subject: &str| said(subject, Answer::unsure());
+        let mut journal = vec![fact(1, unsure("step:R/a")), fact(2, unsure("step:R/b"))];
+        assert_eq!(clarify_rounds_used(&journal, "step:R/a"), 1);
+        assert_eq!(clarify_rounds_used(&journal, "step:R/c"), 0);
+        journal.push(fact(3, unsure("step:R/a")));
+        assert_eq!(clarify_rounds_used(&journal, "step:R/a"), 2);
+        assert_eq!(
+            clarify_rounds_used(&journal, "step:R/b"),
+            1,
+            "its own budget"
+        );
+        // A sure answer ends the run of them; so does taking the question back.
+        journal.push(fact(4, said("step:R/a", Answer::text("sqlite"))));
+        assert_eq!(clarify_rounds_used(&journal, "step:R/a"), 0);
+        journal.push(fact(5, unsure("step:R/a")));
+        assert_eq!(clarify_rounds_used(&journal, "step:R/a"), 1);
+        journal.push(fact(
+            6,
+            JournalPayload::Withdrawn {
+                subject: "step:R/b".into(),
+                reason: "cancelled".into(),
+            },
+        ));
+        assert_eq!(clarify_rounds_used(&journal, "step:R/b"), 0);
+    }
 
     /// The failures in a row an auto goal's repairs are spent against: newest
     /// first, a run still going or cancelled passed over, a done one ending

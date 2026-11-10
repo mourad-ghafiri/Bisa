@@ -30,6 +30,7 @@ export function ProposalCard({
   onEdit,
   hero = false,
   autoFocus,
+  askAnchor,
 }: {
   goal: string;
   action: NeedsAction;
@@ -40,6 +41,8 @@ export function ProposalCard({
   /** The goal's landing card: add a one-line lede that says nothing runs yet. */
   hero?: boolean;
   autoFocus?: boolean;
+  /** Answer to the Inbox's ask key without taking focus (`AskControls`). */
+  askAnchor?: boolean;
 }) {
   const toast = useToast();
   const [changing, setChanging] = useState(false);
@@ -135,6 +138,7 @@ export function ProposalCard({
             inputs={asked}
             onResolved={onResolved}
             autoFocus={autoFocus}
+            askAnchor={askAnchor}
             labels={{ approve: adoptWords, decline: t("studio-pending-ask-decline") }}
             extra={
               <>

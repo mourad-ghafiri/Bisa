@@ -4867,6 +4867,7 @@ export interface BisaApi {
   OpenDmBody?: OpenDmBody;
   ReactBody?: ReactBody;
   ScopeBody?: ScopeBody;
+  ReadBody?: ReadBody;
   NewAgentBody?: NewAgentBody;
   PatchAgentBody?: PatchAgentBody;
   NewSkillBody?: NewSkillBody;
@@ -10006,6 +10007,16 @@ export interface DecideBody {
    * unnamed approval decides that instead.
    */
   step?: StepId | null;
+  /**
+   * The question meant, by its subject — what every ask of `GET /inbox`
+   * carries, and all a card rebuilt after a restart has (it has no
+   * `gate`). Exactly that question is decided: a live gate about it as
+   * itself, else the durable record of it — never another the home owes.
+   * A question already answered is a 409; one taken back or never asked
+   * is refused, as is a `gate` named beside a subject it is not about.
+   * Absent, the decide picks as it always has.
+   */
+  subject?: string | null;
 }
 /**
  * `PUT /goals/{id}/assignees` — an empty list clears the assignment.
@@ -10220,6 +10231,22 @@ export interface ReactBody {
 }
 export interface ScopeBody {
   scope: string;
+}
+/**
+ * `POST /read` — read a scope, up to what its reader was shown.
+ */
+export interface ReadBody {
+  /**
+   * The row's `key`.
+   */
+  scope: string;
+  /**
+   * Unix seconds of the newest thing the reader drew — a row's
+   * `latest_at`. What arrived after it stays unread. Absent, the scope is
+   * read up to now; a moment in the future is now; the mark never moves
+   * backwards.
+   */
+  at?: number | null;
 }
 /**
  * `POST /agents`. A key it does not know is refused, never dropped: a switch

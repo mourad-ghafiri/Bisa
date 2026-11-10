@@ -15,7 +15,7 @@ export type FilterId = "needs_you" | "unread" | "all";
 export type SourceId = "any" | "messages" | "projects" | "workflows" | "goals" | "people";
 export type RowState = "waiting" | "unread" | "read";
 export type GroupId = "waiting" | "new" | "kept";
-export type KeyAction = "next" | "prev" | "open" | "focus_ask" | "mark_read" | "mark_unread" | "clear";
+export type KeyAction = "next" | "prev" | "open" | "focus_ask" | "mark_read" | "mark_unread" | "clear" | "leave_ask";
 
 export interface Option<T> {
   id: T;
@@ -63,7 +63,15 @@ export declare function counts(
 export declare function filterSegments(buckets: Record<FilterId, number>): { id: FilterId; label: string }[];
 export declare function sourceTabs(sources: Record<SourceId, number>): { id: SourceId; label: string; icon: IconName; count: number }[];
 export declare function groupRows(visible: readonly InboxRow[]): { id: GroupId; title: string; rows: InboxRow[] }[];
-export declare function nextSelection(visible: readonly InboxRow[], known: readonly InboxRow[], selected: string | null): string | null;
+export declare function nextSelection(visible: readonly InboxRow[], known: readonly InboxRow[], selected: string | null, dismissed?: boolean): string | null;
+/** The row a move lands on: one step from the selection, the first or the last row when the selection is not in view. */
+export declare function moveTarget(visible: readonly Pick<InboxRow, "key">[], selected: string | null | undefined, delta: number): string | null;
+/** The row a key acts on: the focused one, else the selected one. */
+export declare function actionTarget(focused: string | null | undefined, selected: string | null | undefined): string | null;
+/** How a row came to be selected. */
+export type SelectCause = "pointer" | "ask_key" | "link" | "move" | "frame" | "auto";
+/** Whether an ask's card takes focus as its row is shown. */
+export declare function askFocus(cause: SelectCause | null | undefined): boolean;
 export declare function applyDelta(rows: readonly InboxRow[], frame: InboxFrame): InboxRow[];
 export declare function needsReload(rows: readonly InboxRow[], frame: InboxFrame): boolean;
 
@@ -97,6 +105,12 @@ export declare function askHint(action: Pick<NeedsAction, "subject">): string | 
 export declare function doorOf(row: InboxRow): { route: Route; search: string | null } | null;
 export declare function conversationOf(row: InboxRow): { kind: "goal" | "channel" | "dm" | "conversation"; scope: string } | null;
 export declare function readOnSelect(row: InboxRow): boolean;
+/** Whether the screen reads the selected row after its beat — never one put back unread while it is open. */
+export declare function readsItself(row: InboxRow | null | undefined, heldUnread: string | null | undefined): boolean;
+/** The rows with every key shown read, before the node confirms. */
+export declare function allRead(rows: readonly InboxRow[], keys: readonly string[]): InboxRow[];
+/** The moment a read of `key` names: the row's own clock, or nothing. */
+export declare function markAt(rows: readonly Pick<InboxRow, "key" | "latest_at">[], key: string): number | undefined;
 export declare function unreadKeys(visible: readonly InboxRow[]): string[];
 export declare const MARKS_AT_ONCE: number;
 export declare function markBatches(keys: readonly string[], size?: number): string[][];

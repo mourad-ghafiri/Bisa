@@ -1756,7 +1756,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **tinyvec** 1.12.0 — Zlib OR Apache-2.0 OR MIT — taken as Zlib
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2019 Daniel "Lokathor" Gee.
 
-## npm packages — 435 in the desktop
+## npm packages — 427 in the desktop
 
 ### 0BSD
 
@@ -1785,37 +1785,21 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **@fluent/langneg** 0.7.0 — Apache-2.0
 - **@tauri-apps/api** 2.11.1 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2017 - Present Tauri Apps Contributors
-- **adler-32** 1.3.1 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2014-present   SheetJS LLC
 - **browser-fs-access** 0.29.1 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
-- **cfb** 1.2.2 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2013-present   SheetJS LLC
 - **chevrotain** 11.0.3 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **class-variance-authority** 0.7.1 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright 2022 Joe Bell
-- **codepage** 1.15.0 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2013-present   SheetJS LLC
 - **crc-32** 0.3.0 — Apache-2.0
   Copyright (C) 2014  SheetJS
 - **crc-32** 0.3.0 — Apache-2.0
   Copyright (C) 2014  SheetJS
-- **crc-32** 1.2.2 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2014-present   SheetJS LLC
-- **frac** 1.1.2 — Apache-2.0
-  Copyright (C) 2012-present   SheetJS
 - **pdfjs-dist** 4.10.38 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
 - **pwacompat** 2.0.17 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}
-- **ssf** 0.11.2 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2013-present   SheetJS LLC
-- **wmf** 1.0.2 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2020-present   SheetJS LLC
-- **word** 0.3.0 — Apache-2.0
-  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2020-present   SheetJS LLC
-- **xlsx** 0.18.5 — Apache-2.0
+- **xlsx** 0.20.3 — Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (C) 2012-present   SheetJS LLC
 
 ### BSD-2-Clause

@@ -349,6 +349,10 @@ async fn invitations_people_rosters_and_held_messages_over_http() {
     assert_eq!(row["role"], json!("guest"));
     assert_eq!(row["channels"], json!(["design"]));
     assert_eq!(row["permissions"], json!(["post_in_channels", "open_dms"]));
+    // A member's key is a person's, read from the roster: its frame says so
+    // before any notice names them.
+    let frame = crate::node::bisa_node_inbox_frame(&node, &bob).await;
+    assert_eq!(frame["kind"], json!("people"), "{frame}");
     let stranger = nostr::key::Keys::generate().public_key().to_hex();
     let (code_, _) = node
         .req(
@@ -427,9 +431,34 @@ async fn invitations_people_rosters_and_held_messages_over_http() {
     let (code_, _) = node.req("POST", "/messages/e-held/release", None).await;
     assert_eq!(code_, 400, "nothing left to release");
 
-    // The inbox has no people row until something concerns one.
-    let v = node.get("/inbox?source=people").await;
-    assert!(v["rows"].as_array().unwrap().is_empty());
+    // A person who left keeps a row: what happened to them is still the
+    // notices that concern you — the row was built from the members alone,
+    // so it vanished with the member. Notices land a bus hop behind.
+    let mut rows = Vec::new();
+    for _ in 0..100 {
+        let v = node.get("/inbox?source=people").await;
+        rows = v["rows"].as_array().cloned().unwrap();
+        if rows.iter().any(|r| r["key"] == json!(bob)) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let row = rows
+        .iter()
+        .find(|r| r["key"] == json!(bob))
+        .unwrap_or_else(|| panic!("the person who left keeps a row: {rows:?}"));
+    assert_eq!(row["kind"], json!("people"), "{row}");
+    assert!(!row["notices"].as_array().unwrap().is_empty(), "{row}");
+    assert!(row["join"].is_null(), "nothing is waiting on them: {row}");
+    // The row's frame keeps its notices: a people key had no kind, so every
+    // frame said it had none and the screen cleared them.
+    let frame = crate::node::assert_frame_is_its_rows(&node, &bob).await;
+    assert_eq!(frame["kind"], json!("people"), "{frame}");
+    assert!(frame["notice_count"].as_u64().unwrap() >= 1, "{frame}");
+    assert!(
+        row["needs_action"].as_array().unwrap().is_empty(),
+        "nothing is owed: {row}"
+    );
 
     node.shutdown().await;
 }

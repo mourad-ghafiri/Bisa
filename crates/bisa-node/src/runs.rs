@@ -73,13 +73,6 @@ impl CurrentRun {
     pub(crate) fn unreadable(&self) -> bool {
         matches!(self, CurrentRun::Unreadable)
     }
-
-    pub(crate) fn into_run(self) -> Option<WorkflowRun> {
-        match self {
-            CurrentRun::Run(run) => Some(*run),
-            CurrentRun::None | CurrentRun::Unreadable => None,
-        }
-    }
 }
 
 /// The goal's current run, read once per row; an unreadable one is an
@@ -315,16 +308,7 @@ async fn decide(
     crate::Body(body): crate::Body<DecideBody>,
 ) -> Result<Json<bisa_engine::DecideOutcome>, ApiError> {
     let run = run_of(&state, &rid)?;
-    let outcome = state.engine.decide_durable(
-        &run.home(),
-        body.approve,
-        body.rationale.as_deref(),
-        body.answer.as_ref(),
-        body.inputs,
-        body.gate.as_deref(),
-        body.step.as_ref(),
-    )?;
-    Ok(Json(outcome))
+    Ok(Json(crate::goals::decide_at(&state, &run.home(), body)?))
 }
 
 async fn answer_step(
@@ -370,7 +354,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/runs/{rid}/journal", summary: "The journal of the run's home, rendered, newest last (`?limit=`, default 100): `{run, home, events}` — a run of the workspace's own facts, or its goal's journal for a goal's run." },
     RouteDoc { method: "POST", path: "/runs/{rid}/stop", summary: "Stop a run of the workspace: `{rationale?}` → `{run}` — cancelled (cause `stopped`), its sessions ended; a run already over is answered as it is. 409 for a goal's run: stop it from its goal. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. The goals born of the run are stopped with it." },
     RouteDoc { method: "POST", path: "/runs/{rid}/restart", summary: "Restart a run of the workspace → `{run, status}` (the new run): a live one is cancelled first (cause `restarted`), then its workflow runs again at the same start, with the same inputs, event and ceiling. 409 for a goal's run: restart it from its goal. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
-    RouteDoc { method: "POST", path: "/runs/{rid}/decide", summary: "Decide what the run owes, through its home — a run of the workspace's own gate or question, or its goal's for a goal's run: `{approve, rationale?, answer?, gate?, step?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status` — `{of: goal|run, status}` — and `secrets?`, the public hook secrets an adoption minted when it made its goal listen, shown once). `step` names the waiting step when several wait; a gate is decided once (a second decision is `409`), another home's gate is `400`." },
+    RouteDoc { method: "POST", path: "/runs/{rid}/decide", summary: "Decide what the run owes, through its home — a run of the workspace's own gate or question, or its goal's for a goal's run: `{approve, rationale?, answer?, gate?, step?, subject?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status` — `{of: goal|run, status}` — and `secrets?`, the public hook secrets an adoption minted when it made its goal listen, shown once). `step` names the waiting step when several wait; `subject` — what an ask of `GET /inbox` carries — decides exactly that question, live or rebuilt after a restart, and never another the run owes; a gate is decided once (a second decision is `409`), another home's gate is `400`." },
     RouteDoc { method: "POST", path: "/runs/{rid}/steps/{step}/answer", summary: "Answer a waiting `human` step of the run — of either kind: `{answer}` → `{run}`." },
     RouteDoc { method: "POST", path: "/runs/{rid}/steps/{step}/release", summary: "Release a `wait` step of the run a person is holding: `{payload?}` → `{run}` — a payload, when given, is the step's output." },
     RouteDoc { method: "POST", path: "/runs/{rid}/steps/{step}/done", summary: "Mark a `human` step of the run done by hand → `{run}`." },

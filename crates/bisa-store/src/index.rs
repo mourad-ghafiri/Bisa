@@ -2592,6 +2592,20 @@ impl Index {
     /// The newest `limit` activity rows whose `kind` is one of `kinds` —
     /// the Inbox's one read of the feed, over `idx_activity_kind`. Nothing
     /// outside the kinds is read, whatever its concept.
+    /// `(source kind, source id)` of everything the feed holds a row of
+    /// `kind` for — which homes ever journaled a question, say. One indexed
+    /// read (`idx_activity_kind`).
+    pub fn activity_sources_of_kind(
+        &self,
+        kind: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT source_kind, source_id FROM activity WHERE kind = ?1",
+        )?;
+        let rows = stmt.query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     pub fn activity_by_kinds(
         &self,
         kinds: &[&str],
@@ -3424,18 +3438,31 @@ impl Index {
 
     // --- read markers (local-only; lost on rebuild by design) ---
 
-    pub fn set_read_marker(
-        &self,
-        scope_id: &str,
-        at: u64,
-        forced_unread: bool,
-    ) -> Result<(), StoreError> {
+    /// Read up to `at`: the watermark moves forward only — a later mark that
+    /// names an earlier moment keeps the newer one — and the scope is no
+    /// longer put back. Answers the watermark as it stands.
+    pub fn advance_read_marker(&self, scope_id: &str, at: u64) -> Result<u64, StoreError> {
+        let kept: i64 = self.conn.query_row(
+            "INSERT INTO read_markers (scope_id, last_read_at, forced_unread)
+             VALUES (?1, ?2, 0)
+             ON CONFLICT(scope_id) DO UPDATE SET
+               last_read_at=MAX(read_markers.last_read_at, excluded.last_read_at),
+               forced_unread=0
+             RETURNING last_read_at",
+            params![scope_id, at as i64],
+            |r| r.get(0),
+        )?;
+        Ok(kept.max(0) as u64)
+    }
+
+    /// Put a scope back: flagged unread whatever its timestamps say, its
+    /// watermark left where it was — so what was truly unread still counts.
+    pub fn force_unread(&self, scope_id: &str) -> Result<(), StoreError> {
         self.conn.execute(
             "INSERT INTO read_markers (scope_id, last_read_at, forced_unread)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(scope_id) DO UPDATE SET
-               last_read_at=excluded.last_read_at, forced_unread=excluded.forced_unread",
-            params![scope_id, at as i64, forced_unread as i64],
+             VALUES (?1, 0, 1)
+             ON CONFLICT(scope_id) DO UPDATE SET forced_unread=1",
+            params![scope_id],
         )?;
         Ok(())
     }
@@ -3509,6 +3536,22 @@ impl Index {
              WHERE retracted = 0 GROUP BY scope_id",
         )?;
         let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// `(scope, newest live message by somebody else)`: what a read mark is
+    /// compared with. Your own post is nothing you have yet to read.
+    pub fn scope_activity_of_others(
+        &self,
+        own_pubkey: &str,
+    ) -> Result<Vec<(String, u64)>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT scope_id, MAX(created_at) FROM messages
+             WHERE retracted = 0 AND author != ?1 GROUP BY scope_id",
+        )?;
+        let rows = stmt.query_map(params![own_pubkey], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64))
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

@@ -493,17 +493,45 @@ fn split_artifact_spec(spec: &str) -> (&str, Option<&str>) {
 }
 
 /// A scope's read mark moved: by the node when one runs — the unread a
-/// window shows follows at once — and in the record otherwise.
-async fn mark(ctx: &Ctx, ws: &Workspace, scope: &str, read: bool) -> Result<()> {
+/// window shows follows at once — and in the record otherwise. A read is
+/// **up to `at`**, the newest moment its reader was shown, or up to now
+/// when none is named; the mark as it stands is handed back. `at` rides to
+/// the node only when one is named: a node from before it refuses a key it
+/// does not know.
+async fn mark(
+    ctx: &Ctx,
+    ws: &Workspace,
+    scope: &str,
+    read: bool,
+    at: Option<u64>,
+) -> Result<Option<u64>> {
     match ctx.node_client().await {
-        Some(node) => {
-            let door = if read { "/read" } else { "/unread" };
-            node.post(door, json!({"scope": scope})).await?;
+        Some(node) if read => {
+            let mut body = json!({"scope": scope});
+            if let Some(at) = at {
+                body["at"] = json!(at);
+            }
+            Ok(node.post("/read", body).await?["at"].as_u64())
         }
-        None if read => ws.mark_read(scope)?,
-        None => ws.mark_unread(scope)?,
+        Some(node) => {
+            node.post("/unread", json!({"scope": scope})).await?;
+            Ok(None)
+        }
+        None => {
+            // The rule the node keeps: a mark is for a key a row could have.
+            if !bisa_engine::inbox::is_key(scope) {
+                anyhow::bail!(bisa_core::text!(
+                    "error-engine-invalid-not-a-key",
+                    scope = scope.to_string()
+                ));
+            }
+            if read {
+                return Ok(Some(ws.mark_read_up_to(scope, at)?));
+            }
+            ws.mark_unread(scope)?;
+            Ok(None)
+        }
     }
-    Ok(())
 }
 
 /// A scope's messages read and printed for a person — reading is
@@ -529,7 +557,10 @@ pub async fn read_messages(
         let who = &m.author[..m.author.len().min(8)];
         out.human(&format!("{:>10}  {who}  {}", m.created_at, m.content));
     }
-    mark(ctx, &ws, scope, true).await?;
+    // Read up to what was printed: a message that landed while the page
+    // was being read stays unread.
+    let shown = rows.iter().map(|m| m.created_at).max();
+    mark(ctx, &ws, scope, true, shown).await?;
     Ok(rows)
 }
 
@@ -719,9 +750,15 @@ pub async fn pulse(ctx: &Ctx, out: &Out, limit: usize, concept: &str) -> Result<
     Ok(())
 }
 
-pub async fn read_marker(ctx: &Ctx, out: &Out, scope: &str, read: bool) -> Result<()> {
+pub async fn read_marker(
+    ctx: &Ctx,
+    out: &Out,
+    scope: &str,
+    read: bool,
+    at: Option<u64>,
+) -> Result<()> {
     let ws = ctx.workspace()?;
-    mark(ctx, &ws, scope, read).await?;
+    let marked = mark(ctx, &ws, scope, read, at).await?;
     if read {
         out.say(&bisa_core::text!(
             "cli-studio-marked-read",
@@ -733,7 +770,11 @@ pub async fn read_marker(ctx: &Ctx, out: &Out, scope: &str, read: bool) -> Resul
             scope = scope.to_string()
         ));
     }
-    out.json_value(json!({"scope": scope, "read": read}));
+    let mut said = json!({"scope": scope, "read": read});
+    if let Some(at) = marked {
+        said["at"] = json!(at);
+    }
+    out.json_value(said);
     Ok(())
 }
 

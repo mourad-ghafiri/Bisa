@@ -26,7 +26,7 @@ import { FIRST_CONN } from "../busModel.mjs";
 import { errorFields, log } from "../log";
 import { toaster } from "../ui/Toast";
 import { photoOfPrincipal } from "../ui/photoModel.mjs";
-import { applyDelta, needsOf, joinOf, waitingOf } from "../views/_studio/inboxModel.mjs";
+import { applyDelta, markAt, needsOf, joinOf, waitingOf } from "../views/_studio/inboxModel.mjs";
 import { withLatest } from "../views/_studio/channelListModel.mjs";
 import { nameIn, principalNames } from "./namesModel.mjs";
 import { rowRead } from "../views/_studio/readModel.mjs";
@@ -472,6 +472,12 @@ export function useWorkspaceState(): WorkspaceData {
     [schedule, scheduleHosted],
   );
 
+  // The rows as they stand, for a mark that names what was shown.
+  const inboxNow = useRef<InboxRow[]>([]);
+  useEffect(() => {
+    inboxNow.current = inbox;
+  }, [inbox]);
+
   const markRead = useCallback((scope: string, host: string | null = null) => {
     if (host) {
       // No frame carries a hosted read back: the section is patched here and stays.
@@ -485,7 +491,9 @@ export function useWorkspaceState(): WorkspaceData {
     setUnread((u) => (u[scope] ? { ...u, [scope]: 0 } : u));
     // The badge drops now; the node's inbox delta confirms the row a moment later.
     setInbox((rows) => rowRead(rows, scope) as InboxRow[]);
-    void api.markRead(scope).catch((e: unknown) => {
+    // Read up to what the row showed (`markAt`): a message that lands while
+    // the mark is on its way stays unread, and reads itself in its turn.
+    void api.markRead(scope, markAt(inboxNow.current, scope)).catch((e: unknown) => {
       // A mark-read that does not land is not worth a toast; the next load corrects it.
       log.debug("workspace", "the scope could not be marked read; the next load corrects it", { scope, ...errorFields(e) });
     });
