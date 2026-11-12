@@ -121,7 +121,7 @@ bisa settings set machine logging.keep_files 30       # the oldest past this cou
 bisa settings set machine logging.enabled false       # off: nothing is written, no file is opened
 ```
 
-`info` adds the platform's own timeline — one line per fact the Pulse records, so the log reads
+`info` adds the platform's own timeline — one line per fact the engine records in the Pulse, so the log reads
 what happened around an error — and the *log started* and *log stopped* lines of every run;
 `debug` adds one line per request the node answers. A line carries ids, kinds, statuses and an
 error's sentence, never a message, a file's text or a secret

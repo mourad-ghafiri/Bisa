@@ -31,8 +31,8 @@ pub fn file_for(dir: &Path, at: u64) -> PathBuf {
 }
 
 /// Append one fact to the month's file, creating the directory on first use
-/// — through [`crate::paths::append_line`], so the line is fsynced and a torn
-/// tail mended like every other log's.
+/// — through [`crate::paths::append_line_unsynced`]: a torn tail is mended
+/// like every other log's, and the line is not fsynced.
 pub fn append(dir: &Path, fact: &ActivityFact) -> Result<(), StoreError> {
     let path = file_for(dir, fact.at);
     // No fsync: a row here is history the Pulse reads, never a fact a caller

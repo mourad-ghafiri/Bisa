@@ -88,6 +88,7 @@ error-core-text-too-large = a message of { $bytes } bytes is too long; the most 
 error-core-unknown-file-scope = unknown file scope { $v0 }: expected goal, workstream or work_item
 error-core-unknown-artifact-kind = unknown artifact kind { $v0 }
 error-core-unknown-activity-concept = unknown activity concept { $v0 }: expected workspace, goals, workflows, projects, channels, agents or node
+error-core-unknown-activity-source-kind = unknown activity source kind { $v0 }: expected goal, channel, conversation, workstream, project, workflow, agent, node or workspace
 error-core-too-many-artifacts = a message carries at most { $max } artifacts, not { $v0 }
 error-core-invalid-artifact-name = invalid artifact name { $v0 }: a file name, not a path
 error-core-invalid-artifact-title = invalid artifact title { $v0 }: a title is a line of words

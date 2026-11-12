@@ -1009,14 +1009,21 @@ async fn run_via_node(
 
 /// Whether a frame of the daemon's stream (`{stream, payload}`) belongs on a
 /// goal's timeline: an engine event about the goal — or about nothing in
-/// particular — and a message in the goal's own thread. A session's chatter
-/// only when watching.
+/// particular: the node paused, a setting changed — and a message in the
+/// goal's own thread. A session's chatter only when watching.
+///
+/// "Nothing in particular" is an envelope that names no goal, no run and no
+/// workflow. A run of the workspace has no goal either, and names its run
+/// and its workflow: its steps are its workflow's story, never a line on
+/// whichever goal happens to be followed.
 fn on_goal_timeline(frame: &Value, goal: &str, watch: bool) -> bool {
     match frame["stream"].as_str() {
         Some("engine") => {
             let event = &frame["payload"];
             let spine = event["payload"]["type"].as_str() != Some("session");
-            let ours = event["goal"].as_str() == Some(goal) || event["goal"].is_null();
+            let about_nothing =
+                event["goal"].is_null() && event["run"].is_null() && event["workflow"].is_null();
+            let ours = event["goal"].as_str() == Some(goal) || about_nothing;
             ours && (watch || spine)
         }
         Some("conversation") => frame["payload"]["scope"].as_str() == Some(goal),
@@ -1072,7 +1079,12 @@ async fn follow_via_node(
                             }
                         }
                     }
-                    None => streaming = false, // LCOV_EXCL_LINE: the event stream ending under the follower; a race no test can time
+                    // LCOV_EXCL_START: the event stream ending under the follower; a race no test can time
+                    None => {
+                        streaming = false;
+                        eprintln!("{}", style.dim(&bisa_i18n::say(&bisa_core::text!("cli-run-stream-ended"))));
+                    }
+                    // LCOV_EXCL_STOP
                 }
             }
             _ = poll.tick() => {
@@ -1219,7 +1231,12 @@ pub async fn follow_run_via_node(
                             }
                         }
                     }
-                    None => streaming = false, // LCOV_EXCL_LINE: the event stream ending under the follower; a race no test can time
+                    // LCOV_EXCL_START: the event stream ending under the follower; a race no test can time
+                    None => {
+                        streaming = false;
+                        eprintln!("{}", style.dim(&bisa_i18n::say(&bisa_core::text!("cli-run-stream-ended"))));
+                    }
+                    // LCOV_EXCL_STOP
                 }
             }
             _ = poll.tick() => {
@@ -1779,6 +1796,19 @@ mod tests {
         // An event about no goal in particular is everybody's.
         let global = engine_frame(None, None, json!({"type": "settings_changed"}));
         assert!(on_goal_timeline(&global, "01GOAL", false));
+        // A run of the workspace names no goal, and is nobody's goal's: its
+        // envelope names its run and its workflow.
+        let of_workspace = engine_frame(
+            None,
+            Some("01WSRUN"),
+            json!({"type": "step_changed", "run": "01WSRUN", "step": "hold"}),
+        );
+        assert!(!on_goal_timeline(&of_workspace, "01GOAL", true));
+        let by_workflow = json!({
+            "stream": "engine",
+            "payload": {"workflow": "01WF", "payload": {"type": "run_started"}},
+        });
+        assert!(!on_goal_timeline(&by_workflow, "01GOAL", true));
         // A session's chatter is shown only to who watches.
         let chatter = engine_frame(Some("01GOAL"), None, json!({"type": "session"}));
         assert!(!on_goal_timeline(&chatter, "01GOAL", false));

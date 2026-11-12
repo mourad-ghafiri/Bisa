@@ -1129,10 +1129,6 @@ impl Index {
         Ok(())
     }
 
-    /// Run `f` inside one transaction — every statement it issues lands or
-    /// none does. Joins the transaction already open on this connection when
-    /// there is one, so a caller that batches several indexers is one unit
-    /// and each indexer stays correct on its own.
     /// A test's door to the cache: one statement, for the rows a rebuild
     /// never writes — an id that is no id, a scope that names nothing — so
     /// the readers' tolerance of a corrupt cache is held by a test.
@@ -1141,6 +1137,10 @@ impl Index {
         self.conn.execute(sql, [])
     }
 
+    /// Run `f` inside one transaction — every statement it issues lands or
+    /// none does. Joins the transaction already open on this connection when
+    /// there is one, so a caller that batches several indexers is one unit
+    /// and each indexer stays correct on its own.
     pub fn in_transaction<T>(
         &self,
         f: impl FnOnce() -> Result<T, StoreError>,
@@ -1148,7 +1148,16 @@ impl Index {
         if !self.conn.is_autocommit() {
             return f();
         }
-        let tx = self.conn.unchecked_transaction()?;
+        // Immediate: the write lock is taken as the transaction begins, so
+        // another process writing the same index is waited for
+        // (`busy_timeout`). A deferred transaction that read first and then
+        // wrote was refused at once — *database is locked*, with no wait —
+        // whenever another process had committed in between, and the row it
+        // was writing was left out of the index.
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let out = f()?;
         tx.commit()?;
         Ok(out)
@@ -2566,32 +2575,43 @@ impl Index {
             Some(c) => (c.at.min(i64::MAX as u64) as i64, c.seq),
             None => (i64::MAX, i64::MAX),
         };
-        let concept = concept.map(|c| c.as_str().to_string());
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT seq, at, concept, kind, source_kind, source_id, author, event
-             FROM activity
-             WHERE (?1 IS NULL OR concept = ?1)
-               AND (at < ?2 OR (at = ?2 AND seq < ?3))
-             ORDER BY at DESC, seq DESC LIMIT ?4",
-        )?;
-        let rows = stmt.query_map(params![concept, at, seq, limit as i64], |r| {
-            Ok(ActivityRecord {
-                seq: r.get(0)?,
-                at: r.get::<_, i64>(1)? as u64,
-                concept: r.get(2)?,
-                kind: r.get(3)?,
-                source_kind: r.get(4)?,
-                source_id: r.get(5)?,
-                author: r.get(6)?,
-                event: r.get(7)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        let limit = limit as i64;
+        let rows = match concept {
+            None => self
+                .conn
+                .prepare_cached(ACTIVITY_PAGE_SQL)?
+                .query_map(params![at, seq, limit], activity_record)?
+                .collect::<Result<Vec<_>, _>>(),
+            Some(concept) => self
+                .conn
+                .prepare_cached(ACTIVITY_PAGE_OF_CONCEPT_SQL)?
+                .query_map(params![concept.as_str(), at, seq, limit], activity_record)?
+                .collect::<Result<Vec<_>, _>>(),
+        };
+        Ok(rows?)
     }
 
-    /// The newest `limit` activity rows whose `kind` is one of `kinds` —
-    /// the Inbox's one read of the feed, over `idx_activity_kind`. Nothing
-    /// outside the kinds is read, whatever its concept.
+    /// The feed's rows from second `from` to second `to`, both included,
+    /// oldest first, at most `limit` — the rows that stand beside one in
+    /// time, by one seek on `idx_activity_at`.
+    pub fn activity_between(
+        &self,
+        from: u64,
+        to: u64,
+        limit: usize,
+    ) -> Result<Vec<ActivityRecord>, StoreError> {
+        let bound = |at: u64| at.min(i64::MAX as u64) as i64;
+        let rows = self
+            .conn
+            .prepare_cached(ACTIVITY_BETWEEN_SQL)?
+            .query_map(
+                params![bound(from), bound(to), limit as i64],
+                activity_record,
+            )?
+            .collect::<Result<Vec<_>, _>>();
+        Ok(rows?)
+    }
+
     /// `(source kind, source id)` of everything the feed holds a row of
     /// `kind` for — which homes ever journaled a question, say. One indexed
     /// read (`idx_activity_kind`).
@@ -2606,42 +2626,28 @@ impl Index {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// The newest `limit` activity rows whose `kind` is one of `kinds`,
+    /// newest first — the Inbox's one read of the feed. Each kind is read
+    /// in the order `idx_activity_kind` holds it, at most `limit` rows of
+    /// it, and the reads are merged: nothing is sorted by the database and
+    /// nothing outside the kinds is read, however long the feed is.
     pub fn activity_by_kinds(
         &self,
         kinds: &[&str],
         limit: usize,
     ) -> Result<Vec<ActivityRecord>, StoreError> {
-        if kinds.is_empty() {
-            return Ok(Vec::new());
+        let mut stmt = self.conn.prepare_cached(ACTIVITY_OF_KIND_SQL)?;
+        let mut rows: Vec<ActivityRecord> = Vec::new();
+        let mut asked = std::collections::BTreeSet::new();
+        for kind in kinds.iter().filter(|kind| asked.insert(**kind)) {
+            let of_kind = stmt.query_map(params![kind, limit as i64], activity_record)?;
+            for row in of_kind {
+                rows.push(row?);
+            }
         }
-        let marks = std::iter::repeat_n("?", kinds.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT seq, at, concept, kind, source_kind, source_id, author, event
-             FROM activity
-             WHERE kind IN ({marks})
-             ORDER BY at DESC, seq DESC LIMIT ?"
-        );
-        let mut stmt = self.conn.prepare_cached(&sql)?;
-        let mut args: Vec<Box<dyn rusqlite::ToSql>> = kinds
-            .iter()
-            .map(|k| Box::new(k.to_string()) as Box<dyn rusqlite::ToSql>)
-            .collect();
-        args.push(Box::new(limit as i64));
-        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-            Ok(ActivityRecord {
-                seq: r.get(0)?,
-                at: r.get::<_, i64>(1)? as u64,
-                concept: r.get(2)?,
-                kind: r.get(3)?,
-                source_kind: r.get(4)?,
-                source_id: r.get(5)?,
-                author: r.get(6)?,
-                event: r.get(7)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        rows.sort_by_key(|row| std::cmp::Reverse((row.at, row.seq)));
+        rows.truncate(limit);
+        Ok(rows)
     }
 
     pub fn index_text(&self, doc_id: &str, goal_id: &str, content: &str) -> Result<(), StoreError> {
@@ -3069,6 +3075,11 @@ impl Index {
 
     // --- messages / reactions ---
 
+    /// One message into the cache, once: whether this call is the one that
+    /// put it there. A message the cache already holds — the same event
+    /// offered again by a peer, a line a log holds twice — answers `false`,
+    /// and what is counted per message (the feed's row, a conversation's
+    /// count) is counted by the caller only on `true`.
     #[allow(clippy::too_many_arguments)]
     pub fn upsert_message(
         &self,
@@ -3083,9 +3094,9 @@ impl Index {
         context_json: &str,
         reply_to: Option<&str>,
         created_at: u64,
-    ) -> Result<(), StoreError> {
+    ) -> Result<bool, StoreError> {
         let said = said.map(serde_json::to_string).transpose()?;
-        self.conn.execute(
+        let inserted = self.conn.execute(
             "INSERT OR IGNORE INTO messages
                (id, scope_kind, scope_id, author, body_kind, content, thinking, said, context, reply_to, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -3103,7 +3114,7 @@ impl Index {
                 created_at as i64
             ],
         )?;
-        Ok(())
+        Ok(inserted == 1)
     }
 
     pub fn upsert_mention(
@@ -3424,7 +3435,28 @@ impl Index {
             .optional()?)
     }
 
+    /// A fact taken back by its author. A message's row leaves the feed
+    /// with it — the feed carries an excerpt of the text, and a retracted
+    /// text is shown nowhere: the row is found by an exact seek (its kind
+    /// and second on `idx_activity_kind`, then its scope and id), never by
+    /// reading every message's event.
     pub fn retract_fact(&self, event_id: &str) -> Result<(), StoreError> {
+        let message: Option<(i64, String)> = self
+            .conn
+            .query_row(
+                "SELECT created_at, scope_id FROM messages WHERE id = ?1",
+                params![event_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((at, scope)) = message {
+            self.conn.execute(
+                "DELETE FROM activity
+                 WHERE kind = 'message' AND at = ?1 AND source_id = ?2
+                   AND json_extract(event, '$.message_id') = ?3",
+                params![at, scope, event_id],
+            )?;
+        }
         self.conn.execute(
             "UPDATE messages SET retracted = 1 WHERE id = ?1",
             params![event_id],
@@ -4184,9 +4216,156 @@ fn row_to_artifact(r: &rusqlite::Row<'_>, from: usize) -> rusqlite::Result<bisa_
     })
 }
 
+/// The feed's page over every concept (`Index::activity_page`), as SQL —
+/// constants, so the query plans are held by a test. The cursor is a row
+/// value: one seek on `idx_activity_at`, then the index in order.
+const ACTIVITY_PAGE_SQL: &str =
+    "SELECT seq, at, concept, kind, source_kind, source_id, author, event
+             FROM activity
+             WHERE (at, seq) < (?1, ?2)
+             ORDER BY at DESC, seq DESC LIMIT ?3";
+
+/// The feed's page of one concept: a statement of its own, so the seek is
+/// on `idx_activity_concept` — a concept with few rows in a long feed is
+/// read by its own rows, never by walking everybody's.
+const ACTIVITY_PAGE_OF_CONCEPT_SQL: &str =
+    "SELECT seq, at, concept, kind, source_kind, source_id, author, event
+             FROM activity
+             WHERE concept = ?1 AND (at, seq) < (?2, ?3)
+             ORDER BY at DESC, seq DESC LIMIT ?4";
+
+/// The newest rows of one kind, in the order `idx_activity_kind` holds
+/// them — no sort, whatever the feed's length.
+const ACTIVITY_OF_KIND_SQL: &str =
+    "SELECT seq, at, concept, kind, source_kind, source_id, author, event
+             FROM activity
+             WHERE kind = ?1
+             ORDER BY at DESC, seq DESC LIMIT ?2";
+
+/// The rows of a span of seconds, oldest first, as `idx_activity_at` holds
+/// them — what stands beside a row in time.
+const ACTIVITY_BETWEEN_SQL: &str =
+    "SELECT seq, at, concept, kind, source_kind, source_id, author, event
+             FROM activity
+             WHERE at BETWEEN ?1 AND ?2
+             ORDER BY at, seq LIMIT ?3";
+
+/// One stored row of the feed, as its readers map it.
+fn activity_record(r: &rusqlite::Row<'_>) -> rusqlite::Result<ActivityRecord> {
+    Ok(ActivityRecord {
+        seq: r.get(0)?,
+        at: r.get::<_, i64>(1)? as u64,
+        concept: r.get(2)?,
+        kind: r.get(3)?,
+        source_kind: r.get(4)?,
+        source_id: r.get(5)?,
+        author: r.get(6)?,
+        event: r.get(7)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The steps SQLite takes for one statement, as its own words.
+    fn plan_of(idx: &Index, sql: &str, args: &[&dyn rusqlite::ToSql]) -> String {
+        let mut stmt = idx
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        let steps: Vec<String> = stmt
+            .query_map(args, |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        steps.join(" | ")
+    }
+
+    /// The feed's three reads each seek their index and read it in order:
+    /// a page costs the same at any depth, a concept with few rows is read
+    /// by its own, and the Inbox's read of a kind sorts nothing.
+    #[test]
+    fn the_page_seeks_its_cursor_at_any_depth() {
+        let idx = Index::open_in_memory().unwrap();
+        let all = plan_of(&idx, ACTIVITY_PAGE_SQL, &[&5i64, &5i64, &10i64]);
+        assert!(
+            all.contains("USING INDEX idx_activity_at (at<?)"),
+            "the page seeks its cursor: {all}"
+        );
+        let one = plan_of(
+            &idx,
+            ACTIVITY_PAGE_OF_CONCEPT_SQL,
+            &[&"node", &5i64, &5i64, &10i64],
+        );
+        assert!(
+            one.contains("USING INDEX idx_activity_concept (concept=? AND at<?)"),
+            "a concept's page seeks its own rows: {one}"
+        );
+        let kind = plan_of(&idx, ACTIVITY_OF_KIND_SQL, &[&"run_finished", &10i64]);
+        assert!(
+            kind.contains("USING INDEX idx_activity_kind (kind=?)"),
+            "a kind is read by its index: {kind}"
+        );
+        let span = plan_of(&idx, ACTIVITY_BETWEEN_SQL, &[&3i64, &7i64, &10i64]);
+        assert!(
+            span.contains("USING INDEX idx_activity_at (at>? AND at<?)"),
+            "a span of seconds is one range of the index: {span}"
+        );
+        for plan in [&all, &one, &kind, &span] {
+            assert!(!plan.contains("TEMP B-TREE"), "nothing is sorted: {plan}");
+            assert!(!plan.contains("SCAN"), "nothing is walked whole: {plan}");
+        }
+    }
+
+    /// Two processes write one index — a node and a command beside it. A
+    /// transaction that reads and then writes is not refused because the
+    /// other one wrote in between: it holds the write lock from its start,
+    /// and the other waits its turn. Begun deferred, it was refused at once
+    /// (*database is locked*, with no wait) and its row was left out.
+    #[test]
+    fn a_transaction_that_reads_then_writes_is_never_refused_for_another_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        let ours = Index::open(&path).unwrap();
+        ours.mark_built().unwrap();
+        let member = |idx: &Index, pubkey: &str| -> Result<(), StoreError> {
+            idx.conn.execute(
+                "INSERT INTO members (pubkey, role, label, added_at) VALUES (?1, 'member', NULL, 1)",
+                params![pubkey],
+            )?;
+            Ok(())
+        };
+        let theirs = {
+            let path = path.clone();
+            move || {
+                let other = Index::open(&path).unwrap();
+                member(&other, "bb")
+            }
+        };
+        let mut other_writer = None;
+        let written = ours.in_transaction(|| {
+            let before: i64 = ours
+                .conn
+                .query_row("SELECT count(*) FROM members", [], |r| r.get(0))?;
+            assert_eq!(before, 0);
+            // Another process writes while this transaction stands.
+            other_writer = Some(std::thread::spawn(theirs));
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            member(&ours, "aa")
+        });
+        assert!(written.is_ok(), "our write after our read: {written:?}");
+        let theirs = other_writer.unwrap().join().unwrap();
+        assert!(
+            theirs.is_ok(),
+            "the other writer waited its turn: {theirs:?}"
+        );
+        let count: i64 = ours
+            .conn
+            .query_row("SELECT count(*) FROM members", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "both rows are in the index");
+    }
 
     /// A transaction that fails mid-way leaves nothing of itself behind, and
     /// one opened inside another joins it rather than refusing.

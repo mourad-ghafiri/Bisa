@@ -27,7 +27,16 @@
 //! `{stream: "engine", payload: EngineEvent}` |
 //! `{stream: "conversation", payload: {scope, kind, event_id, author, snippet, unread_count, latest}}` |
 //! `{stream: "inbox",  payload: {key, kind, unread_count, needs_action_count,
-//! latest_at, read, handled, listed, notice_count, unread_notices, waiting?}}`.
+//! latest_at, read, handled, listed, notice_count, unread_notices, waiting?}}` |
+//! `{stream: "pulse", payload: {seq, at, concept, kind, source} | {concept: null}}`.
+//!
+//! The `pulse` frame says one row of the activity feed as it lands — every
+//! row, whoever wrote it: a journal fact (an agent's progress, a note, a
+//! claim), a message, an engine fact, and what a peer's sync brought — with
+//! the concept it is filed under, sent once the row can be read. A reader of
+//! `GET /pulse` holding that concept reads its head again. `{concept: null}`
+//! says the feed moved as no one row tells — the index was rebuilt, or this
+//! reader fell behind — and every reader reads again (`pulse::frame`).
 //!
 //! The `inbox` frame rides alongside the frame that caused it — a message
 //! arriving, a gate opening or being decided, a goal moving, a notice on a
@@ -1375,8 +1384,21 @@ async fn events(
         })
         .flat_map(futures::stream::iter);
 
-    let stream = futures::stream::select(engine_stream, conversation_stream)
-        .filter_map(|v| async move { Some(Ok(SseEvent::default().json_data(&v).ok()?)) });
+    // The feed's own frames: one per row once it can be read — a journal
+    // fact's, a message's, an engine fact's, a peer's — and one word when
+    // the index was rebuilt or this reader fell behind.
+    let pulse_stream =
+        tokio_stream::wrappers::BroadcastStream::new(state.engine.workspace().subscribe_activity())
+            .map(|notice| match notice {
+                Ok(notice) => pulse::frame(Some(&notice)),
+                Err(BroadcastStreamRecvError::Lagged(_)) => pulse::frame(None), // LCOV_EXCL_LINE: a reader that fell behind the feed; a race no test can time
+            });
+
+    let stream = futures::stream::select(
+        futures::stream::select(engine_stream, conversation_stream),
+        pulse_stream,
+    )
+    .filter_map(|v| async move { Some(Ok(SseEvent::default().json_data(&v).ok()?)) });
     Sse::new(until_stopped(&state, stream))
         .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(15)))
 }

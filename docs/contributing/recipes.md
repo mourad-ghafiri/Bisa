@@ -96,11 +96,17 @@ Gates: the exhaustive matches over `StartOn`, `WaitFor`, `BoundaryOn` and `Bound
    `TOPICS` — a `platform` start or wait may name it from then on.
 3. The emit site (`inner.emit(EngineEvent::…)`).
 4. The mirror in `desktop/src/types.hand.ts`, the rendered line in `desktop/src/activityModel.mjs`, and
-   one instance in `activityModel.test.mjs`'s fixture; the CLI's line in `crates/bisa-cli/src/activity.rs`.
-5. A sentence on the [engine page](../architecture/crates/engine.md).
+   one instance in `activityModel.test.mjs`'s fixture; the CLI's line in `crates/bisa-cli/src/activity.rs`
+   (`engine_line`, the one renderer — a stored row and a streamed frame are read back into it) and a
+   sample of it in that file's tests.
+5. If it is a fact of the feed: its concept in `concept_of` and its source in `source_of`
+   (`crates/bisa-engine/src/activity.rs`); if a journal fact tells the same happening, its pair in
+   `feed::echo_key`.
+6. A sentence on the [engine page](../architecture/crates/engine.md).
 
 Gates: `activityModel.test.mjs` (one of every variant renders), `crates/bisa-engine/tests/it/docs.rs`
-(the page names every variant), the `topic` match (exhaustive) and
+(the page names every variant), the `topic`, `concept_of` and `source_of` matches (exhaustive), the
+CLI's `every_payload_is_built_by_a_test_of_its_line` and
 `every_topic_is_listed_once_and_the_list_names_only_topics` beside it.
 
 ## 5. Add an MCP tool

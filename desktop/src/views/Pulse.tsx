@@ -8,8 +8,11 @@
  * at a time by keyset (`GET /pulse?concept=&before=&before_seq=`); every
  * row carries its payload verbatim and `activity.ts` words it with the same
  * function a live frame gets, so a row reads the same the moment it happens
- * and after a reload. The screen never invents a row from a frame: a frame
- * is a **nudge** to read the head page again, debounced, merged by `seq`.
+ * and after a reload. The screen never invents a row from a frame: the
+ * node says each row of the feed as it lands (`{stream: "pulse"}`, with the
+ * concept it is filed under), and a frame is a **nudge** to read the head
+ * page again — one read for a burst — merged by `seq`. A happening the
+ * journal and the engine both recorded is held as two rows and drawn as one.
  *
  * **Lazy.** The list draws a window; when the window comes within a few
  * rows of the end of what is loaded and the last page said there is more,
@@ -31,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api";
-import { useConversationEvents, useEngineEvents } from "../bus";
+import { usePulseEvents } from "../bus";
 import { useReloadOnReconnect } from "../ui/useReloadOnReconnect";
 import { pulseLine } from "../activity";
 import { errorFields, log } from "../log";
@@ -44,7 +47,7 @@ import type { PulseCursor, PulseRow as PulseRowDto } from "../types";
 import { Button, DayDivider, EmptyState, ErrorNote, ICON, ScreenBar, SkeletonRows, Tabs, Tooltip, VirtualList, useTokenPx } from "../ui";
 import { parseAnchor, type Anchor } from "../ui/anchorModel.mjs";
 import { PulseRow, type PulseItem } from "./_pulse/PulseRow";
-import { CONCEPTS, NUDGE_MS, PAGE, conceptOfFact, conceptWords, cursorOf, depthOf, heldFeed, itemOf, joinHead, linkOf, mergePage, parseConcept, parseDepth, wantsDepth, wantsMore, wantsNudge, withDividers } from "./_pulse/pulseModel.mjs";
+import { CONCEPTS, NUDGE_MS, PAGE, conceptWords, cursorOf, depthOf, heldFeed, itemOf, joinHead, linkOf, mergePage, nudgeOf, parseConcept, parseDepth, sameCursor, wantsDepth, wantsMore, withDividers } from "./_pulse/pulseModel.mjs";
 import type { Concept } from "./_pulse/pulseModel.mjs";
 import { readKey } from "./_work/keptReadsModel.mjs";
 import { keepRead, keptRead } from "./_work/keptReadsStore";
@@ -111,7 +114,9 @@ export default function Pulse() {
   // The concept on screen, for a read that lands after the tab moved: it is not this feed's.
   const shown = useRef(concept);
   shown.current = concept;
-  const [error, setError] = useState<string | null>(null);
+  // The read that failed, and its words: *Retry* repeats that read — the head, or the older page that was asked for.
+  const [failed, setFailed] = useState<{ read: "head" | "older"; message: string } | null>(null);
+  const error = failed?.message ?? null;
   const [opened, setOpened] = useViewState<ReadonlySet<string>>(PLACE, "opened", NONE_OPENED, parseOpened, wordsOf);
   /** The page in flight, if any — one at a time; a concept change aborts it. */
   const inFlight = useRef<AbortController | null>(null);
@@ -122,23 +127,27 @@ export default function Pulse() {
 
   const channelKind = useCallback((id: string): "channel" | "dm" | null => scopeKindOf(id, ws.channels, ws.dms), [ws.channels, ws.dms]);
 
-  /** The head page, read fresh: what is shown is replaced where it overlaps and kept below. */
+  /**
+   * The head page, read fresh: what is shown is replaced where the page covers it and kept below.
+   * `restart` lets go of what is held first — the feed moved as no join by `seq` can follow.
+   */
   const loadHead = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, restart = false) => {
       try {
         const page = await api.pulse(concept, null, PAGE, signal);
         if (signal?.aborted || shown.current !== concept) return;
         const rows = page.rows.map(itemOfRow);
         // Read from the ref, not in an updater: the join is said in the log, and an updater says nothing.
-        const joined = joinHead({ shown: held.current.items, page: rows, next: cursorOf(page), tail: held.current.next });
+        const before = restart ? EMPTY_FEED : held.current;
+        const joined = joinHead({ shown: before.items, page: rows, next: cursorOf(page), tail: before.next });
         if (joined.restarted) log.info("pulse", "more landed than a page holds: the feed starts over from its head", { concept, rows: rows.length });
         // The head grows for as long as the workspace moves: what is held is bounded below what the window draws.
         hold(heldFeed({ items: joined.items, next: joined.next }, range.current[1]));
-        setError(null);
+        setFailed(null);
       } catch (e) {
         if (signal?.aborted) return;
         log.warn("pulse", "the head page could not be read", { concept, ...errorFields(e) });
-        setError(e instanceof ApiError ? e.message : t("screens-pulse-could-not-load-pulse"));
+        setFailed({ read: "head", message: e instanceof ApiError ? e.message : t("screens-pulse-could-not-load-pulse") });
       } finally {
         if (!signal?.aborted) setState((s) => (s.concept === concept && s.loading ? { ...s, loading: false } : s));
       }
@@ -148,21 +157,30 @@ export default function Pulse() {
 
   /** The page after the last, when the window is near the end. */
   const loadMore = useCallback(async () => {
-    if (next === null || inFlight.current) return;
+    // Asked from where the feed stands now, not from where a render saw it.
+    const asked = held.current.next;
+    if (asked === null || inFlight.current) return;
     const ac = new AbortController();
     inFlight.current = ac;
     try {
-      const page = await api.pulse(concept, next, PAGE, ac.signal);
+      const page = await api.pulse(concept, asked, PAGE, ac.signal);
       if (ac.signal.aborted) return;
+      // The feed started over, or was cut, while the page was on its way: it
+      // is a page of a feed that is gone, and appending it would leave a hole.
+      if (!sameCursor(asked, held.current.next)) {
+        log.info("pulse", "an older page landed after the feed moved: let go", { concept });
+        return;
+      }
       hold({ items: mergePage(held.current.items, page.rows.map(itemOfRow), "older"), next: cursorOf(page) });
+      setFailed((was) => (was?.read === "older" ? null : was));
     } catch (e) {
       if (ac.signal.aborted) return;
       log.warn("pulse", "an older page could not be read", { concept, ...errorFields(e) });
-      setError(e instanceof ApiError ? e.message : t("screens-pulse-could-not-load-older-activity"));
+      setFailed({ read: "older", message: e instanceof ApiError ? e.message : t("screens-pulse-could-not-load-older-activity") });
     } finally {
       if (inFlight.current === ac) inFlight.current = null;
     }
-  }, [concept, next, hold]);
+  }, [concept, hold]);
 
   // A concept is its own feed: what the window kept of it, else nothing —
   // never what was loaded for another. Kept, it is as deep as it was left;
@@ -174,7 +192,7 @@ export default function Pulse() {
     const begins = kept ?? EMPTY_FEED;
     held.current = begins;
     setState((s) => (s.concept === concept ? s : { concept, feed: begins, loading: kept === undefined }));
-    setError(null);
+    setFailed(null);
     depth.current = kept ? 0 : (parseDepth(viewState.read(PLACE, depthName(concept))) ?? 0);
     const ac = new AbortController();
     void loadHead(ac.signal);
@@ -182,28 +200,38 @@ export default function Pulse() {
   }, [loadHead, feedKey, concept]);
 
   // Live: a frame is a nudge to read the head again, never a row of its own.
-  // The node recorded the fact before it sent the frame, so the read finds it.
-  const nudgeHead = useCallback(() => {
-    if (nudge.current !== null) return;
-    nudge.current = window.setTimeout(() => {
-      nudge.current = null;
-      void loadHead();
-    }, NUDGE_MS);
-  }, [loadHead]);
+  // The node says a row once it can be read, so the read finds it. A burst
+  // is one read: the first frame starts the wait, the rest ride it — and if
+  // any of them asked to start over, the read starts over.
+  const startOver = useRef(false);
+  const nudgeHead = useCallback(
+    (restart = false) => {
+      startOver.current ||= restart;
+      if (nudge.current !== null) return;
+      nudge.current = window.setTimeout(() => {
+        nudge.current = null;
+        const restarting = startOver.current;
+        startOver.current = false;
+        void loadHead(undefined, restarting);
+      }, NUDGE_MS);
+    },
+    [loadHead],
+  );
   useEffect(() => () => window.clearTimeout(nudge.current ?? undefined), []);
-  useEngineEvents((e) => {
-    // A fact that is in the feed nudges its concept's tab and All; an agent's
-    // tokens, a file changing, a session's state are no rows and nudge nobody.
-    if (wantsNudge(concept, conceptOfFact(e.payload))) nudgeHead();
-  });
-  useConversationEvents(() => {
-    if (wantsNudge(concept, "channels")) nudgeHead();
+  usePulseEvents((frame) => {
+    // The frame names the row's own concept — a run of the workspace's step
+    // is the Workflows', whatever its payload looks like — and its moment.
+    const asks = nudgeOf(concept, frame, held.current.items);
+    if (asks !== "none") nudgeHead(asks === "restart");
   });
   // What a node did at boot — the steps it resumed or failed, the questions
   // it withdrew — is in the feed and was said by no frame this window heard.
-  useReloadOnReconnect(nudgeHead);
+  useReloadOnReconnect(() => nudgeHead());
 
   const slots = useMemo(() => withDividers(items), [items]);
+  // Nothing to draw and a page still to ask for: the feed goes on behind
+  // rows this build cannot draw, and is being read — never *nothing happened*.
+  const readingOn = slots.length === 0 && next !== null && failed === null;
 
   // The window moved: near the end, ask for the next page.
   const onRange = useCallback(
@@ -247,7 +275,7 @@ export default function Pulse() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScreenBar
-        tabs={<Tabs bare className="flex-1" tabs={tabs} active={concept} onChange={(id) => setRawConcept(id === "all" ? null : id)} />}
+        tabs={<Tabs bare className="flex-1" label={t("screens-pulse-concepts")} tabs={tabs} active={concept} onChange={(id) => setRawConcept(id === "all" ? null : id)} />}
         end={
           <>
             <Tooltip label={t("screens-pulse-read-again-from-node")}>
@@ -261,11 +289,11 @@ export default function Pulse() {
 
       {error && (
         <div className="px-6 pt-3">
-          <ErrorNote error={error} retry={() => void loadHead()} />
+          <ErrorNote error={error} retry={() => void (failed?.read === "older" ? loadMore() : loadHead())} />
         </div>
       )}
 
-      {loading ? (
+      {loading || readingOn ? (
         // Collapsed rows are all the same height, so the placeholder can
         // promise the real shape rather than an indeterminate spin.
         <SkeletonRows rows={12} className="px-6 py-2" />
@@ -289,7 +317,7 @@ export default function Pulse() {
             error ? null : (
               <div className="p-4">
                 <EmptyState
-                  icon={(ICON as Record<string, typeof ICON.file>)[words.icon] ?? ICON.pulse}
+                  icon={ICON[words.icon]}
                   title={words.empty}
                   hint={words.hint}
                   action={
@@ -312,9 +340,9 @@ export default function Pulse() {
                 heading={slot.heading}
                 name={slot.item.author ? ws.nameOf(slot.item.author) : undefined}
                 expanded={opened.has(slot.item.key)}
-                hasDoor={linkOf(slot.item.source, channelKind) !== null}
+                hasDoor={linkOf(slot.item.source, channelKind, slot.item.gone) !== null}
                 onOpen={() => {
-                  const door = linkOf(slot.item.source, channelKind);
+                  const door = linkOf(slot.item.source, channelKind, slot.item.gone);
                   if (door) navigate(door);
                 }}
                 onToggle={() => toggle(slot.item.key)}

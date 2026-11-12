@@ -50,16 +50,27 @@ impl Style {
 
 pub fn workitem_state_label(state: &WorkItemState) -> String {
     match state {
-        WorkItemState::Open => "open".into(),
-        WorkItemState::Claimed { .. } => "claimed".into(),
+        WorkItemState::Open => bisa_i18n::say(&bisa_core::text!("cli-activity-item-open")),
+        WorkItemState::Claimed { .. } => {
+            bisa_i18n::say(&bisa_core::text!("cli-activity-item-claimed"))
+        }
         WorkItemState::InProgress { .. } => {
             bisa_i18n::say(&bisa_core::text!("cli-activity-progress"))
         }
-        WorkItemState::Blocked { reason, .. } => format!("blocked: {reason}"),
-        WorkItemState::Review { .. } => "review".into(),
-        WorkItemState::Accepted => "accepted".into(),
-        WorkItemState::Rejected { .. } => "rejected".into(),
-        WorkItemState::Cancelled => "cancelled".into(),
+        WorkItemState::Blocked { reason, .. } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-item-blocked",
+            reason = reason.to_string()
+        )),
+        WorkItemState::Review { .. } => {
+            bisa_i18n::say(&bisa_core::text!("cli-activity-item-review"))
+        }
+        WorkItemState::Accepted => bisa_i18n::say(&bisa_core::text!("cli-activity-item-accepted")),
+        WorkItemState::Rejected { .. } => {
+            bisa_i18n::say(&bisa_core::text!("cli-activity-item-rejected"))
+        }
+        WorkItemState::Cancelled => {
+            bisa_i18n::say(&bisa_core::text!("cli-activity-item-cancelled"))
+        }
     }
 }
 
@@ -263,7 +274,7 @@ fn run_label(filter: &RunFilter) -> String {
         .map(|w| w.words(ToString::to_string));
     if filter.change == bisa_core::OneOrMany::One(bisa_core::RunChange::Ended) {
         let outcome = match &filter.outcome {
-            None => "any".to_string(),
+            None => bisa_i18n::say(&bisa_core::text!("cli-activity-any-outcome")),
             Some(outcomes) => outcomes.words(|o| o.as_str().to_string()),
         };
         return match workflow {
@@ -344,9 +355,20 @@ fn short(s: &str, n: usize) -> String {
     }
 }
 
+/// A verdict in a word: *approved* or *rejected*.
+fn verdict_word(approve: bool) -> String {
+    if approve {
+        bisa_i18n::say(&bisa_core::text!("cli-activity-word-approved"))
+    } else {
+        bisa_i18n::say(&bisa_core::text!("cli-activity-word-rejected"))
+    }
+}
+
 /// One journal event → one activity line.
 pub fn journal_line(e: &JournalEvent) -> String {
-    let who = &e.author.to_string()[..8];
+    // The first eight characters, by characters: an author this build did
+    // not mint — a journal read over the wire — may be shorter, or no hex.
+    let who: String = e.author.to_string().chars().take(8).collect();
     format!("{:>10}  {who}  {}", e.at, payload_line(&e.payload))
 }
 
@@ -455,10 +477,14 @@ pub fn payload_line(payload: &JournalPayload) -> String {
                 step = step.to_string(),
                 a0 = (answer_line(answer)).to_string()
             )),
-            StepFact::Decided { approve, .. } => format!(
-                "step {step} {}",
-                if *approve { "approved" } else { "declined" }
-            ),
+            StepFact::Decided { approve: true, .. } => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-approved",
+                step = step.to_string()
+            )),
+            StepFact::Decided { approve: false, .. } => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-declined",
+                step = step.to_string()
+            )),
             StepFact::Skipped => bisa_i18n::say(&bisa_core::text!(
                 "cli-activity-step-skipped",
                 step = step.to_string()
@@ -497,7 +523,11 @@ pub fn payload_line(payload: &JournalPayload) -> String {
                 run = run.to_string(),
                 a0 = (outcome.as_str()).to_string()
             )),
-            RunFact::Cancelled { cause } => format!("run {run} {}", cause.as_str()),
+            RunFact::Cancelled { cause } => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-run-ended-by",
+                run = run.to_string(),
+                cause = cause.as_str().to_string()
+            )),
         },
         JournalPayload::Decision {
             gate,
@@ -506,10 +536,13 @@ pub fn payload_line(payload: &JournalPayload) -> String {
             answer,
             ..
         } => match answer {
-            Some(a) => format!("answered: {}", answer_line(a)),
+            Some(a) => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-answered",
+                answer = answer_line(a)
+            )),
             None => bisa_i18n::say(&bisa_core::text!(
                 "cli-activity-gate",
-                a0 = (if *approve { "approved" } else { "rejected" }).to_string(),
+                a0 = verdict_word(*approve),
                 a1 = (gate.as_str()).to_string(),
                 a2 = (short(subject, 26)).to_string()
             )),
@@ -546,8 +579,9 @@ pub fn payload_line(payload: &JournalPayload) -> String {
             outcome,
             ..
         } => match outcome {
+            // content, never translated: the agent's own verb, object and outcome
             Some(o) => format!("{verb} {} → {}", short(object, 40), short(o, 30)),
-            None => format!("{verb} {}", short(object, 50)),
+            None => format!("{verb} {}", short(object, 50)), // content, never translated
         },
         JournalPayload::Result {
             work_item,
@@ -558,10 +592,20 @@ pub fn payload_line(payload: &JournalPayload) -> String {
             work_item = work_item.to_string(),
             a0 = (artifacts.len()).to_string()
         )),
-        JournalPayload::Attachment { project, attached } => format!(
-            "{} project {project}",
-            if *attached { "attached" } else { "detached" }
-        ),
+        JournalPayload::Attachment {
+            project,
+            attached: true,
+        } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-attached-project",
+            project = project.to_string()
+        )),
+        JournalPayload::Attachment {
+            project,
+            attached: false,
+        } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-detached-project",
+            project = project.to_string()
+        )),
         JournalPayload::Document { file } => bisa_i18n::say(&bisa_core::text!(
             "cli-activity-gave-document-bytes",
             a0 = (file.name).to_string(),
@@ -615,8 +659,11 @@ pub fn payload_line(payload: &JournalPayload) -> String {
 fn answer_line(a: &Answer) -> String {
     if a.unsure {
         return match a.text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-            Some(t) => format!("“not sure” — {}", short(t, 44)),
-            None => "“I'm not sure”".to_string(),
+            Some(t) => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-answer-not-sure-because",
+                why = short(t, 44)
+            )),
+            None => bisa_i18n::say(&bisa_core::text!("cli-activity-answer-not-sure")),
         };
     }
     let picked = a.selected.join(", ");
@@ -624,7 +671,7 @@ fn answer_line(a: &Answer) -> String {
         (true, Some(t)) => format!("“{}”", short(t, 60)),
         (false, Some(t)) => format!("{} — “{}”", short(&picked, 24), short(t, 32)),
         (false, None) => short(&picked, 60),
-        (true, None) => "(nothing)".to_string(),
+        (true, None) => bisa_i18n::say(&bisa_core::text!("cli-activity-answer-nothing")),
     }
 }
 
@@ -651,7 +698,7 @@ fn entry_words(start: Option<&str>, signal: Option<&str>) -> String {
 /// `hook`, `signal report.ready`, `platform goal.closed`.
 fn signal_words(source: &str, name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("{source} {name}"),
+        Some(name) => format!("{source} {name}"), // content, never translated
         None => source.to_string(),
     }
 }
@@ -785,9 +832,11 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
         .map(|w| format!("[{}] ", &w.to_string()[20..]))
         .unwrap_or_default();
     let line = match &e.payload {
-        EnginePayload::Scheduled { harness } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-scheduled-onto", scope = scope.to_string(), harness = harness.to_string())))
-        }
+        EnginePayload::Scheduled { harness } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-scheduled-onto",
+            scope = scope.to_string(),
+            harness = harness.to_string()
+        ))),
         // Presence: one line when a session waits, fails or is done; the
         // streaming states are the roster's, not the activity view.'s.
         EnginePayload::SessionState { presence, .. } => {
@@ -799,171 +848,408 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             match &presence.state {
                 bisa_engine::SessionState::Waiting { on } => {
                     let what = match on {
-                        bisa_engine::WaitingOn::Permission { tool, .. } => format!("permission: {tool}"),
+                        bisa_engine::WaitingOn::Permission { tool, .. } => {
+                            bisa_i18n::say(&bisa_core::text!(
+                                "cli-activity-waiting-permission",
+                                tool = tool.to_string()
+                            ))
+                        }
                         bisa_engine::WaitingOn::Question { text, .. } => short(text, 60),
-                        bisa_engine::WaitingOn::Gate { gate, .. } => format!("{gate:?} gate").to_lowercase(),
+                        bisa_engine::WaitingOn::Gate { gate, .. } => {
+                            bisa_i18n::say(&bisa_core::text!(
+                                "cli-activity-waiting-gate",
+                                gate = format!("{gate:?}").to_lowercase()
+                            ))
+                        }
                         // LCOV_EXCL_START: a sign-in wait's line; out by decision
-                        bisa_engine::WaitingOn::Auth { provider, .. } => bisa_i18n::say(&bisa_core::text!("cli-activity-sign", provider = provider.to_string())),
+                        bisa_engine::WaitingOn::Auth { provider, .. } => bisa_i18n::say(
+                            &bisa_core::text!("cli-activity-sign", provider = provider.to_string()),
+                        ),
                         // LCOV_EXCL_STOP
                     };
-                    style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-waiting-on-you", scope = scope.to_string(), who = who.to_string(), what = what.to_string())))
+                    style.bold(&bisa_i18n::say(&bisa_core::text!(
+                        "cli-activity-waiting-on-you",
+                        scope = scope.to_string(),
+                        who = who.to_string(),
+                        what = what.to_string()
+                    )))
                 }
                 bisa_engine::SessionState::Failed { reason } => {
-                    style.red(&format!("{scope}✗ {who} failed — {}", short(reason, 60)))
+                    style.red(&bisa_i18n::say(&bisa_core::text!(
+                        "cli-activity-session-row-failed",
+                        scope = scope.to_string(),
+                        who = who.to_string(),
+                        reason = short(reason, 60)
+                    )))
                 }
-                bisa_engine::SessionState::Aborted => style.red(&format!("{scope}✗ {who} aborted")),
-                bisa_engine::SessionState::Done => style.dim(&format!("{scope}✓ {who} done")),
-                bisa_engine::SessionState::Parked => style.dim(&format!("{scope}{who} parked")),
+                bisa_engine::SessionState::Aborted => {
+                    style.red(&bisa_i18n::say(&bisa_core::text!(
+                        "cli-activity-session-row-aborted",
+                        scope = scope.to_string(),
+                        who = who.to_string()
+                    )))
+                }
+                bisa_engine::SessionState::Done => style.dim(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-session-row-done",
+                    scope = scope.to_string(),
+                    who = who.to_string()
+                ))),
+                bisa_engine::SessionState::Parked => style.dim(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-session-row-parked",
+                    scope = scope.to_string(),
+                    who = who.to_string()
+                ))),
                 _ => return None,
             }
         }
         EnginePayload::SessionGone { .. } => return None,
         EnginePayload::ExecutionEnded { outcome } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-execution-ended", scope = scope.to_string(), outcome = outcome.to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-execution-ended",
+                scope = scope.to_string(),
+                outcome = outcome.to_string()
+            )))
         }
         EnginePayload::GateOpened { question, .. } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-waiting-on-you-question", scope = scope.to_string(), question = question.to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-waiting-on-you-question",
+                scope = scope.to_string(),
+                question = question.to_string()
+            )))
         }
         EnginePayload::QuestionAsked { text, expects, .. } => match expects {
             AskKind::Answer { options, .. } if options.is_empty() => {
-                style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-question-reply", scope = scope.to_string(), text = text.to_string())))
+                style.bold(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-question-reply",
+                    scope = scope.to_string(),
+                    text = text.to_string()
+                )))
             }
-            AskKind::Answer { options, .. } => style.bold(&format!(
-                "{scope}? {text}\n   {}\n   (reply: bisa answer <id> -o <option>, or --unsure)",
-                options
+            AskKind::Answer { options, .. } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-question-options",
+                scope = scope.to_string(),
+                text = text.to_string(),
+                options = options
                     .iter()
-                    .map(|o| format!(
-                        "[{}] {}{}",
-                        o.id,
-                        o.label,
-                        if o.recommended { " (recommended)" } else { "" }
-                    ))
+                    .map(|o| {
+                        let recommended = if o.recommended {
+                            bisa_i18n::say(&bisa_core::text!("cli-activity-option-recommended"))
+                        } else {
+                            String::new()
+                        };
+                        format!("[{}] {}{recommended}", o.id, o.label) // content, never translated
+                    })
                     .collect::<Vec<_>>()
                     .join("  ")
-            )),
-            AskKind::Decision => style.bold(&format!("{scope}? {text}")),
+            ))),
+            AskKind::Decision => style.bold(&format!("{scope}? {text}")), // content, never translated
         },
         EnginePayload::Guided {
             phase,
             status,
             detail,
             ..
-        } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-workflow-agent", a0 = (phase.as_str()).to_string(), a1 = (status.as_str()).to_string(), a2 = (detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()).to_string()))),
-        EnginePayload::AgentThinking { agent, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-replying", agent = agent.to_string()))),
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workflow-agent",
+            a0 = (phase.as_str()).to_string(),
+            a1 = (status.as_str()).to_string(),
+            a2 = (detail
+                .as_deref()
+                .map(|d| format!(" — {d}"))
+                .unwrap_or_default())
+            .to_string()
+        ))),
+        EnginePayload::AgentThinking { agent, .. } => style.dim(&bisa_i18n::say(
+            &bisa_core::text!("cli-activity-replying", agent = agent.to_string()),
+        )),
         // Each frame of the reply as it is written: noise in a stream of acts.
         EnginePayload::AgentStreamed { .. } => return None,
         EnginePayload::AgentReplied { agent, posted, .. } => {
             if *posted {
-                style.bold(&format!("{agent} replied"))
+                style.bold(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-replied",
+                    agent = agent.to_string()
+                )))
             } else {
-                style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-finished-turn", agent = agent.to_string())))
+                style.dim(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-finished-turn",
+                    agent = agent.to_string()
+                )))
             }
         }
-        EnginePayload::GateDecided { gate, approve, .. } => style.bold(&format!(
-            "{scope}{} gate {}",
-            gate.as_str(),
-            if *approve { "approved" } else { "rejected" }
-        )),
-        EnginePayload::ResultAccepted => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-result-accepted", scope = scope.to_string()))),
+        EnginePayload::GateDecided { gate, approve, .. } => {
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-gate-decided",
+                scope = scope.to_string(),
+                gate = gate.as_str().to_string(),
+                verdict = verdict_word(*approve)
+            )))
+        }
+        EnginePayload::ResultAccepted => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-result-accepted",
+            scope = scope.to_string()
+        ))),
         EnginePayload::RunStarted { run, workflow } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-run-started-workflow", run = run.to_string(), workflow = workflow.to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-run-started-workflow",
+                run = run.to_string(),
+                workflow = workflow.to_string()
+            )))
         }
         EnginePayload::RunQueued {
             run,
             workflow,
             position,
-        } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-run-queued-workflow-position", run = run.to_string(), workflow = workflow.to_string(), position = position.to_string()))),
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-run-queued-workflow-position",
+            run = run.to_string(),
+            workflow = workflow.to_string(),
+            position = position.to_string()
+        ))),
         EnginePayload::RunFinished { run, outcome, .. } => match outcome {
-            bisa_core::RunOutcome::Done => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-run-finished-done", run = run.to_string()))),
-            bisa_core::RunOutcome::Failed => style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-run-finished-failed", run = run.to_string()))),
+            bisa_core::RunOutcome::Done => style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-run-finished-done",
+                run = run.to_string()
+            ))),
+            bisa_core::RunOutcome::Failed => style.red(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-run-finished-failed",
+                run = run.to_string()
+            ))),
         },
         EnginePayload::RunCancelled { run, cause, .. } => {
-            style.bold(&format!("run {run} {}", cause.as_str()))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-run-ended-by",
+                run = run.to_string(),
+                cause = cause.as_str().to_string()
+            )))
         }
-        EnginePayload::StepChanged { step, state, kind, .. } => match state.as_str() {
-            "failed" => style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-step-line-failed", scope = scope.to_string(), step = step.to_string(), kind = kind.to_string()))),
-            "done" => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-step-line-done", scope = scope.to_string(), step = step.to_string(), kind = kind.to_string()))),
-            "waiting" => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-step-line-waiting", scope = scope.to_string(), step = step.to_string(), kind = kind.to_string()))),
-            "diverted" => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-step-line-diverted", scope = scope.to_string(), step = step.to_string(), kind = kind.to_string()))),
-            other => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-step", scope = scope.to_string(), step = step.to_string(), kind = kind.to_string(), other = other.to_string()))),
+        EnginePayload::StepChanged {
+            step, state, kind, ..
+        } => match state.as_str() {
+            "failed" => style.red(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-line-failed",
+                scope = scope.to_string(),
+                step = step.to_string(),
+                kind = kind.to_string()
+            ))),
+            "done" => style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-line-done",
+                scope = scope.to_string(),
+                step = step.to_string(),
+                kind = kind.to_string()
+            ))),
+            "waiting" => style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-line-waiting",
+                scope = scope.to_string(),
+                step = step.to_string(),
+                kind = kind.to_string()
+            ))),
+            "diverted" => style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step-line-diverted",
+                scope = scope.to_string(),
+                step = step.to_string(),
+                kind = kind.to_string()
+            ))),
+            other => style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-step",
+                scope = scope.to_string(),
+                step = step.to_string(),
+                kind = kind.to_string(),
+                other = other.to_string()
+            ))),
         },
-        EnginePayload::GoalClosed { reason } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-closed", a0 = (reason.as_str()).to_string())))
-        }
-        EnginePayload::GoalArchived { goal, archived } => {
-            style.dim(&format!("goal {goal} {}", if *archived { "archived" } else { "unarchived" }))
-        }
-        EnginePayload::GoalDeleted { goal } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-deleted", goal = goal.to_string()))),
-        EnginePayload::GoalUpdated { goal } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-updated", goal = goal.to_string()))),
+        EnginePayload::GoalClosed { reason } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-goal-closed",
+            a0 = (reason.as_str()).to_string()
+        ))),
+        EnginePayload::GoalArchived { goal, archived } => style.dim(&if *archived {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-goal-archived",
+                goal = goal.to_string()
+            ))
+        } else {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-goal-unarchived",
+                goal = goal.to_string()
+            ))
+        }),
+        EnginePayload::GoalDeleted { goal } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-goal-deleted",
+            goal = goal.to_string()
+        ))),
+        EnginePayload::GoalUpdated { goal } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-goal-updated",
+            goal = goal.to_string()
+        ))),
         EnginePayload::WorkflowDeleted { workflow } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-workflow-deleted", workflow = workflow.to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-workflow-deleted",
+                workflow = workflow.to_string()
+            )))
         }
-        EnginePayload::WorkflowArchived { workflow, archived } => style.dim(&format!(
-            "workflow {workflow} {}",
-            if *archived { "archived" } else { "unarchived" }
-        )),
-        EnginePayload::ProjectArchived { project, archived } => {
-            style.dim(&format!("project {project} {}", if *archived { "archived" } else { "unarchived" }))
+        EnginePayload::WorkflowArchived { workflow, archived } => style.dim(&if *archived {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-workflow-archived",
+                workflow = workflow.to_string()
+            ))
+        } else {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-workflow-unarchived",
+                workflow = workflow.to_string()
+            ))
+        }),
+        EnginePayload::ProjectArchived { project, archived } => style.dim(&if *archived {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-archived",
+                project = project.to_string()
+            ))
+        } else {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-unarchived",
+                project = project.to_string()
+            ))
+        }),
+        EnginePayload::ProjectDeleted { project } => {
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-deleted",
+                project = project.to_string()
+            )))
         }
-        EnginePayload::ProjectDeleted { project } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-project-deleted", project = project.to_string()))),
         EnginePayload::GoalCreated { goal, origin } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-created", goal = goal.to_string(), a0 = (origin.as_str()).to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-goal-created",
+                goal = goal.to_string(),
+                a0 = (origin.as_str()).to_string()
+            )))
         }
-        EnginePayload::DocumentAdded { file, .. } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-document-given-bytes", a0 = (file.name).to_string(), a1 = (file.mime).to_string(), a2 = (file.size).to_string())))
-        }
+        EnginePayload::DocumentAdded { file, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-document-given-bytes",
+            a0 = (file.name).to_string(),
+            a1 = (file.mime).to_string(),
+            a2 = (file.size).to_string()
+        ))),
         EnginePayload::WorkflowProposed {
             workflow, revision, ..
-        } => style.bold(&format!(
-            "⏸ the Workflow Agent proposed workflow {workflow} rev {revision} — adopt with: bisa approve <goal> [--input k=v]"
-        )),
+        } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workflow-proposed-adopt",
+            workflow = workflow.to_string(),
+            revision = revision.to_string()
+        ))),
         EnginePayload::WorkflowChanged {
             workflow, revision, ..
-        } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-workflow-changed-rev", workflow = workflow.to_string(), revision = revision.to_string())))
-        }
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workflow-changed-rev",
+            workflow = workflow.to_string(),
+            revision = revision.to_string()
+        ))),
         // The line a project's creation gets everywhere. Bold rather than
         // dim: a project is a folder on disk this workspace now owns, and a
         // folder that appeared without anybody reading a line about it is the
         // shape of the bug this variant was added to close.
         EnginePayload::ProjectCreated { slug, project, .. } => {
-            style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-project-created", slug = slug.to_string(), project = project.to_string())))
+            style.bold(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-created",
+                slug = slug.to_string(),
+                project = project.to_string()
+            )))
         }
         // Bold: a repository nobody can commit in is a question for a person,
         // wherever the project came from — a hand, a step, an agent.
-        EnginePayload::CommitterNeeded { slug, reason, global, .. } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-project-needs-someone-commit", slug = slug.to_string(), a0 = (reason.as_str().replace('_', " ")).to_string(), a1 = (match global { Some(g) => format!(" — global git config names {g}; pin it with `bisa project identity`"), None => bisa_i18n::say(&bisa_core::text!("cli-activity-set-one-with-bisa-project-identity")), }).to_string()))),
-        EnginePayload::CommitterSet { project, identity, .. } => {
-            bisa_i18n::say(&bisa_core::text!("cli-activity-project-commits", project = project.to_string(), identity = identity.to_string()))
-        }
-        EnginePayload::GitSetupChanged { what } => bisa_i18n::say(&bisa_core::text!("cli-activity-git-setup-changed", a0 = (what.as_str()).to_string())),
-        EnginePayload::ConnectorsChanged { what } => {
-            bisa_i18n::say(&bisa_core::text!("cli-activity-connectors-changed", a0 = (what.as_str()).to_string()))
-        }
-        EnginePayload::AddonsChanged { what } => {
-            bisa_i18n::say(&bisa_core::text!("cli-activity-addons-changed", a0 = (what.as_str()).to_string(), id = what.id().to_string()))
-        }
-        EnginePayload::ConversationCreated { id, origin } => {
-            bisa_i18n::say(&bisa_core::text!("cli-activity-conversation-started-about", id = id.to_string(), a0 = (origin.kind()).to_string()))
-        }
-        EnginePayload::ConversationChanged { id, change } => {
-            format!("conversation {id} {change:?}").to_lowercase()
-        }
-        EnginePayload::ProjectChanged { project } => bisa_i18n::say(&bisa_core::text!("cli-activity-project-edited", project = project.to_string())),
-        EnginePayload::WorkstreamEdited { workstream, .. } => {
-            bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-edited", workstream = workstream.to_string()))
-        }
+        EnginePayload::CommitterNeeded {
+            slug,
+            reason,
+            global,
+            ..
+        } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-project-needs-someone-commit",
+            slug = slug.to_string(),
+            a0 = (reason.as_str().replace('_', " ")).to_string(),
+            a1 = (match global {
+                Some(g) =>
+                    format!(" — global git config names {g}; pin it with `bisa project identity`"),
+                None => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-set-one-with-bisa-project-identity"
+                )),
+            })
+            .to_string()
+        ))),
+        EnginePayload::CommitterSet {
+            project, identity, ..
+        } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-project-commits",
+            project = project.to_string(),
+            identity = identity.to_string()
+        )),
+        EnginePayload::GitSetupChanged { what } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-git-setup-changed",
+            a0 = (what.as_str()).to_string()
+        )),
+        EnginePayload::ConnectorsChanged { what } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-connectors-changed",
+            a0 = (what.as_str()).to_string()
+        )),
+        EnginePayload::AddonsChanged { what } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-addons-changed",
+            a0 = (what.as_str()).to_string(),
+            id = what.id().to_string()
+        )),
+        EnginePayload::ConversationCreated { id, origin } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-conversation-started-about",
+            id = id.to_string(),
+            a0 = (origin.kind()).to_string()
+        )),
+        EnginePayload::ConversationChanged { id, change } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-conversation-changed",
+            id = id.to_string().to_lowercase(),
+            change = format!("{change:?}").to_lowercase()
+        )),
+        EnginePayload::ProjectChanged { project } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-project-edited",
+            project = project.to_string()
+        )),
+        EnginePayload::WorkstreamEdited { workstream, .. } => bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workstream-edited",
+            workstream = workstream.to_string()
+        )),
         // Attaching is the whole of the goal ⇄ project relation, so it is
         // news on the goal's line rather than a dim aside.
-        EnginePayload::AttachmentChanged { project, attached } => style.bold(&format!(
-            "{scope}project {project} {}",
-            if *attached { "attached" } else { "detached" }
-        )),
+        EnginePayload::AttachmentChanged { project, attached } => style.bold(&if *attached {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-attached",
+                scope = scope.to_string(),
+                project = project.to_string()
+            ))
+        } else {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-project-detached",
+                scope = scope.to_string(),
+                project = project.to_string()
+            ))
+        }),
         // Dim, not bold: a note changing is somebody's scratchpad moving, and
         // the activity view's bold is spent on things that change what the workspace
         // is.
-        EnginePayload::NoteChanged { note, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-note-changed", note = note.to_string()))),
-        EnginePayload::DrawingChanged { drawing, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-drawing-changed", drawing = drawing.to_string()))),
-        EnginePayload::DrawingRequest { request, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-agent-asked-canvas", scope = scope.to_string(), a0 = (serde_json::to_value(request.action) .ok() .and_then(|v| v.as_str().map(str::to_string)) .unwrap_or_default()).to_string()))),
+        EnginePayload::NoteChanged { note, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-note-changed",
+            note = note.to_string()
+        ))),
+        EnginePayload::DrawingChanged { drawing, .. } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-drawing-changed",
+                drawing = drawing.to_string()
+            )))
+        }
+        EnginePayload::DrawingRequest { request, .. } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-agent-asked-canvas",
+                scope = scope.to_string(),
+                a0 = (serde_json::to_value(request.action)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default())
+                .to_string()
+            )))
+        }
         // Failover is never silent: the reader has to be able to tell which
         // model produced which half of a transcript.
         EnginePayload::ModelSwitched {
@@ -994,15 +1280,36 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             branch,
             path,
             ..
-        } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-opened", scope = scope.to_string(), workstream = workstream.to_string(), a0 = (branch .as_ref() .map(|b| format!(" on {b}")) .unwrap_or_default()).to_string(), path = path.to_string()))),
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workstream-opened",
+            scope = scope.to_string(),
+            workstream = workstream.to_string(),
+            a0 = (branch
+                .as_ref()
+                .map(|b| format!(" on {b}"))
+                .unwrap_or_default())
+            .to_string(),
+            path = path.to_string()
+        ))),
         EnginePayload::WorkstreamChanged { workstream, state } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-workstream", scope = scope.to_string(), workstream = workstream.to_string(), state = format!("{state:?}"))))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-workstream",
+                scope = scope.to_string(),
+                workstream = workstream.to_string(),
+                state = format!("{state:?}")
+            )))
         }
         EnginePayload::WorkstreamCommitted {
             workstream,
             branch,
             commit,
-        } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-committed", scope = scope.to_string(), workstream = workstream.to_string(), a0 = (short(commit, 12)).to_string(), branch = branch.to_string()))),
+        } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workstream-committed",
+            scope = scope.to_string(),
+            workstream = workstream.to_string(),
+            a0 = (short(commit, 12)).to_string(),
+            branch = branch.to_string()
+        ))),
         // A script that failed is the one nobody was looking at: red. One
         // that ran is an ambient fact.
         EnginePayload::WorkstreamScriptRan {
@@ -1012,7 +1319,13 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             output,
             ..
         } => {
-            let line = bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-script", scope = scope.to_string(), workstream = workstream.to_string(), phase = phase.to_string(), a0 = (short(output.lines().next().unwrap_or(""), 80)).to_string()));
+            let line = bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-workstream-script",
+                scope = scope.to_string(),
+                workstream = workstream.to_string(),
+                phase = phase.to_string(),
+                a0 = (short(output.lines().next().unwrap_or(""), 80)).to_string()
+            ));
             if *ok {
                 style.dim(&line)
             } else {
@@ -1025,31 +1338,83 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             what,
             reason,
             ..
-        } => style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-publish-failed", scope = scope.to_string(), workstream = workstream.to_string(), what = what.to_string(), reason = (short(reason.lines().next().unwrap_or(""), 120)).to_string()))),
-        EnginePayload::ServerChanged { workstream: Some(workstream) } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-workstream-served-folders-changed", scope = scope.to_string(), workstream = workstream.to_string())))
-        }
+        } => style.red(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workstream-publish-failed",
+            scope = scope.to_string(),
+            workstream = workstream.to_string(),
+            what = what.to_string(),
+            reason = (short(reason.lines().next().unwrap_or(""), 120)).to_string()
+        ))),
+        EnginePayload::ServerChanged {
+            workstream: Some(workstream),
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-workstream-served-folders-changed",
+            scope = scope.to_string(),
+            workstream = workstream.to_string()
+        ))),
         EnginePayload::ServerChanged { workstream: None } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-served-artifact-pages-changed", scope = scope.to_string())))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-served-artifact-pages-changed",
+                scope = scope.to_string()
+            )))
         }
-        EnginePayload::PeopleChanged { pubkey, change, label } => {
-            let who = label.clone().unwrap_or_else(|| format!("{}…", &pubkey.as_hex()[..8]));
+        EnginePayload::PeopleChanged {
+            pubkey,
+            change,
+            label,
+        } => {
+            let who = label
+                .clone()
+                .unwrap_or_else(|| format!("{}…", &pubkey.as_hex()[..8]));
             let what = match change {
-                bisa_store::PeopleChange::Joined { role } => bisa_i18n::say(&bisa_core::text!("cli-activity-joined-as", role = role.to_string())),
-                bisa_store::PeopleChange::Left => "left".to_string(),
-                bisa_store::PeopleChange::RoleChanged { role } => bisa_i18n::say(&bisa_core::text!("cli-activity-now", role = role.to_string())),
-                bisa_store::PeopleChange::ProfileChanged => bisa_i18n::say(&bisa_core::text!("cli-activity-changed-their-profile")),
+                bisa_store::PeopleChange::Joined { role } => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-joined-as",
+                    role = role.to_string()
+                )),
+                bisa_store::PeopleChange::Left => {
+                    bisa_i18n::say(&bisa_core::text!("cli-activity-left"))
+                }
+                bisa_store::PeopleChange::RoleChanged { role } => bisa_i18n::say(
+                    &bisa_core::text!("cli-activity-now", role = role.to_string()),
+                ),
+                bisa_store::PeopleChange::ProfileChanged => {
+                    bisa_i18n::say(&bisa_core::text!("cli-activity-changed-their-profile"))
+                }
             };
-            format!("{scope}{who} {what}")
+            format!("{scope}{who} {what}") // content, never translated
         }
-        EnginePayload::InviteChanged { invite } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-invite", scope = scope.to_string(), a0 = (invite.id).to_string(), a1 = (invite.role).to_string(), a2 = (invite.state.as_str()).to_string()))),
-        // LCOV_EXCL_START: the held, released and screened message lines; out by decision
-        EnginePayload::MessageHeld { scope: room, author, reason, .. } => style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-message-from", scope = scope.to_string(), a0 = (author.as_hex()[..8]).to_string(), room = room.to_string(), a1 = (reason.words()).to_string()))),
+        EnginePayload::InviteChanged { invite } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-invite",
+            scope = scope.to_string(),
+            a0 = (invite.id).to_string(),
+            a1 = (invite.role).to_string(),
+            a2 = (invite.state.as_str()).to_string()
+        ))),
+        EnginePayload::MessageHeld {
+            scope: room,
+            author,
+            reason,
+            ..
+        } => style.red(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-message-from",
+            scope = scope.to_string(),
+            a0 = (author.as_hex()[..8]).to_string(),
+            room = room.to_string(),
+            a1 = (reason.words()).to_string()
+        ))),
         EnginePayload::MessageReleased { scope: room, .. } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-held-message-was-released", scope = scope.to_string(), room = room.to_string())))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-held-message-was-released",
+                scope = scope.to_string(),
+                room = room.to_string()
+            )))
         }
         EnginePayload::MessageRefused { scope: room, .. } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-held-message-was-refused", scope = scope.to_string(), room = room.to_string())))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-held-message-was-refused",
+                scope = scope.to_string(),
+                room = room.to_string()
+            )))
         }
         EnginePayload::ContentScreened {
             agent,
@@ -1058,19 +1423,56 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             ..
         } => match verdict {
             bisa_engine::content::ContentVerdict::Withheld => {
-                style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-content-from-was-withheld-from", scope = scope.to_string(), source = source.to_string(), agent = agent.to_string())))
+                style.red(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-content-from-was-withheld-from",
+                    scope = scope.to_string(),
+                    source = source.to_string(),
+                    agent = agent.to_string()
+                )))
             }
-            other => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-read-content-from", scope = scope.to_string(), agent = agent.to_string(), source = source.to_string(), a0 = (other.as_str()).to_string()))),
-        // LCOV_EXCL_STOP
+            other => style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-read-content-from",
+                scope = scope.to_string(),
+                agent = agent.to_string(),
+                source = source.to_string(),
+                a0 = (other.as_str()).to_string()
+            ))),
         },
-        EnginePayload::HostedChanged { host, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-what-node-holds-s-workspace-changed", scope = scope.to_string(), a0 = (host.as_hex()[..8]).to_string()))),
-        EnginePayload::RelaysChanged => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-relays-changed", scope = scope.to_string()))),
-        EnginePayload::BrowserRequest { request, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-agent-asked-embedded-browser", scope = scope.to_string(), a0 = (serde_json::to_value(request.action) .ok() .and_then(|v| v.as_str().map(str::to_string)) .unwrap_or_default()).to_string()))),
-        EnginePayload::MobileDevelopmentChanged { what } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-mobile-development-changed", scope = scope.to_string(), a0 = (match what { bisa_engine::mobile_development::MobileDevelopmentChange::Toolchain => "toolchain", bisa_engine::mobile_development::MobileDevelopmentChange::Devices => "devices", }).to_string()))),
+        EnginePayload::HostedChanged { host, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-what-node-holds-s-workspace-changed",
+            scope = scope.to_string(),
+            a0 = (host.as_hex()[..8]).to_string()
+        ))),
+        EnginePayload::RelaysChanged => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-relays-changed",
+            scope = scope.to_string()
+        ))),
+        EnginePayload::BrowserRequest { request, .. } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-agent-asked-embedded-browser",
+                scope = scope.to_string(),
+                a0 = (serde_json::to_value(request.action)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default())
+                .to_string()
+            )))
+        }
+        EnginePayload::MobileDevelopmentChanged { what } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-mobile-development-changed",
+                scope = scope.to_string(),
+                a0 = (match what {
+                    bisa_engine::mobile_development::MobileDevelopmentChange::Toolchain =>
+                        "toolchain",
+                    bisa_engine::mobile_development::MobileDevelopmentChange::Devices => "devices",
+                })
+                .to_string()
+            )))
+        }
         // A refusal is the line a person came to read; an allow or a question
         // is an ambient fact.
         EnginePayload::GuardDecided {
-            // LCOV_EXCL_START: the guard verdict's line; out by decision
             tool,
             subject,
             verdict,
@@ -1078,19 +1480,42 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             reason,
             ..
         } => {
-            let line = bisa_i18n::say(&bisa_core::text!("cli-activity-guard-2", scope = scope.to_string(), a0 = (verdict.as_str()).to_string(), tool = tool.to_string(), a1 = (by.as_str()).to_string(), a2 = (if subject.is_empty() { String::new() } else { format!(": {}", short(subject, 60)) }).to_string(), a3 = (reason.as_deref().map(|r| format!(" — {}", short(r, 60))).unwrap_or_default()).to_string()));
+            let line = bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-guard-2",
+                scope = scope.to_string(),
+                a0 = (verdict.as_str()).to_string(),
+                tool = tool.to_string(),
+                a1 = (by.as_str()).to_string(),
+                a2 = (if subject.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", short(subject, 60))
+                })
+                .to_string(),
+                a3 = (reason
+                    .as_deref()
+                    .map(|r| format!(" — {}", short(r, 60)))
+                    .unwrap_or_default())
+                .to_string()
+            ));
             match verdict {
                 bisa_core::event::GuardVerdict::Denied => style.red(&line),
                 _ => style.dim(&line),
-            // LCOV_EXCL_STOP
             }
         }
         EnginePayload::Judged { judgement, .. } => {
             style.dim(&format!("{scope}{}", judgement_line(judgement)))
         }
-        // LCOV_EXCL_START: the redaction's line; out by decision
-        EnginePayload::Redacted { count, kinds, at } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-redacted-secret-before", scope = scope.to_string(), count = count.to_string(), a0 = (if *count == 1 { "" } else { "s" }).to_string(), at = at.to_string(), a1 = (kinds.join(", ")).to_string()))),
-        // LCOV_EXCL_STOP
+        EnginePayload::Redacted { count, kinds, at } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-redacted-secret-before",
+                scope = scope.to_string(),
+                count = count.to_string(),
+                a0 = (if *count == 1 { "" } else { "s" }).to_string(),
+                at = at.to_string(),
+                a1 = (kinds.join(", ")).to_string()
+            )))
+        }
         // A signal is queued, not done: dim, like any other ambient fact.
         // The line that matters is what its listener made of it, below.
         EnginePayload::SignalReceived {
@@ -1145,8 +1570,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             diverts,
             ..
         } => {
-            let line =
-                boundary_fired_line(&scope, step.as_str(), boundary.as_str(), *diverts);
+            let line = boundary_fired_line(&scope, step.as_str(), boundary.as_str(), *diverts);
             if *diverts {
                 style.bold(&line)
             } else {
@@ -1154,14 +1578,28 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             }
         }
         EnginePayload::FileChanged { path, kind, .. } => {
-            style.dim(&format!("{scope}file {path} {kind:?}"))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-file-changed",
+                scope = scope.to_string(),
+                path = path.to_string(),
+                kind = format!("{kind:?}")
+            )))
         }
         EnginePayload::SettingsChanged { scope, keys, .. } => {
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-settings-changed", scope = scope.to_string(), a0 = (keys.join(", ")).to_string())))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-settings-changed",
+                scope = scope.to_string(),
+                a0 = (keys.join(", ")).to_string()
+            )))
         }
         EnginePayload::Lsp {
             language, method, ..
-        } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-language-server", scope = scope.to_string(), language = language.to_string(), method = method.to_string()))),
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-language-server",
+            scope = scope.to_string(),
+            language = language.to_string(),
+            method = method.to_string()
+        ))),
         // A conversation's changes to review (ide/20). The count moving is
         // the review panel's; the feed says a word landed, and an ask.
         EnginePayload::ChangesMoved { .. } => return None,
@@ -1174,19 +1612,68 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             let left = if *skipped == 0 {
                 String::new()
             } else {
-                format!(", {skipped} left alone")
+                bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-left-alone",
+                    skipped = skipped.to_string()
+                ))
             };
-            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-agent-changes-file-s", scope = scope.to_string(), act = act.to_string(), files = files.to_string(), left = left.to_string())))
+            style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-agent-changes-file-s",
+                scope = scope.to_string(),
+                act = act.to_string(),
+                files = files.to_string(),
+                left = left.to_string()
+            )))
         }
-        EnginePayload::AskOpened { ask, .. } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-asks", scope = scope.to_string(), a0 = (ask.agent).to_string(), a1 = (ask.subject.words()).to_string(), a2 = (short(&ask.question, 80)).to_string()))),
-        EnginePayload::AskSettled { allowed, .. } => style.dim(&format!(
-            "{scope}ask {}",
-            if *allowed { "allowed" } else { "refused" }
-        )),
-        EnginePayload::McpProbed { id, ok } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-mcp-server-probed", scope = scope.to_string(), id = id.to_string(), a0 = (if *ok { "answered" } else { "failed" }).to_string()))),
-        EnginePayload::ConnectorChecked { connector, account, ok } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-connector-account-checked", scope = scope.to_string(), connector = connector.to_string(), account = account.to_string(), a0 = (if *ok { "connected" } else { "failed" }).to_string()))),
-        EnginePayload::Paused => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-engine-paused"))),
-        EnginePayload::Resumed => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-engine-resumed"))),
+        EnginePayload::AskOpened { ask, .. } => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-asks",
+            scope = scope.to_string(),
+            a0 = (ask.agent).to_string(),
+            a1 = (ask.subject.words()).to_string(),
+            a2 = (short(&ask.question, 80)).to_string()
+        ))),
+        EnginePayload::AskSettled { allowed, .. } => style.dim(&if *allowed {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-ask-allowed",
+                scope = scope.to_string()
+            ))
+        } else {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-ask-refused",
+                scope = scope.to_string()
+            ))
+        }),
+        EnginePayload::McpProbed { id, ok } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-mcp-server-probed",
+            scope = scope.to_string(),
+            id = id.to_string(),
+            a0 = if *ok {
+                bisa_i18n::say(&bisa_core::text!("cli-activity-word-answered"))
+            } else {
+                bisa_i18n::say(&bisa_core::text!("cli-activity-word-failed"))
+            }
+        ))),
+        EnginePayload::ConnectorChecked {
+            connector,
+            account,
+            ok,
+        } => style.dim(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-connector-account-checked",
+            scope = scope.to_string(),
+            connector = connector.to_string(),
+            account = account.to_string(),
+            a0 = if *ok {
+                bisa_i18n::say(&bisa_core::text!("cli-activity-word-connected"))
+            } else {
+                bisa_i18n::say(&bisa_core::text!("cli-activity-word-failed"))
+            }
+        ))),
+        EnginePayload::Paused => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-engine-paused"
+        ))),
+        EnginePayload::Resumed => style.bold(&bisa_i18n::say(&bisa_core::text!(
+            "cli-activity-engine-resumed"
+        ))),
         EnginePayload::Session { event } => return session_line(style, &scope, event),
     };
     Some(line)
@@ -1206,8 +1693,12 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
                 is_terminal,
             } => {
                 let o = match outcome {
-                    Outcome::Completed => "completed".to_string(),
-                    Outcome::Aborted => "aborted".to_string(),
+                    Outcome::Completed => {
+                        bisa_i18n::say(&bisa_core::text!("cli-activity-word-completed"))
+                    }
+                    Outcome::Aborted => {
+                        bisa_i18n::say(&bisa_core::text!("cli-activity-word-aborted"))
+                    }
                     Outcome::Failed { error } => {
                         return Some(style.red(&bisa_i18n::say(&bisa_core::text!(
                             "cli-activity-session-failed",
@@ -1219,7 +1710,10 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
                         model, retry_after, ..
                     } => {
                         let when = match retry_after {
-                            Some(secs) => format!(" · retry in {secs}s"),
+                            Some(secs) => bisa_i18n::say(&bisa_core::text!(
+                                "cli-activity-retry-in",
+                                secs = secs.to_string()
+                            )),
                             None => String::new(),
                         };
                         return Some(style.dim(&bisa_i18n::say(&bisa_core::text!(
@@ -1273,9 +1767,13 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
         SessionEvent::Progress(p) => match p {
             ProgressEvent::ToolStarted {
                 name, args_summary, ..
-            } => Some(style.dim(&format!("{scope}→ {name} {}", short(args_summary, 60)))),
+            } => Some(style.dim(&format!("{scope}→ {name} {}", short(args_summary, 60)))), // content, never translated
             ProgressEvent::ToolEnded { name, ok, .. } if !ok => {
-                Some(style.red(&format!("{scope}✗ {name} failed")))
+                Some(style.red(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-tool-failed",
+                    scope = scope.to_string(),
+                    name = name.to_string()
+                ))))
             }
             ProgressEvent::SubagentStarted {
                 name, description, ..
@@ -1292,14 +1790,22 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
             ProgressEvent::Nested { event, .. } => match event.as_ref() {
                 ProgressEvent::ToolEnded {
                     name, ok: false, ..
-                } => Some(style.red(&format!("{scope}↳ ✗ {name} failed"))),
+                } => Some(style.red(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-nested-tool-failed",
+                    scope = scope.to_string(),
+                    name = name.to_string()
+                )))),
                 _ => None,
             },
             ProgressEvent::CostDelta {
                 input_tokens,
                 output_tokens,
                 ..
-            } => Some(style.dim(&format!("{scope}· {} tokens", input_tokens + output_tokens))),
+            } => Some(style.dim(&bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-tokens",
+                scope = scope.to_string(),
+                count = (input_tokens + output_tokens).to_string()
+            )))),
             _ => None, // TurnStarted/TurnEnded/TextDelta/successful ToolEnded: ambient noise
         },
         SessionEvent::Raw(_) => None,
@@ -1317,26 +1823,31 @@ pub fn engine_event(frame: &serde_json::Value) -> Option<&serde_json::Value> {
 }
 
 /// One fact of the activity feed — an engine payload as `GET /pulse` ships
-/// it — in words; nothing for a kind this renderer has no line for.
+/// it — in words: the stored fact is read back as the payload it was and
+/// worded by the one renderer ([`engine_line`]), so a row reads in a
+/// terminal as its frame read when it happened. Nothing for a fact this
+/// build cannot read back — one a newer build recorded — and for the few
+/// the renderer keeps silent.
 pub fn fact_line(payload: &serde_json::Value) -> Option<String> {
-    engine_line_json(&Style::plain(), &serde_json::json!({ "payload": payload }))
+    let payload: EnginePayload = serde_json::from_value(payload.clone()).ok()?;
+    engine_line(&Style::plain(), &EngineEvent::global(payload))
 }
 
 /// One SSE frame from the daemon → an optional activity line. The stream
-/// carries a tagged envelope (`{stream, payload}`); engine frames render like
-/// the in-process activity, conversation frames as one-line conversation
-/// notices, and the rest — an inbox delta drives a counter, a system frame
-/// says the stream lagged — are silent.
+/// carries a tagged envelope (`{stream, payload}`); an engine frame is read
+/// back as the event it is and worded as the in-process timeline words it,
+/// conversation frames as one-line conversation notices, and the rest — an
+/// inbox delta drives a counter, a pulse frame names a row of the feed, a
+/// system frame says the stream lagged — are silent.
 pub fn sse_line(style: &Style, frame: &serde_json::Value) -> Option<String> {
     match frame["stream"].as_str() {
-        Some("engine") => engine_line_json(style, &frame["payload"]),
+        Some("engine") => engine_frame_line(style, &frame["payload"]),
         Some("conversation") => {
             let p = &frame["payload"];
             if p["snapshot"].as_bool().unwrap_or(false) {
                 return None;
             }
-            let who = p["author"].as_str().unwrap_or("");
-            let who = &who[..who.len().min(8)];
+            let who: String = p["author"].as_str().unwrap_or("").chars().take(8).collect();
             Some(style.dim(&format!(
                 "✉ {who} in {}: {}",
                 short(p["scope"].as_str().unwrap_or(""), 12),
@@ -1345,196 +1856,17 @@ pub fn sse_line(style: &Style, frame: &serde_json::Value) -> Option<String> {
         }
         Some(_) => None,
         // Unenveloped frames (embedded engine events) still render.
-        None => engine_line_json(style, frame),
+        None => engine_frame_line(style, frame),
     }
 }
 
-/// One engine event *as JSON* → an optional activity line. Mirrors
-/// [`engine_line`]; the engine's event enum is serialize-only, so daemon-fed
-/// rendering works off the wire shape.
-fn engine_line_json(style: &Style, e: &serde_json::Value) -> Option<String> {
-    let scope = e["work_item"]
-        .as_str()
-        .map(|w| format!("[{}] ", &w[w.len().saturating_sub(6)..]))
-        .unwrap_or_default();
-    let p = &e["payload"];
-    let s = |key: &str| p[key].as_str().unwrap_or("").to_string();
-    let line = match p["type"].as_str()? {
-        "scheduled" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-scheduled-onto-2",
-            scope = scope.to_string(),
-            a0 = (s("harness")).to_string()
-        ))),
-        "execution_ended" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-execution-ended-2",
-            scope = scope.to_string(),
-            a0 = (s("outcome")).to_string()
-        ))),
-        "gate_opened" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-waiting-on-you-question",
-            scope = scope.to_string(),
-            question = s("question")
-        ))),
-        "question_asked" => {
-            let hint = if p["expects"]["kind"].as_str() == Some("answer") {
-                bisa_i18n::say(&bisa_core::text!("cli-activity-reply-bisa-answer"))
-            } else {
-                String::new()
-            };
-            style.bold(&format!("{scope}? {}{hint}", s("text")))
-        }
-        "guided" => style.dim(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-workflow-agent",
-            a0 = (s("phase")).to_string(),
-            a1 = (s("status")).to_string(),
-            a2 = (p["detail"]
-                .as_str()
-                .map(|d| format!(" — {d}"))
-                .unwrap_or_default())
-            .to_string()
-        ))),
-        "gate_decided" => style.bold(&format!(
-            "{scope}{} gate {}",
-            s("gate"),
-            if p["approve"].as_bool().unwrap_or(false) {
-                "approved"
-            } else {
-                "rejected"
-            }
-        )),
-        "result_accepted" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-result-accepted",
-            scope = scope.to_string()
-        ))),
-        "run_started" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-run-started-workflow-2",
-            a0 = (s("run")).to_string(),
-            a1 = (s("workflow")).to_string()
-        ))),
-        "run_queued" => style.dim(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-run-queued-workflow-position-2",
-            a0 = (s("run")).to_string(),
-            a1 = (s("workflow")).to_string(),
-            a2 = (p["position"].as_u64().unwrap_or(1)).to_string()
-        ))),
-        "run_finished" => match s("outcome").as_str() {
-            "failed" => style.red(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-run-finished-failed-2",
-                a0 = (s("run")).to_string()
-            ))),
-            _ => style.bold(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-run-finished-done-2",
-                a0 = (s("run")).to_string()
-            ))),
-        },
-        "run_cancelled" => style.bold(&format!(
-            "run {} {}",
-            s("run"),
-            p["cause"]["cause"].as_str().unwrap_or("cancelled")
-        )),
-        "step_changed" => match s("state").as_str() {
-            "failed" => style.red(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-step-line-failed",
-                scope = scope.to_string(),
-                step = s("step"),
-                kind = s("kind")
-            ))),
-            "done" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-step-line-done",
-                scope = scope.to_string(),
-                step = s("step"),
-                kind = s("kind")
-            ))),
-            "waiting" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-step-line-waiting",
-                scope = scope.to_string(),
-                step = s("step"),
-                kind = s("kind")
-            ))),
-            "diverted" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-step-line-diverted",
-                scope = scope.to_string(),
-                step = s("step"),
-                kind = s("kind")
-            ))),
-            other => style.dim(&bisa_i18n::say(&bisa_core::text!(
-                "cli-activity-step-2",
-                scope = scope.to_string(),
-                a0 = (s("step")).to_string(),
-                a1 = (s("kind")).to_string(),
-                other = other.to_string()
-            ))),
-        },
-        "goal_closed" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-goal-closed",
-            a0 = (p["reason"]["reason"].as_str().unwrap_or("closed")).to_string()
-        ))),
-        "workflow_proposed" => style.bold(&format!(
-            "⏸ the Workflow Agent proposed workflow {} — adopt with: bisa approve <goal>",
-            s("workflow")
-        )),
-        "workflow_changed" => style.dim(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-workflow-changed",
-            a0 = (s("workflow")).to_string()
-        ))),
-        "signal_received" => style.dim(&signal_received_line(
-            &scope,
-            &s("signal"),
-            p["listener"].as_str(),
-            &s("source"),
-        )),
-        "listener_fired" => match p["outcome"]["outcome"].as_str()? {
-            "started" => style.bold(&listener_fired_line(
-                &scope,
-                &s("listener"),
-                &s("signal"),
-                Fired::Started {
-                    run: p["outcome"]["run"].as_str().unwrap_or(""),
-                    goal: p["outcome"]["goal"].as_str(),
-                },
-            )),
-            "skipped" => style.dim(&listener_fired_line(
-                &scope,
-                &s("listener"),
-                &s("signal"),
-                Fired::Skipped {
-                    reason: p["outcome"]["reason"].as_str().unwrap_or(""),
-                },
-            )),
-            _ => return None,
-        },
-        "listener_failed" => style.red(&listener_failed_line(&scope, &s("listener"), &s("error"))),
-        "listening_changed" => style.bold(&listening_changed_line(
-            &scope,
-            &s("host"),
-            p["on"].as_bool().unwrap_or(false),
-        )),
-        "boundary_fired" => {
-            let diverts = p["diverts"].as_bool().unwrap_or(false);
-            let line = boundary_fired_line(&scope, &s("step"), &s("boundary"), diverts);
-            if diverts {
-                style.bold(&line)
-            } else {
-                style.dim(&line)
-            }
-        }
-        "paused" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-engine-paused"
-        ))),
-        "resumed" => style.bold(&bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-engine-resumed"
-        ))),
-        "session" => return session_line_json(style, &scope, &p["event"]),
-        _ => return None,
-    };
-    Some(line)
-}
-
-fn session_line_json(style: &Style, scope: &str, e: &serde_json::Value) -> Option<String> {
-    // SessionEvent is round-trippable — deserialize and reuse the exact
-    // in-process renderer.
-    let ev: SessionEvent = serde_json::from_value(e.clone()).ok()?;
-    session_line(style, scope, &ev)
+/// One engine event as the wire carries it → its line: the event read back
+/// ([`EngineEvent`] round-trips) and handed to [`engine_line`], the one
+/// vocabulary. A frame this build cannot read — a payload a newer node
+/// sends — has no line.
+fn engine_frame_line(style: &Style, event: &serde_json::Value) -> Option<String> {
+    let event: EngineEvent = serde_json::from_value(event.clone()).ok()?;
+    engine_line(style, &event)
 }
 
 #[cfg(test)]
@@ -1859,86 +2191,71 @@ mod tests {
         json!({"stream": "engine", "payload": {"payload": payload}})
     }
 
+    /// An event as the daemon frames it: the envelope of `GET /events`.
+    fn framed(event: &EngineEvent) -> serde_json::Value {
+        json!({"stream": "engine", "payload": event})
+    }
+
     #[test]
     fn the_daemon_s_frames_are_read_through_their_envelope() {
         let style = Style::plain();
-        let started = frame(json!({
-            "type": "listener_fired", "listener": "workspace:01WF/hourly", "signal": "01S",
-            "outcome": {"outcome": "started", "run": "01RUN"}
-        }));
-        let line = sse_line(&style, &started).expect("a line");
+        // An engine frame is the event itself, read back and worded as the
+        // in-process timeline words it — its scope's prefix included.
+        let goal = bisa_core::GoalId::from_ulid(id(2));
+        let item = bisa_core::WorkItemId::from_ulid(id(8));
+        let scoped = EngineEvent {
+            goal: Some(goal),
+            workflow: None,
+            run: None,
+            work_item: Some(item),
+            payload: EnginePayload::Scheduled {
+                harness: "mock".into(),
+            },
+        };
+        let line = sse_line(&style, &framed(&scoped)).expect("a line");
         said(&line);
+        assert_eq!(Some(line.clone()), engine_line(&style, &scoped));
         assert!(
-            line.contains("workspace:01WF/hourly")
-                && line.contains("01RUN")
-                && line.contains("workspace"),
+            line.starts_with(&format!("[{}] ", &item.to_string()[20..])) && line.contains("mock"),
             "{line}"
         );
-        let on_goal = frame(json!({
-            "type": "listener_fired", "listener": "goal:01G/ticket", "signal": "01S",
-            "outcome": {"outcome": "started", "run": "01RUN", "goal": "01G"}
-        }));
-        let line = sse_line(&style, &on_goal).expect("a line");
-        assert!(line.contains("on goal 01G"), "{line}");
-        let skipped = frame(json!({
-            "type": "listener_fired", "listener": "goal:01G/ticket", "signal": "01S",
-            "outcome": {"outcome": "skipped", "reason": "its last run is unfinished"}
-        }));
-        let line = sse_line(&style, &skipped).expect("a line");
-        assert!(line.contains("its last run is unfinished"), "{line}");
-
-        for (payload, expect) in [
-            (
-                json!({"type": "signal_received", "signal": "01S", "listener": null,
-                       "source": "signal"}),
-                "01S",
-            ),
-            (
-                json!({"type": "signal_received", "signal": "01S",
-                       "listener": "goal:01G/ticket", "source": "hook"}),
-                "goal:01G/ticket",
-            ),
-            (
-                json!({"type": "listener_failed", "listener": "goal:01G/ticket",
-                       "error": "not armed: input `who` holds nothing"}),
-                "not armed",
-            ),
-            (
-                json!({"type": "listening_changed", "host": "workspace:01WF", "on": true}),
-                "workspace:01WF",
-            ),
-            (
-                json!({"type": "boundary_fired", "run": "01RUN", "workflow": "01WF",
-                       "step": "review", "boundary": "late", "diverts": true}),
-                "late",
-            ),
-            (
-                json!({"type": "step_changed", "run": "01RUN", "workflow": "01WF",
-                       "step": "review", "state": "diverted", "kind": "approval"}),
-                "diverted",
-            ),
+        // Every other stream is silent — an inbox delta, the feed's own
+        // frame, the bus's word that this reader lagged — and the engine's
+        // event is the envelope's payload.
+        for other in [
+            json!({"stream": "inbox", "payload": {"key": "01G", "unread_count": 1}}),
+            json!({"stream": "pulse", "payload": {"seq": 4, "at": 1, "concept": "goals", "kind": "note", "source": {"kind": "node", "id": ""}}}),
+            json!({"stream": "pulse", "payload": {"concept": null}}),
+            json!({"stream": "system", "payload": {"kind": "lagged", "dropped": 3}}),
         ] {
-            let line = sse_line(&style, &frame(payload.clone()))
-                .unwrap_or_else(|| panic!("no line for {payload}"));
-            said(&line);
-            assert!(line.contains(expect), "{line}");
+            assert_eq!(sse_line(&style, &other), None, "{other}");
+            assert_eq!(engine_event(&other), None);
         }
-
-        // Every other stream is silent, and the engine's event is the
-        // envelope's payload.
-        let inbox = json!({"stream": "inbox", "payload": {"key": "01G", "unread_count": 1}});
-        assert_eq!(sse_line(&style, &inbox), None);
-        assert_eq!(engine_event(&inbox), None);
         assert_eq!(
-            engine_event(&started).map(|e| e["payload"]["type"].clone()),
-            Some(json!("listener_fired"))
+            engine_event(&framed(&scoped)).map(|e| e["payload"]["type"].clone()),
+            Some(json!("scheduled"))
         );
+        // A frame this build cannot read back — a payload a newer node
+        // sends, a fact cut short — has no line, and costs nothing else.
+        for unread in [
+            json!({"stream": "engine", "payload": {"payload": {"type": "invented_later"}}}),
+            json!({"stream": "engine", "payload": {"payload": {"type": "scheduled"}}}),
+            json!({"stream": "engine", "payload": {}}),
+        ] {
+            assert_eq!(sse_line(&style, &unread), None, "{unread}");
+        }
         // A fact of the feed is the payload alone.
-        let fact =
-            fact_line(&json!({"type": "listening_changed", "host": "goal:01G", "on": false}))
-                .expect("a line");
-        assert!(fact.contains("goal:01G"), "{fact}");
+        assert_eq!(
+            fact_line(&json!({"type": "scheduled", "harness": "mock"})),
+            engine_line(
+                &style,
+                &EngineEvent::global(EnginePayload::Scheduled {
+                    harness: "mock".into()
+                })
+            )
+        );
         assert_eq!(fact_line(&json!({"type": "invented_later"})), None);
+        assert_eq!(fact_line(&json!("no fact at all")), None);
     }
 
     /// The Workflow Agent's standing on a goal reads as its phase and status,
@@ -1984,8 +2301,30 @@ mod tests {
         ulid::Ulid::from_parts(n, 1)
     }
 
+    /// The line of a payload as the in-process timeline words it — and,
+    /// for every sample any test here builds, the proof that it reads the
+    /// same wherever it is read from: the payload says the same JSON after
+    /// being read back, the daemon's frame of it gives the same line
+    /// (`sse_line`), and so does the row the feed stored (`fact_line`). A
+    /// fact the feed records always has a line.
     fn typed(payload: EnginePayload) -> Option<String> {
-        engine_line(&Style::plain(), &EngineEvent::global(payload))
+        let event = EngineEvent::global(payload);
+        let line = engine_line(&Style::plain(), &event);
+        let wire = serde_json::to_value(&event).expect("an event is JSON");
+        let back: EngineEvent = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|e| panic!("{wire} is not read back: {e}"));
+        assert_eq!(
+            serde_json::to_value(&back).unwrap(),
+            wire,
+            "read back as it was"
+        );
+        let framed = json!({"stream": "engine", "payload": wire});
+        assert_eq!(sse_line(&Style::plain(), &framed), line, "{framed}");
+        assert_eq!(fact_line(&wire["payload"]), line, "{wire}");
+        if bisa_engine::activity::concept_of(&event.payload).is_some() {
+            assert!(line.is_some(), "a fact of the feed has a line: {wire}");
+        }
+        line
     }
 
     /// A line that is said, and said by the catalog.
@@ -3198,7 +3537,7 @@ mod tests {
     }
 
     #[test]
-    fn the_daemons_other_frames_read_through_the_json_arms() {
+    fn a_conversations_frame_is_a_line_and_an_event_with_no_envelope_is_still_read() {
         let style = Style::plain();
         // A conversation frame: who said what where; a snapshot is silent.
         let spoken = sse_line(
@@ -3212,6 +3551,13 @@ mod tests {
             spoken.contains("abababab") && spoken.contains("the total is wrong"),
             "{spoken}"
         );
+        // An author shorter than the eight characters shown is shown whole.
+        let short_author = sse_line(
+            &style,
+            &json!({"stream": "conversation", "payload": {"scope": "x", "author": "é", "snippet": "hi"}}),
+        )
+        .expect("a line");
+        assert!(short_author.contains("✉ é in x: hi"), "{short_author}");
         assert_eq!(
             sse_line(
                 &style,
@@ -3222,65 +3568,255 @@ mod tests {
         // An unenveloped frame is an engine event on its own.
         let bare = sse_line(&style, &json!({"payload": {"type": "paused"}})).expect("a line");
         said(&bare);
-        assert!(bare.contains("paused"), "{bare}");
+        assert_eq!(Some(bare), typed(EnginePayload::Paused));
+    }
+
+    /// The facts whose lines no other test here reads: what the guard
+    /// decided, what the redactor took out, a message held, let through or
+    /// refused, content screened — each a row of the feed, each with a line.
+    #[test]
+    fn the_guards_the_redactors_and_the_held_messages_facts_each_have_a_line() {
+        use bisa_core::event::{GuardJudge, GuardVerdict};
+        let person = PrincipalId::new("ab".repeat(32)).expect("a principal");
         for (payload, expect) in [
-            (json!({"type": "resumed"}), "resumed"),
             (
-                json!({"type": "question_asked", "text": "Which?", "options": [{"id": "a"}]}),
-                "? Which?",
+                EnginePayload::GuardDecided {
+                    session: None,
+                    tool: "Bash".into(),
+                    subject: "fake-tool --go".into(),
+                    verdict: GuardVerdict::Denied,
+                    by: GuardJudge::Rule,
+                    rule: Some("no_fake_tool".into()),
+                    reason: None,
+                },
+                "fake-tool --go",
             ),
             (
-                json!({"type": "gate_decided", "gate": "approval", "approve": true}),
-                "approved",
+                EnginePayload::Redacted {
+                    count: 2,
+                    kinds: vec!["github_token".into()],
+                    at: "prompt".into(),
+                },
+                "github_token",
             ),
             (
-                json!({"type": "run_started", "run": "01RUN", "workflow": "01WF"}),
-                "01RUN",
+                EnginePayload::MessageReleased {
+                    scope: "general".into(),
+                    event: "e1".into(),
+                },
+                "general",
             ),
             (
-                json!({"type": "run_queued", "run": "01RUN", "workflow": "01WF", "position": 3}),
-                "3",
+                EnginePayload::MessageRefused {
+                    scope: "general".into(),
+                    event: "e1".into(),
+                    author: person.clone(),
+                },
+                "general",
             ),
             (
-                json!({"type": "run_cancelled", "run": "01RUN", "cause": {"cause": "stopped"}}),
-                "stopped",
+                EnginePayload::MessageHeld {
+                    scope: "general".into(),
+                    event: "e1".into(),
+                    author: person,
+                    reason: bisa_store::HeldReason::Harmful {
+                        why: "asks for a key".into(),
+                    },
+                },
+                "asks for a key",
             ),
             (
-                json!({"type": "goal_closed", "reason": {"reason": "superseded"}}),
-                "superseded",
+                EnginePayload::ContentScreened {
+                    scope: None,
+                    agent: "scout".into(),
+                    source: "example.org".into(),
+                    verdict: bisa_engine::content::ContentVerdict::Withheld,
+                },
+                "example.org",
             ),
             (
-                json!({"type": "workflow_proposed", "workflow": "01WF", "revision": 1}),
-                "01WF",
+                EnginePayload::GuardDecided {
+                    session: None,
+                    tool: "Bash".into(),
+                    subject: "ls".into(),
+                    verdict: GuardVerdict::Allowed,
+                    by: GuardJudge::Classifier,
+                    rule: None,
+                    reason: Some("reads a folder".into()),
+                },
+                "ls",
             ),
             (
-                json!({"type": "workflow_changed", "workflow": "01WF", "revision": 2}),
-                "01WF",
+                EnginePayload::ContentScreened {
+                    scope: Some("general".into()),
+                    agent: "scout".into(),
+                    source: "example.org".into(),
+                    verdict: bisa_engine::content::ContentVerdict::Safe,
+                },
+                "scout",
             ),
             (
-                json!({"type": "boundary_fired", "run": "01RUN", "workflow": "01WF",
-                       "step": "review", "boundary": "nudge", "diverts": false}),
-                "nudge",
-            ),
-            (
-                json!({"type": "session", "event": {"tier": "lifecycle",
-                       "event": {"type": "parked"}}}),
-                "parked",
+                EnginePayload::Guided {
+                    phase: bisa_core::event::GuidancePhase::Design,
+                    status: bisa_core::event::GuidanceStatus::Stalled,
+                    detail: Some("no harness answered".into()),
+                    session: None,
+                },
+                "no harness answered",
             ),
         ] {
-            let line = sse_line(&style, &frame(payload.clone()))
-                .unwrap_or_else(|| panic!("no line for {payload}"));
-            said(&line);
+            let line = typed_line(payload);
             assert!(line.contains(expect), "{expect:?} not in {line:?}");
         }
-        // A fired listener with an outcome this build does not know is silent.
-        assert_eq!(
-            sse_line(
-                &style,
-                &frame(json!({"type": "listener_fired", "listener": "goal:01G/t",
-                              "signal": "01S", "outcome": {"outcome": "invented"}}))
+        // An agent thinking is a line of the live timeline and no row.
+        let thinking = typed_line(EnginePayload::AgentThinking {
+            scope: "general".into(),
+            agent: "scout".into(),
+        });
+        assert!(thinking.contains("scout"), "{thinking}");
+    }
+
+    /// The other side of each fact that reads two ways — a step declined, a
+    /// project detached, a signal no listener took, a run an event began in
+    /// the workspace, a host that stopped listening, an ask allowed, a
+    /// probe that answered, a check that failed.
+    #[test]
+    fn a_fact_that_reads_two_ways_has_both_its_lines() {
+        let run = RunId::from_ulid(id(4));
+        let workflow = WorkflowId::from_ulid(id(9));
+        let project = bisa_core::ProjectId::from_ulid(id(3));
+        let step = StepId::new("review").expect("a step id");
+        let declined = payload_line(&JournalPayload::Step {
+            run,
+            step,
+            event: StepFact::Decided {
+                approve: false,
+                approval: bisa_core::ApprovalId("g1".into()),
+            },
+        });
+        assert_eq!(declined, "step review declined");
+        let attached = payload_line(&JournalPayload::Attachment {
+            project,
+            attached: true,
+        });
+        assert_eq!(attached, format!("attached project {project}"));
+        for (payload, expect) in [
+            (
+                EnginePayload::SignalReceived {
+                    signal: "01S".into(),
+                    listener: None,
+                    source: SignalSource::Signal,
+                },
+                "01S",
             ),
-            None
+            (
+                EnginePayload::ListenerFired {
+                    listener: format!("workspace:{workflow}/ticket")
+                        .parse()
+                        .expect("a listener"),
+                    signal: "01S".into(),
+                    outcome: FiredOutcome::Started { run, goal: None },
+                },
+                "workspace",
+            ),
+            (
+                EnginePayload::ListeningChanged {
+                    host: bisa_core::ListenerHost::Workspace { workflow },
+                    on: false,
+                },
+                "workspace",
+            ),
+            (
+                EnginePayload::AttachmentChanged {
+                    project,
+                    attached: false,
+                },
+                "detached",
+            ),
+            (
+                EnginePayload::GuardDecided {
+                    session: None,
+                    tool: "WebFetch".into(),
+                    subject: String::new(),
+                    verdict: bisa_core::event::GuardVerdict::Asked,
+                    by: bisa_core::event::GuardJudge::Rule,
+                    rule: None,
+                    reason: None,
+                },
+                "WebFetch",
+            ),
+            (
+                EnginePayload::AskSettled {
+                    conversation: "c1".into(),
+                    ask_id: "a1".into(),
+                    allowed: true,
+                },
+                "allowed",
+            ),
+            (
+                EnginePayload::McpProbed {
+                    id: bisa_core::McpId::new("docs").expect("an mcp id"),
+                    ok: true,
+                },
+                "answered",
+            ),
+            (
+                EnginePayload::ConnectorChecked {
+                    connector: bisa_core::ConnectorId::new("github").expect("a connector id"),
+                    account: bisa_core::AccountId::from_ulid(id(12)),
+                    ok: false,
+                },
+                "failed",
+            ),
+        ] {
+            let line = typed_line(payload);
+            assert!(line.contains(expect), "{expect:?} not in {line:?}");
+        }
+    }
+
+    /// Every payload the engine has is built by a test of this file, and so
+    /// passes `typed`: its line in process, read back from the wire and
+    /// read back from the feed are one line. A variant added to the enum
+    /// fails here until somebody builds it and reads its line.
+    #[test]
+    fn every_payload_is_built_by_a_test_of_its_line() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let events = std::fs::read_to_string(root.join("../bisa-engine/src/events.rs"))
+            .expect("the engine's events");
+        let body = events
+            .split_once("pub enum EnginePayload {")
+            .expect("the payload enum")
+            .1;
+        let body = body.split_once("\n}\n").expect("its end").0;
+        let variants: Vec<&str> = body
+            .lines()
+            .filter(|line| line.starts_with("    ") && !line.starts_with("     "))
+            .filter_map(|line| {
+                let name = line.trim().trim_end_matches([' ', '{', ',']);
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric())
+                    .then_some(name)
+                    .filter(|name| name.starts_with(|c: char| c.is_ascii_uppercase()))
+            })
+            .collect();
+        assert_eq!(
+            variants.len(),
+            bisa_engine::events::TOPICS.len(),
+            "one variant a topic: {variants:?}"
         );
+        let tests = std::fs::read_to_string(root.join("src/activity.rs")).expect("this file");
+        let tests = tests
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect("the tests")
+            .1;
+        let unbuilt: Vec<&&str> = variants
+            .iter()
+            .filter(|name| {
+                !tests.contains(&format!("EnginePayload::{name} {{"))
+                    && !tests.contains(&format!("EnginePayload::{name},"))
+                    && !tests.contains(&format!("EnginePayload::{name})"))
+            })
+            .collect();
+        assert!(unbuilt.is_empty(), "no test builds: {unbuilt:?}");
     }
 }

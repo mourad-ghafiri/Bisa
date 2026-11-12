@@ -262,9 +262,71 @@ fn the_feed_is_paged_newest_first_as_far_back_as_the_workspace_goes() {
         );
     }
 
-    // The verb reads the same feed.
+    // The verb reads the same feed: the route's rows, three at a time, and
+    // the cursor a page names is the one the next read is asked with.
     let said = ws.json(&["pulse", "--limit", "3"]);
     assert_eq!(said["rows"].as_array().map(Vec::len), Some(3), "{said}");
+    let from = [newest.0.to_string(), (newest.1 + 1).to_string()];
+    let verb = |ws: &Sealed, extra: &[&str], at: &str, seq: &str| -> Value {
+        let mut args = vec!["pulse", "--before", at, "--before-seq", seq];
+        args.extend_from_slice(extra);
+        ws.json(&args)
+    };
+    let first = verb(&ws, &["--limit", "3"], &from[0], &from[1]);
+    assert_eq!(first["rows"].as_array().expect("rows")[..], whole[..3]);
+    let next = (
+        first["next"]["at"].to_string(),
+        first["next"]["seq"].to_string(),
+    );
+    let second = verb(&ws, &["--limit", "3"], &next.0, &next.1);
+    assert_eq!(
+        second["rows"].as_array().expect("rows")[..],
+        whole[3..6],
+        "the page after, by the cursor the page before named"
+    );
+    // For a person the page ends with the command that reads on, and a
+    // happening the journal and the engine both recorded is one line.
+    let human = String::from_utf8_lossy(
+        &ws.ok(&[
+            "pulse",
+            "--limit",
+            "500",
+            "--before",
+            &from[0],
+            "--before-seq",
+            &from[1],
+        ])
+        .stdout,
+    )
+    .into_owned();
+    let drawn = whole
+        .iter()
+        .filter(|row| row.get("echo_of").is_none())
+        .count();
+    assert!(drawn < whole.len(), "a run's facts have echoes: {whole:?}");
+    assert_eq!(human.lines().count(), drawn, "{human}");
+    let short = String::from_utf8_lossy(&ws.ok(&["pulse", "--limit", "3"]).stdout).into_owned();
+    assert!(
+        short.contains("bisa pulse --limit 3 --before "),
+        "more is said with the command that reads it: {short}"
+    );
+    // One concept is its own feed, and a word that is none is refused.
+    let goals_verb = verb(
+        &ws,
+        &["--limit", "200", "--concept", "goals"],
+        &from[0],
+        &from[1],
+    );
+    assert_eq!(
+        goals_verb["rows"].as_array().expect("rows").len(),
+        goals.len()
+    );
+    let refused = ws.refused(&["pulse", "--concept", "runs"]);
+    assert!(
+        refused.contains("runs") && refused.contains("workflows"),
+        "{refused}"
+    );
+    let with_node = verb(&ws, &["--limit", "200"], &from[0], &from[1]);
 
     // And it is there when the node is back: the feed is the workspace's.
     ws.stop();
@@ -276,6 +338,21 @@ fn the_feed_is_paged_newest_first_as_far_back_as_the_workspace_goes() {
         "what was there is there"
     );
     ws.stop();
+
+    // With no node the verb reads the workspace's own index through the
+    // same builder: the same rows in the same order, saying the same of
+    // each — and refuses the same word the same way.
+    let offline = verb(&ws, &["--limit", "200"], &from[0], &from[1]);
+    assert_eq!(
+        offline, with_node,
+        "the feed is the workspace's, node or none"
+    );
+    // (The words alone: the line above them on stderr carries the time.)
+    let words = |said: &str| said.lines().last().unwrap_or_default().to_string();
+    assert_eq!(
+        words(&ws.refused(&["pulse", "--concept", "runs"])),
+        words(&refused)
+    );
 }
 
 /// The ids of the rows under one source of the Inbox.

@@ -38,7 +38,7 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "GET",
         path: "/events",
         summary:
-            "Server-sent events: `{stream: \"engine\" | \"conversation\" | \"inbox\", payload}` frames — and `{stream: \"system\", payload: {kind: \"lagged\", dropped}}` when this client read too slowly and missed events: re-read what you show.",
+            "Server-sent events: `{stream: \"engine\" | \"conversation\" | \"inbox\" | \"pulse\", payload}` frames — a `pulse` frame says one row of the activity feed as it lands (`{seq, at, concept, kind, source}`), or `{concept: null}` when the feed moved as no one row tells and every reader of `GET /pulse` reads again — and `{stream: \"system\", payload: {kind: \"lagged\", dropped}}` when this client read too slowly and missed events: re-read what you show.",
     },
     RouteDoc {
         method: "GET",

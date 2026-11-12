@@ -8943,7 +8943,17 @@ async fn a_guided_node_with_no_harness_records_failed_over_http() {
         "{design}"
     );
     assert_eq!(design["live"], json!(false));
-    let messages = node.get(&format!("/goals/{goal}/messages")).await;
+    // The thread hears why a moment after the failure is recorded — the fact
+    // is journaled, then the note is posted: wait for the note as the status
+    // above was waited for, never read the thread in between the two.
+    let mut messages = json!(null);
+    for _ in 0..200 {
+        messages = node.get(&format!("/goals/{goal}/messages")).await;
+        if messages.to_string().contains("pick a workflow by hand") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert!(
         messages.to_string().contains("pick a workflow by hand"),
         "{messages}"
@@ -12520,5 +12530,135 @@ async fn a_mark_for_a_key_no_row_could_have_is_refused() {
             assert_eq!(code, 200, "{route} {scope}: {v}");
         }
     }
+    node.shutdown().await;
+}
+
+// ---------------------------------------------------------------------
+// The feed's own frames (`pulse`) on the event stream
+// ---------------------------------------------------------------------
+
+/// The event stream, held open: frames are read as they come and looked for
+/// by what they say.
+pub(crate) struct Frames {
+    body: hyper::body::Incoming,
+    _sender: hyper::client::conn::http1::SendRequest<Full<Bytes>>,
+    buf: String,
+    /// The bytes of `buf` already read as lines.
+    read: usize,
+}
+
+impl Frames {
+    pub(crate) async fn open(node: &Node) -> Self {
+        let stream = UnixStream::connect(&node.socket).await.expect("connect");
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .expect("handshake");
+        tokio::spawn(conn);
+        let resp = sender
+            .send_request(
+                Request::builder()
+                    .method("GET")
+                    .uri("/events")
+                    .header(hyper::header::HOST, "localhost")
+                    .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Full::new(Bytes::new()))
+                    .unwrap(),
+            )
+            .await
+            .expect("events");
+        assert_eq!(resp.status().as_u16(), 200);
+        Self {
+            body: resp.into_body(),
+            _sender: sender,
+            buf: String::new(),
+            read: 0,
+        }
+    }
+
+    /// The next frame `wanted` answers for, read off the stream.
+    pub(crate) async fn until(&mut self, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                while let Some(end) = self.buf[self.read..].find('\n') {
+                    let line = self.buf[self.read..self.read + end].to_string();
+                    self.read += end + 1;
+                    let Some(frame) = line
+                        .strip_prefix("data: ")
+                        .and_then(|rest| serde_json::from_str::<Value>(rest).ok())
+                    else {
+                        continue;
+                    };
+                    if wanted(&frame) {
+                        return frame;
+                    }
+                }
+                let chunk = self
+                    .body
+                    .frame()
+                    .await
+                    .expect("the event stream ended")
+                    .expect("frame");
+                if let Some(data) = chunk.data_ref() {
+                    self.buf.push_str(&String::from_utf8_lossy(data));
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no frame: {what}"))
+    }
+
+    /// The next `pulse` frame of `kind`.
+    pub(crate) async fn pulse_of(&mut self, kind: &str) -> Value {
+        self.until(&format!("a pulse frame of {kind}"), |f| {
+            f["stream"] == json!("pulse") && f["payload"]["kind"] == json!(kind)
+        })
+        .await["payload"]
+            .clone()
+    }
+}
+
+/// The feed's row a `pulse` frame names, read back by its `seq`.
+pub(crate) async fn row_of_frame(node: &Node, frame: &Value) -> Value {
+    let rows = node.get("/pulse?limit=200").await["rows"].clone();
+    rows.as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["seq"] == frame["seq"])
+        .cloned()
+        .unwrap_or_else(|| panic!("the frame names a row that cannot be read: {frame}"))
+}
+
+/// What an agent writes into a goal's journal — a note — sends no engine
+/// frame of its own, and an open Pulse never heard of it. The feed's frame
+/// says it, filed under the goal's concept, once the row can be read.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_note_sends_a_pulse_frame_for_its_goal() {
+    let node = Node::start().await;
+    let goal = node.new_goal("watch the feed").await;
+    let mut frames = Frames::open(&node).await;
+    let reply = node
+        .intake_op(json!({
+            "op": "add_note",
+            "agent": AgentId::WORKFLOW,
+            "goal": goal.to_string(),
+            "text": "half way there",
+        }))
+        .await;
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let frame = frames
+        .until("the note's pulse frame", |f| {
+            f["stream"] == json!("pulse") && f["payload"]["kind"] == json!("note")
+        })
+        .await["payload"]
+        .clone();
+    assert_eq!(frame["concept"], json!("goals"), "{frame}");
+    assert_eq!(
+        frame["source"],
+        json!({"kind": "goal", "id": goal.to_string()})
+    );
+    assert!(frame["at"].as_u64().is_some_and(|at| at > 0), "{frame}");
+    let row = row_of_frame(&node, &frame).await;
+    assert_eq!(row["kind"], json!("note"));
+    assert_eq!(row["event"]["text"], json!("half way there"), "{row}");
     node.shutdown().await;
 }

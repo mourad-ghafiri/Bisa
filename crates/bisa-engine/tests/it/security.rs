@@ -2974,3 +2974,142 @@ async fn a_question_asked_in_a_direct_message_has_no_goal_to_go_to() {
     );
     engine.shutdown().await;
 }
+
+// ---------------------------------------------------------------------
+// The feed (the Pulse): what the guard decided and what the redactor took
+// out are rows, not toasts
+// ---------------------------------------------------------------------
+
+/// The feed's rows of one kind, as their events.
+fn feed_of(engine: &Engine, kind: &str) -> Vec<(String, String, Value)> {
+    engine
+        .workspace()
+        .activity_by_kinds(&[kind], 100)
+        .unwrap()
+        .into_iter()
+        .map(|r| {
+            (
+                r.source_kind,
+                r.source_id,
+                serde_json::from_str(&r.event).unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// The notices the Inbox carries on one row.
+fn notices_on(engine: &Engine, key: &str) -> Vec<String> {
+    let live = bisa_engine::inbox::LiveView::of(engine.inner());
+    let say = |text: &bisa_core::Text| text.id.to_string();
+    let reader = bisa_engine::inbox::Reader {
+        ws: engine.workspace(),
+        live: &live,
+        say: &say,
+    };
+    bisa_engine::inbox::row(&reader, key)
+        .unwrap()
+        .map(|row| {
+            row.notices
+                .iter()
+                .map(|n| serde_json::to_value(n.notice).unwrap())
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A command a rule refused is a row of the feed, filed under its goal, and
+/// a notice on that goal's row in the Inbox. It was a frame alone: the
+/// Pulse never showed it and *command refused* never reached the Inbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_command_is_a_row_and_a_notice_on_its_goal() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![asking_worker("fake-tool --go")]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("no_fake_tool", "deny", "fake-tool")]),
+    );
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "guarded",
+        new_workflow("guarded", vec![agent_step("run", "mock")]),
+    );
+    // The frame is heard after its row is written: read the feed on it.
+    wait_for(&mut rx, "the guard's decision", |e| {
+        matches!(&e.payload, EnginePayload::GuardDecided { .. })
+    })
+    .await;
+    let rows = feed_of(&engine, "guard_decided");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let (source_kind, source_id, event) = &rows[0];
+    assert_eq!(
+        (source_kind.as_str(), source_id.as_str()),
+        ("goal", goal.id.to_string().as_str())
+    );
+    assert_eq!(event["verdict"], "denied");
+    assert_eq!(event["rule"], "no_fake_tool");
+    wait_for(&mut rx, "the item ends", |e| {
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    assert!(
+        notices_on(&engine, &goal.id.to_string()).contains(&"guard_refused".to_string()),
+        "{:?}",
+        notices_on(&engine, &goal.id.to_string())
+    );
+    engine.shutdown().await;
+}
+
+/// A secret taken out of a prompt is a row of the feed, under this node —
+/// and it is still there after the index is rebuilt from the files.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secret_redacted_from_a_prompt_is_a_row_that_a_rebuild_keeps() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let agent = ws.add_agent(new_agent("Scout", "mock")).unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&agent.pubkey)).unwrap();
+    let engine = Engine::start(
+        ws,
+        catalog_with(vec![MockAdapter::default()]),
+        design_off_config(),
+    )
+    .unwrap();
+    let mut rx = engine.events();
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post(format!("push with {FAKE_TOKEN} please")),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    wait_for(
+        &mut rx,
+        "a redaction event",
+        |e| matches!(&e.payload, EnginePayload::Redacted { at, .. } if at == "prompt"),
+    )
+    .await;
+    let at_prompt = |engine: &Engine| {
+        feed_of(engine, "redacted")
+            .into_iter()
+            .filter(|(kind, _, event)| kind == "node" && event["at"] == "prompt")
+            .count()
+    };
+    assert_eq!(at_prompt(&engine), 1, "{:?}", feed_of(&engine, "redacted"));
+    let all = feed_of(&engine, "redacted").len();
+    assert!(
+        feed_of(&engine, "redacted")
+            .iter()
+            .all(|(_, _, event)| !event.to_string().contains(FAKE_TOKEN)),
+        "a row says how many and of what kind, never the value"
+    );
+    engine.workspace().rebuild_index().unwrap();
+    assert_eq!(feed_of(&engine, "redacted").len(), all);
+    engine.shutdown().await;
+}

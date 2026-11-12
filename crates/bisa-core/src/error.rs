@@ -68,6 +68,8 @@ pub enum CoreError {
     UnknownArtifactKind(String),
     #[error("unknown activity concept {0:?}: expected workspace, goals, workflows, projects, channels, agents or node")]
     UnknownActivityConcept(String),
+    #[error("unknown activity source kind {0:?}: expected goal, channel, conversation, workstream, project, workflow, agent, node or workspace")]
+    UnknownActivitySourceKind(String),
     #[error("a message carries at most {max} artifacts, not {0}", max = crate::artifact::MAX_ARTIFACTS_PER_MESSAGE)]
     TooManyArtifacts(usize),
     #[error("invalid artifact name {0:?}: a file name, not a path")]

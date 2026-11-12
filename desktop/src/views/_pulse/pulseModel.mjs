@@ -1,8 +1,8 @@
 /**
  * The Pulse's rules (docs/guide/the-desktop.md §Pulse): the concepts a
  * reader narrows the feed to — the seven the core names, and *All* — with
- * their words and glyphs; which engine facts are in the feed at all, and
- * under which concept; the page a scrolled window asks for next; how a page
+ * their words and glyphs; what a frame of the feed asks of the tab that is
+ * open; the page a scrolled window asks for next; how a page
  * joins what is already shown, and how much of it is held; the day dividers
  * and the headings a run of rows on one thing shares; and the door a row
  * opens. Pure, so `node --test` pins every one; the view paints.
@@ -48,141 +48,60 @@ export function parseConcept(raw) {
 }
 
 /**
- * The engine facts that are no activity — a per-frame or per-token signal
- * whose home is the roster or the watcher, never the feed. The engine's own
- * list (`bisa_engine::activity::concept_of`, its `None` arm), held equal by
- * the test, which reads the Rust.
- */
-export const NOT_ACTIVITY = Object.freeze([
-  "session",
-  "session_state",
-  "session_gone",
-  "agent_thinking",
-  "agent_streamed",
-  "file_changed",
-  "browser_request",
-  "drawing_request",
-  "mobile_development_changed",
-  "mcp_probed",
-  "connector_checked",
-  "changes_moved",
-  "ask_opened",
-  "ask_settled",
-  "lsp",
-]);
-
-/** The concept each engine fact is filed under — the same function's other arms. */
-export const FACT_CONCEPT = Object.freeze({
-  goal_created: "workspace",
-  note_changed: "workspace",
-  drawing_changed: "workspace",
-  gate_opened: "goals",
-  question_asked: "goals",
-  gate_decided: "goals",
-  result_accepted: "goals",
-  run_started: "goals",
-  run_queued: "goals",
-  run_finished: "goals",
-  run_cancelled: "goals",
-  step_changed: "goals",
-  document_added: "goals",
-  goal_archived: "goals",
-  goal_deleted: "goals",
-  goal_updated: "goals",
-  goal_closed: "goals",
-  boundary_fired: "goals",
-  guided: "workflows",
-  workflow_proposed: "workflows",
-  workflow_changed: "workflows",
-  workflow_deleted: "workflows",
-  workflow_archived: "workflows",
-  project_created: "projects",
-  project_changed: "projects",
-  committer_needed: "projects",
-  committer_set: "projects",
-  workstream_opened: "projects",
-  workstream_edited: "projects",
-  workstream_changed: "projects",
-  workstream_committed: "projects",
-  workstream_script_ran: "projects",
-  workstream_publish_failed: "projects",
-  server_changed: "projects",
-  project_archived: "projects",
-  project_deleted: "projects",
-  changes_settled: "projects",
-  attachment_changed: "projects",
-  scheduled: "agents",
-  execution_ended: "agents",
-  agent_replied: "agents",
-  model_switched: "agents",
-  guard_decided: "agents",
-  judged: "agents",
-  content_screened: "agents",
-  redacted: "agents",
-  conversation_created: "channels",
-  conversation_changed: "channels",
-  people_changed: "channels",
-  invite_changed: "channels",
-  message_held: "channels",
-  message_released: "channels",
-  message_refused: "channels",
-  hosted_changed: "channels",
-  settings_changed: "node",
-  git_setup_changed: "node",
-  connectors_changed: "node",
-  addons_changed: "node",
-  relays_changed: "node",
-  paused: "node",
-  resumed: "node",
-});
-
-/** The facts a listener's host decides the concept of: a library workflow's are the workflows', a goal's the goals'. */
-export const HOSTED_FACTS = Object.freeze(["signal_received", "listener_fired", "listener_failed", "listening_changed"]);
-
-/** The concept of a host in its wire form — `goal:<goal>` or `workspace:<workflow>`, with or without `/<step>` after it. */
-function hostConcept(host) {
-  return typeof host === "string" && host.startsWith("goal:") ? "goals" : "workflows";
-}
-
-/**
- * Where an engine fact is filed in the feed: its concept; `false` for a fact
- * that is no activity — it nudges nobody; `null` for one this build cannot
- * place — it nudges every tab, since a read too many costs less than a stale
- * screen.
- * @param {{type?: unknown, listener?: unknown, host?: unknown} | null | undefined} payload an `EnginePayload`
- * @returns {string | false | null}
- */
-export function conceptOfFact(payload) {
-  const type = payload?.type;
-  if (typeof type !== "string") return null;
-  if (NOT_ACTIVITY.includes(type)) return false;
-  if (HOSTED_FACTS.includes(type)) return hostConcept(type === "listening_changed" ? payload.host : payload.listener);
-  return FACT_CONCEPT[type] ?? null;
-}
-
-/**
- * Whether a concept's feed wants a frame's fact: *All* wants every one that
- * is in the feed; a concept wants the facts placed under it. A frame is only
- * a nudge to read the head page again, so a false positive costs one read
- * and a false negative a stale screen — the concept's own facts are what
- * matter. A fact that is no activity (`false`) nudges nobody: an agent
- * streaming its words would otherwise have every open Pulse read its head
- * three times a second for rows that never come.
+ * Whether a tab wants a row of the feed: *All* wants every row; a concept
+ * wants the rows filed under it. A frame that names no concept — the index
+ * was rebuilt, or this window fell behind the stream — is everybody's.
  * @param {string} concept the tab
- * @param {string | false | null | undefined} of the frame's concept (`conceptOfFact`); null nudges every tab
+ * @param {string | null | undefined} of the concept the row is filed under (`PulseFrame.concept`)
  */
 export function wantsNudge(concept, of) {
-  if (of === false) return false;
   return concept === "all" || of == null || of === concept;
+}
+
+/**
+ * What a frame of the feed (`{stream: "pulse"}`) asks of the tab that is
+ * open: nothing, to read its head page again, or to start over.
+ *
+ * The node says every row as it lands — once it can be read, with the
+ * concept it is filed under — so the screen places a frame by the frame's
+ * own word, never by guessing from an engine payload.
+ *
+ * - A row of another concept: `"none"`.
+ * - A row the head page will show: `"head"`.
+ * - `{concept: null}` — the index was rebuilt and every row may wear another
+ *   `seq`, or this window fell behind: `"restart"`, since what is held can
+ *   no longer be joined by `seq`.
+ * - A row older than the head page reaches — a fact another node wrote, and
+ *   synced late, lands where it happened and not at the head: `"restart"`,
+ *   or it would never be read into a feed already loaded past it.
+ * @param {string} concept the tab
+ * @param {{concept?: string | null, at?: number} | null | undefined} frame
+ * @param {readonly {at: number}[]} shown what the tab holds, newest first
+ * @param {number} [size] a page
+ * @returns {"none" | "head" | "restart"}
+ */
+export function nudgeOf(concept, frame, shown, size = PAGE) {
+  if (!frame || frame.concept == null) return "restart";
+  if (!wantsNudge(concept, frame.concept)) return "none";
+  const edge = shown.length >= size ? shown[size - 1] : null;
+  return edge && typeof frame.at === "number" && frame.at < edge.at ? "restart" : "head";
 }
 
 /**
  * Whether the window the list draws has come close enough to the end of
  * what is loaded to ask for the next page: within `PAGE_AHEAD` rows of the
- * last, with a page still to ask for and none in flight.
+ * last, with a page still to ask for and none in flight. A feed that holds
+ * no row and still has a page to ask for asks at once: the page it read was
+ * all rows this build cannot draw, and the feed goes on behind it.
  */
 export function wantsMore({ last, total, next, inFlight }) {
-  return next !== null && !inFlight && total > 0 && last >= total - PAGE_AHEAD;
+  return next !== null && !inFlight && (total === 0 || last >= total - PAGE_AHEAD);
+}
+
+/** Whether two cursors name the same place — both none, or the same second and row. */
+export function sameCursor(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.at === b.at && a.seq === b.seq;
 }
 
 /**
@@ -210,13 +129,17 @@ export function cursorOf(page) {
  * the same thing. The heading is why the node ships `title` as a field
  * instead of writing it into the sentence: forty consecutive rows that each
  * began "ship the thing:" spent forty lines saying one thing once.
- * @param {readonly {key: string, at: number, title?: string}[]} items newest first
+ * A row that is the echo of another (`itemOf`) is passed over.
+ * @param {readonly {key: string, at: number, title?: string, echo?: boolean}[]} items newest first
  */
 export function withDividers(items) {
   const out = [];
   let day = null;
   let heading;
   for (const item of items) {
+    // An engine's fact that only repeats a journal fact is held, for the
+    // joins, and never drawn: the journal's row says the happening.
+    if (item.echo) continue;
     const d = dayKey(item.at);
     if (d !== day) {
       out.push({ slot: "day", key: `d:${d}`, at: item.at });
@@ -233,13 +156,17 @@ export function withDividers(items) {
 /**
  * The door a row opens, by what it is about: a goal, a channel or a direct
  * message, a conversation, a workstream in the IDE, a project as its primary
- * (whose id is the project's), a workflow, the Agents screen. This node and
- * the workspace itself have no screen of their own: no door.
+ * (whose id is the project's), a workflow, an agent. This node and the
+ * workspace itself have no screen of their own: no door — and neither has a
+ * thing that is gone (`gone`): a row about a goal since deleted says what
+ * happened and opens nothing, where it used to open a page that could only
+ * say *not found*.
  * @param {{kind: string, id: string} | null | undefined} source
  * @param {(id: string) => "channel" | "dm" | null} channelKind which kind a channel id is
+ * @param {boolean} [gone] the node no longer holds what the row is about
  */
-export function linkOf(source, channelKind) {
-  if (!source || !source.id) return null;
+export function linkOf(source, channelKind, gone = false) {
+  if (!source || !source.id || gone) return null;
   switch (source.kind) {
     case "goal":
       return { name: "goal", id: source.id };
@@ -255,7 +182,7 @@ export function linkOf(source, channelKind) {
     case "workflow":
       return { name: "workflow", id: source.id };
     case "agent":
-      return { name: "agents" };
+      return { name: "agent", id: source.id };
     default:
       return null;
   }
@@ -264,9 +191,12 @@ export function linkOf(source, channelKind) {
 /**
  * A row as a screen holds it: the line's words (`activity.pulseLine`) beside
  * the feed's facts a door and a merge need — `seq`, `at`, `concept`,
- * `source`. One builder for the Pulse's rows and an Inbox row's notices,
- * which are the same rows.
- * @param {{seq: number, at: number, concept: string, source: unknown}} row
+ * `source` — and two things the node says of the row: whether it only
+ * repeats another (`echo`, from `echo_of`: the engine's fact of a happening
+ * its journal already tells), and whether what it is about is gone (`gone`).
+ * One builder for the Pulse's rows and an Inbox row's notices, which are the
+ * same rows.
+ * @param {{seq: number, at: number, concept: string, source: unknown, title?: unknown, echo_of?: unknown}} row
  * @param {{key: string, text: string, tone: string, author?: unknown, title?: unknown, icon?: unknown, detail?: unknown}} line
  */
 export function itemOf(row, line) {
@@ -282,29 +212,57 @@ export function itemOf(row, line) {
     title: line.title,
     icon: line.icon,
     detail: line.detail,
+    echo: row.echo_of != null,
+    gone: isGone(row),
   };
+}
+
+/** The kinds of thing that always have a name: a row about one with no title is about one the node no longer holds. */
+const ALWAYS_TITLED = Object.freeze(["goal", "workflow", "project"]);
+
+/**
+ * Whether what a row is about is gone. The node titles a row by reading the
+ * record it is about; a goal, a workflow and a project always have a name,
+ * so one of them with no title is one the node could not read — deleted.
+ * A conversation nobody titled and a checkout nobody named have none
+ * either, and are still there.
+ */
+function isGone(row) {
+  return ALWAYS_TITLED.includes(row.source?.kind) && !row.title;
 }
 
 /**
  * What the screen holds after a fresh head page: the rows, and the cursor
  * the next older page is asked with.
  *
+ * The node's own word says whether the page is the whole feed: `next` is
+ * absent on the last page and present otherwise — the page's length says
+ * nothing, since the node leaves out a row this build cannot type after it
+ * has counted, and a page of fewer rows than asked for may still have a
+ * feed behind it.
+ *
  * - Nothing shown yet: the page is the feed, its cursor the tail.
- * - The page reaches what is shown — a `seq` in both — or is short, which is
- *   the whole feed: it joins the head (`mergePage`), and the tail stays where
- *   the last older page left it, `null` included — a feed read to its end is
- *   not read again from its head.
- * - A full page that reaches nothing shown: more landed since the last read
- *   than a page holds. Joining it would leave a hole nothing ever fills, so
- *   the feed starts over from this page and older rows are paged in again.
- * @param {{shown: readonly {seq: number, at: number}[], page: readonly {seq: number, at: number}[], next: unknown, tail: unknown, size?: number}} facts
+ * - The page is the whole feed (no `next`): it *is* what is held, and the
+ *   feed is at its end.
+ * - The page reaches what is shown — a `seq` in both: it joins the head,
+ *   and is the truth for the span it covers — a row held inside that span
+ *   that the page no longer carries was taken back (a retracted message)
+ *   and goes. The tail stays where the last older page left it, `null`
+ *   included: a feed read to its end is not read again from its head.
+ * - A page that reaches nothing shown and is not the whole feed: more
+ *   landed since the last read than a page holds. Joining it would leave a
+ *   hole nothing ever fills, so the feed starts over from this page and
+ *   older rows are paged in again.
+ * @param {{shown: readonly {seq: number, at: number}[], page: readonly {seq: number, at: number}[], next: unknown, tail: unknown}} facts
  */
-export function joinHead({ shown, page, next, tail, size = PAGE }) {
-  if (shown.length === 0) return { items: [...page], next: next ?? null, restarted: false };
+export function joinHead({ shown, page, next, tail }) {
+  if (shown.length === 0 || next == null) return { items: [...page], next: next ?? null, restarted: false };
   const held = new Set(shown.map((r) => r.seq));
-  const reaches = page.length < size || page.some((r) => held.has(r.seq));
-  if (reaches) return { items: mergePage(shown, page, "head"), next: tail ?? null, restarted: false };
-  return { items: [...page], next: next ?? null, restarted: true };
+  if (!page.some((r) => held.has(r.seq))) return { items: [...page], next, restarted: true };
+  // Below the page's last row, what is held stands; inside its span, the page does.
+  const last = page[page.length - 1];
+  const below = shown.filter((r) => r.at < last.at || (r.at === last.at && r.seq < last.seq));
+  return { items: mergePage(below, page, "head"), next: tail ?? null, restarted: false };
 }
 
 /** How many pages a feed is read back to after a restart: further than that, a person scrolls again. */

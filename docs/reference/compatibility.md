@@ -40,8 +40,8 @@ back to the earlier release, the backup is the only way: see [Not promised in 0.
 - **Promised:** every route and its method; the fields a request accepts and the fields a response
   carries, with their types; every `ErrorCode`; the streams of `GET /events` and the frames' shapes.
 - **May grow:** new routes; new optional request fields; new response fields; new error codes; new
-  engine events and topics.
-- **A client must:** ignore response fields, error codes, events and topics it does not know; switch
+  engine events and topics; new streams of `GET /events`.
+- **A client must:** ignore response fields, error codes, events, topics and streams it does not know; switch
   on an error's `code`, never on its words or its status alone; send only the fields the node it talks
   to documents (a field a node does not know is refused by name).
 - The reference is generated from the code: [HTTP API](http-api.md), and the wire types in

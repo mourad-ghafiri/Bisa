@@ -342,6 +342,8 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **rustix** 1.1.4 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — taken as Apache-2.0 WITH LLVM-exception
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
+- **rustix** 1.1.6 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — taken as Apache-2.0 WITH LLVM-exception
+  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **wasi** 0.11.1+wasi-snapshot-preview1 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — taken as Apache-2.0 WITH LLVM-exception
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **wasip2** 1.0.4+wasi-0.2.12 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — taken as Apache-2.0 WITH LLVM-exception
@@ -786,7 +788,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2013-2014 The Rust Project Developers.; Copyright (c) 2015-2020 The rust-hex Developers
 - **hickory-net** 0.26.1 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.
-- **hickory-proto** 0.26.1 — MIT OR Apache-2.0 — taken as MIT
+- **hickory-proto** 0.26.3 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.
 - **hickory-resolver** 0.26.1 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.

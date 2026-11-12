@@ -368,7 +368,7 @@ impl Workspace {
                     MessageBody::Membership(_) => "[]".to_string(),
                 };
                 let idx = self.idx();
-                idx.upsert_message(
+                let first = idx.upsert_message(
                     &event.id.to_hex(),
                     scope.kind.as_str(),
                     &scope.id,
@@ -393,10 +393,18 @@ impl Workspace {
                 for (ordinal, a) in body.artifacts().iter().enumerate() {
                     idx.upsert_artifact(&event.id.to_hex(), ordinal, a)?;
                 }
+                // What is counted once per message — the feed's row and a
+                // conversation's count — is counted by the call that put the
+                // message in the cache: the same event offered again (a peer
+                // that sends it twice, a line a log holds twice) is one row
+                // and one message.
+                if !first {
+                    return Ok(());
+                }
                 // The feed's row, through the same one arm: a post or a
                 // membership change in a channel, a direct message or a
                 // conversation, with its excerpt.
-                idx.record_activity(&message_activity(scope, event, &body, at, &author))?;
+                self.feed_row_in(&idx, &message_activity(scope, event, &body, at, &author))?;
                 // A conversation keeps facts beside its record: the counts,
                 // the first post's first line, who took part.
                 if scope.kind == ScopeKind::Conversation {
@@ -445,16 +453,24 @@ impl Workspace {
                     )));
                 };
                 let idx = self.idx();
-                if let Some(target_author) = idx.fact_author(target)? {
-                    if target_author == author {
-                        idx.retract_fact(target)?;
-                        idx.index_text(target, &scope.id, "")?;
-                    } else {
-                        return Err(StoreError::Invalid(bisa_core::text!(
-                            "error-store-invalid-retraction-author-does-not-match-target-author"
-                        )));
-                    }
-                } // LCOV_EXCL_LINE: a retraction of a fact nobody here holds indexes nothing (`a_duplicate_reaction_and_a_retraction_of_nothing_change_nothing_and_a_post_is_read_back`); llvm-cov files the fall-through on the brace
+                // A retraction of a fact this node does not hold is refused,
+                // as a reaction to nothing is: a peer's retraction that
+                // overtook its message is offered again once the message is
+                // here, and is never taken as done while the text can still
+                // arrive and stand.
+                let Some(target_author) = idx.fact_author(target)? else {
+                    return Err(StoreError::Invalid(bisa_core::text!(
+                        "error-store-invalid-unknown-event",
+                        event_id = target.to_string()
+                    )));
+                };
+                if target_author != author {
+                    return Err(StoreError::Invalid(bisa_core::text!(
+                        "error-store-invalid-retraction-author-does-not-match-target-author"
+                    )));
+                }
+                idx.retract_fact(target)?;
+                idx.index_text(target, &scope.id, "")?;
             }
             // LCOV_EXCL_START: `index_conversation_fact` is reached for the three conversation kinds alone (`ingest_remote_event`, `post_message`, `react`, `retract`, the rebuild)
             other => {
@@ -1010,6 +1026,12 @@ impl Workspace {
 
     /// Re-derive messages and reactions from truth files. Channels were
     /// indexed earlier in the rebuild order; read markers are lost.
+    ///
+    /// The files are read in the order of their names, so two rebuilds of
+    /// the same folder write the same rows in the same order; and every
+    /// retraction is applied after every file's messages and reactions, so
+    /// one that names a fact of a file read later — or stands before its
+    /// target in its own — still takes it back.
     pub(crate) fn reindex_conversation(&self) -> Result<(), StoreError> {
         let dir = self.paths.conversation_dir();
         let entries = match std::fs::read_dir(&dir) {
@@ -1017,7 +1039,10 @@ impl Workspace {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(StoreError::io(dir.display().to_string(), e)),
         };
-        for entry in entries.flatten() {
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        let mut retractions: Vec<(String, ScopeRef, Event)> = Vec::new();
+        for entry in entries {
             let name = entry.file_name().to_string_lossy().into_owned();
             let Some(scope_id) = name.strip_suffix(".jsonl") else {
                 continue;
@@ -1043,9 +1068,18 @@ impl Workspace {
                     tracing::warn!("conversation/{name}: unverifiable event, skipping");
                     continue;
                 }
+                if event.kind.as_u16() == KIND_RETRACTION {
+                    retractions.push((name.clone(), scope.clone(), event));
+                    continue;
+                }
                 if let Err(e) = self.index_conversation_fact(&scope, &event) {
                     tracing::warn!("conversation/{name}: {e}");
                 }
+            }
+        }
+        for (name, scope, event) in retractions {
+            if let Err(e) = self.index_conversation_fact(&scope, &event) {
+                tracing::warn!("conversation/{name}: {e}");
             }
         }
         Ok(())
@@ -1629,8 +1663,8 @@ mod tests {
     }
 
     /// A reaction the cache already holds is not indexed twice; a retraction
-    /// of a fact nobody here holds indexes nothing; a posted event is read
-    /// back from its log by id.
+    /// of a fact nobody here holds is refused, to be offered again once its
+    /// target is here; a posted event is read back from its log by id.
     #[test]
     fn a_duplicate_reaction_and_a_retraction_of_nothing_change_nothing_and_a_post_is_read_back() {
         let (_d, ws) = ws();
@@ -1669,7 +1703,13 @@ mod tests {
             .tags([general.clone(), Tag::parse(["e", &"f".repeat(64)]).unwrap()])
             .finalize(&keys)
             .unwrap();
-        assert!(ws.ingest_remote_event(&of_nothing).is_ok());
+        assert!(
+            matches!(
+                ws.ingest_remote_event(&of_nothing).unwrap(),
+                crate::IngestOutcome::Rejected { .. }
+            ),
+            "a retraction of nothing is refused, never taken as done"
+        );
     }
 
     // added by the coverage pass: conversation-s7.rs

@@ -9,8 +9,8 @@
 //! variant added to the enum stops this compiling until it is placed.
 
 use crate::events::{EngineEvent, EnginePayload};
-use crate::Inner;
 use bisa_core::{ActivityConcept, ActivityFact, ActivitySource, ActivitySourceKind, ListenerHost};
+use bisa_store::Workspace;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
@@ -211,9 +211,11 @@ pub fn source_of(event: &EngineEvent) -> ActivitySource {
         EnginePayload::InviteChanged { invite } => {
             ActivitySource::new(K::Workspace, invite.id.to_string())
         }
+        // A person on another node reaches a channel or a direct channel
+        // and nothing else: the message they sent is about that channel.
         EnginePayload::MessageReleased { scope, .. }
         | EnginePayload::MessageRefused { scope, .. } => {
-            ActivitySource::new(K::Conversation, scope.clone())
+            ActivitySource::new(K::Channel, scope.clone())
         }
         EnginePayload::HostedChanged { host, .. } => {
             ActivitySource::new(K::Workspace, host.as_hex().to_string())
@@ -226,7 +228,48 @@ pub fn source_of(event: &EngineEvent) -> ActivitySource {
         | EnginePayload::Paused
         | EnginePayload::Resumed
         | EnginePayload::Redacted { .. } => ActivitySource::node(),
-        _ => goal(),
+        // What a run, a step, a gate or an agent's turn says is about the
+        // home the envelope names. Named one by one, with no wildcard: a
+        // payload added to the enum stops this compiling until somebody
+        // says what its row opens on.
+        EnginePayload::SignalReceived { listener: None, .. }
+        | EnginePayload::Scheduled { .. }
+        | EnginePayload::ExecutionEnded { .. }
+        | EnginePayload::GateOpened { .. }
+        | EnginePayload::QuestionAsked { .. }
+        | EnginePayload::Guided { .. }
+        | EnginePayload::GateDecided { .. }
+        | EnginePayload::ResultAccepted
+        | EnginePayload::RunStarted { .. }
+        | EnginePayload::RunQueued { .. }
+        | EnginePayload::RunFinished { .. }
+        | EnginePayload::RunCancelled { .. }
+        | EnginePayload::StepChanged { .. }
+        | EnginePayload::GoalClosed { .. }
+        | EnginePayload::GuardDecided { .. }
+        | EnginePayload::Judged { .. }
+        | EnginePayload::ChangesSettled { .. }
+        | EnginePayload::ModelSwitched { .. }
+        | EnginePayload::BoundaryFired { .. } => goal(),
+        // No rows of the feed (`concept_of` answers `None`): a source is
+        // asked of them by nobody, and the envelope's is the honest one.
+        // LCOV_EXCL_START: `fact_of` asks a source only of a payload that has a concept; these arms keep the match total
+        EnginePayload::Session { .. }
+        | EnginePayload::SessionState { .. }
+        | EnginePayload::SessionGone { .. }
+        | EnginePayload::AgentThinking { .. }
+        | EnginePayload::AgentStreamed { .. }
+        | EnginePayload::DrawingRequest { .. }
+        | EnginePayload::BrowserRequest { .. }
+        | EnginePayload::MobileDevelopmentChanged { .. }
+        | EnginePayload::McpProbed { .. }
+        | EnginePayload::ConnectorChecked { .. }
+        | EnginePayload::ChangesMoved { .. }
+        | EnginePayload::AskOpened { .. }
+        | EnginePayload::AskSettled { .. }
+        | EnginePayload::FileChanged { .. }
+        | EnginePayload::Lsp { .. } => goal(),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -250,10 +293,27 @@ pub fn fact_of(event: &EngineEvent) -> Option<ActivityFact> {
     })
 }
 
+/// Publish an event: its row into the feed first, then its frame on the bus
+/// — the one door every sender of the engine goes through (`Inner::emit`,
+/// the guard and the redactor's `SecurityState::announce`), so a fact with a
+/// concept is never a frame alone. A reader that reads the feed again on the
+/// frame finds what the frame announced.
+pub fn publish(
+    ws: &Workspace,
+    bus: &tokio::sync::broadcast::Sender<EngineEvent>,
+    event: EngineEvent,
+) {
+    record(ws, &event);
+    // A send fails only when nobody is subscribed, which is not a fault.
+    if bus.send(event).is_err() {
+        tracing::trace!("engine event dropped: no subscribers");
+    }
+}
+
 /// Record an event into the feed — the log and the index — before it is
 /// published. A store that refuses is logged and never blocks the bus: the
 /// frame still reaches every subscriber.
-pub fn record(inner: &Inner, event: &EngineEvent) {
+pub fn record(ws: &Workspace, event: &EngineEvent) {
     let Some(fact) = fact_of(event) else {
         // A per-frame signal — a session's tokens, a file the watcher saw —
         // is not a fact of the feed, and reaches the log only at debug.
@@ -280,7 +340,7 @@ pub fn record(inner: &Inner, event: &EngineEvent) {
         // LCOV_EXCL_STOP
         "activity"
     );
-    if let Err(e) = inner.ws.record_activity(&fact, true) {
+    if let Err(e) = ws.record_activity(&fact, true) {
         // The same fields as the line above: what is missing from the feed,
         // and from where.
         tracing::warn!(
@@ -441,5 +501,27 @@ mod tests {
             fact.source,
             ActivitySource::new(ActivitySourceKind::Goal, goal.to_string())
         );
+    }
+
+    /// A held message a person let through or refused is about the channel
+    /// it was sent to — the row's title and its door are the channel's.
+    #[test]
+    fn a_held_message_let_through_or_refused_is_about_its_channel() {
+        for payload in [
+            EnginePayload::MessageReleased {
+                scope: "general".into(),
+                event: "e1".into(),
+            },
+            EnginePayload::MessageRefused {
+                scope: "general".into(),
+                event: "e1".into(),
+                author: bisa_core::PrincipalId::new("a".repeat(64)).unwrap(),
+            },
+        ] {
+            assert_eq!(
+                source_of(&EngineEvent::global(payload)),
+                ActivitySource::new(ActivitySourceKind::Channel, "general".to_string())
+            );
+        }
     }
 }

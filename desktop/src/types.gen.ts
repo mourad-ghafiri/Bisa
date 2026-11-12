@@ -12197,6 +12197,14 @@ export interface NoticeDto {
    */
   author?: string | null;
   event: PulseEvent;
+  /**
+   * Set on an engine's fact that only repeats a journal fact of the same
+   * happening — a run that finished is said by its journal and by the
+   * engine — to that journal row's `seq`. Both rows are in the feed; a
+   * reader that draws the feed draws the journal's and passes over the
+   * echo. Absent on every other row.
+   */
+  echo_of?: number | null;
   [k: string]: unknown;
 }
 /**
@@ -12339,11 +12347,19 @@ export interface PulseRow {
    */
   author?: string | null;
   event: PulseEvent;
+  /**
+   * Set on an engine's fact that only repeats a journal fact of the same
+   * happening — a run that finished is said by its journal and by the
+   * engine — to that journal row's `seq`. Both rows are in the feed; a
+   * reader that draws the feed draws the journal's and passes over the
+   * echo. Absent on every other row.
+   */
+  echo_of?: number | null;
   [k: string]: unknown;
 }
 /**
  * One page of the activity feed: the rows, newest first, and where the next
- * page starts — `null` on the last one.
+ * page starts — absent on the last one.
  */
 export interface PulsePage {
   rows: PulseRow[];

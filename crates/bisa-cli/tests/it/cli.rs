@@ -1960,6 +1960,41 @@ fn pulse_and_sessions_render() {
         "capturing a goal is workspace activity"
     );
 
+    // A concept nothing has happened under says so, in words and as rows.
+    let quiet = bisa(dir.path(), &["pulse", "--concept", "projects"]);
+    assert_ok(&quiet, "pulse --concept projects");
+    assert!(
+        String::from_utf8_lossy(&quiet.stdout).contains("nothing has happened yet"),
+        "{}",
+        String::from_utf8_lossy(&quiet.stdout)
+    );
+    let quiet = bisa(dir.path(), &["--json", "pulse", "--concept", "projects"]);
+    assert_eq!(json(&quiet), serde_json::json!({"rows": [], "next": null}));
+    // One row at a time, a page names the next and the next read takes it.
+    let first = json(&bisa(dir.path(), &["--json", "pulse", "--limit", "1"]));
+    let next = &first["next"];
+    assert!(
+        next["at"].is_u64(),
+        "more than one fact was recorded: {first}"
+    );
+    let second = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "pulse",
+            "--limit",
+            "1",
+            "--before",
+            &next["at"].to_string(),
+            "--before-seq",
+            &next["seq"].to_string(),
+        ],
+    ));
+    assert_ne!(second["rows"][0]["seq"], first["rows"][0]["seq"]);
+    // A cursor's second half alone is no cursor.
+    let alone = bisa(dir.path(), &["pulse", "--before-seq", "3"]);
+    assert_eq!(alone.status.code(), Some(2), "the command line is refused");
+
     let sessions = bisa(dir.path(), &["--json", "sessions", "list"]);
     assert_ok(&sessions, "sessions list");
     assert!(json(&sessions)["sessions"].as_array().unwrap().is_empty());

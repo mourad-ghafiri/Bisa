@@ -73,7 +73,7 @@ test("every read made through the shared hook is read again, and the devices' on
 test("the screens of the four features read again: the Inbox's list, the Pulse's head, a goal's page, the library", () => {
   const reads = (rel) => readFileSync(`${SRC}/${rel}`, "utf8");
   assert.ok(reads("views/Inbox.tsx").includes("useReloadOnReconnect(() => void load())"));
-  assert.ok(reads("views/Pulse.tsx").includes("useReloadOnReconnect(nudgeHead)"));
+  assert.ok(reads("views/Pulse.tsx").includes("useReloadOnReconnect(() => nudgeHead())"));
   for (const rel of ["views/GoalDetail.tsx", "views/Workflows.tsx", "views/WorkflowRun.tsx", "views/_workflow/GoalWorkflowTab.tsx", "views/_workflow/WorkflowPicker.tsx"]) {
     assert.ok(/\buseAsync(<|\()/.test(reads(rel)), `${rel} reads through the shared hook`);
   }

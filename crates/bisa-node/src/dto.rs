@@ -1467,7 +1467,7 @@ pub enum ConversationKind {
 }
 
 /// One page of the activity feed: the rows, newest first, and where the next
-/// page starts — `null` on the last one.
+/// page starts — absent on the last one.
 #[derive(Serialize, JsonSchema)]
 pub struct PulsePage {
     pub rows: Vec<PulseRow>,

@@ -41,7 +41,7 @@ use crate::Inner;
 
 /// What a session is doing, as a person reads it. The same nine words on the
 /// rail, the Agents pane, the Agents screen, the pet and the activity.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "state")]
 pub enum SessionState {
     /// Launched; nothing has arrived from the harness yet.
@@ -86,7 +86,7 @@ impl WaitingOn {
 }
 
 /// Why a session is waiting on a person.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "on")]
 pub enum WaitingOn {
     /// The harness asked before running a tool; `gate_id` once the engine has
@@ -149,7 +149,7 @@ impl SessionState {
 
 /// A sub-agent a harness spawned inside a session, folded from
 /// `SubagentStarted`, the `Nested` events under it, and `SubagentEnded`.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 pub struct SubagentPresence {
     pub id: SubagentId,
     pub name: String,
@@ -163,7 +163,7 @@ pub struct SubagentPresence {
 }
 
 /// One live (or recently ended) harness session, as the roster shows it.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 pub struct SessionPresence {
     pub id: LiveRunId,
     pub kind: SessionKind,

@@ -610,3 +610,313 @@ fn the_homes_that_ever_asked_are_read_from_the_index_and_survive_a_rebuild() {
         "the rebuild replays the journal's rows"
     );
 }
+
+// ---------------------------------------------------------------------
+// One row per fact, a row that can leave, and what the feed says of itself
+// ---------------------------------------------------------------------
+
+fn post(ws: &Workspace, scope: &str, text: &str) -> String {
+    ws.post_message(
+        scope,
+        MessageBody::post(text),
+        None,
+        &[],
+        &[],
+        None,
+        PostOrigin::Asked,
+    )
+    .unwrap()
+}
+
+/// What the feed carries of the messages of one scope: each row's excerpt.
+fn excerpts(ws: &Workspace, scope: &str) -> Vec<String> {
+    ws.activity_page(Some(ActivityConcept::Channels), None, 200)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "message" && r.source_id == scope)
+        .map(|r| {
+            let event: serde_json::Value = serde_json::from_str(&r.event).unwrap();
+            event["snippet"].as_str().unwrap_or_default().to_string()
+        })
+        .collect()
+}
+
+/// One row of the feed without its `seq`: its second, concept, kind,
+/// source kind, source id, author and event.
+type FeedRow = (u64, String, String, String, String, Option<String>, String);
+
+/// The feed as a rebuild must reproduce it: every row but its `seq`, which
+/// is the insertion order and no fact's own.
+fn rows_of(ws: &Workspace) -> Vec<FeedRow> {
+    ws.activity_page(None, None, 500)
+        .unwrap()
+        .into_iter()
+        .map(|r| {
+            (
+                r.at,
+                r.concept,
+                r.kind,
+                r.source_kind,
+                r.source_id,
+                r.author,
+                r.event,
+            )
+        })
+        .collect()
+}
+
+fn reopened(dir: &tempfile::TempDir) -> Workspace {
+    Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap()
+}
+
+/// A message the cache already holds — a log that carries its line twice —
+/// is one row of the feed and one message of its conversation. Both were
+/// counted again for every time the event was indexed.
+#[test]
+fn a_message_indexed_twice_is_one_row_and_one_count() {
+    let (_dir, ws) = ws();
+    let c = ws
+        .create_conversation(bisa_store::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workspace,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let scope = c.id.to_string();
+    post(&ws, &scope, "said once");
+    let log = ws.paths().conversation_log(&scope).unwrap();
+    let line = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(line.lines().count(), 1);
+    std::fs::write(&log, format!("{line}{line}")).unwrap();
+
+    ws.rebuild_index().unwrap();
+    assert_eq!(excerpts(&ws, &scope), ["said once"], "one row a message");
+    assert_eq!(ws.conversation_row(c.id).unwrap().message_count, 1);
+}
+
+/// A retracted message's text is shown nowhere: its row leaves the feed
+/// when it is taken back, and a rebuild from the files does not bring it
+/// back. The feed kept the excerpt for good.
+#[test]
+fn a_retracted_message_leaves_the_feed_and_stays_gone_after_a_rebuild() {
+    let (_dir, ws) = ws();
+    let lounge = channel(&ws, "lounge");
+    post(&ws, &lounge, "this stays");
+    let taken_back = post(&ws, &lounge, "this was a mistake");
+    assert_eq!(excerpts(&ws, &lounge), ["this was a mistake", "this stays"]);
+
+    ws.retract(&taken_back).unwrap();
+    assert_eq!(excerpts(&ws, &lounge), ["this stays"]);
+    ws.rebuild_index().unwrap();
+    assert_eq!(
+        excerpts(&ws, &lounge),
+        ["this stays"],
+        "the files hold the retraction: a rebuild takes the row back again"
+    );
+    let held = rows_of(&ws);
+    assert!(
+        held.iter().all(|row| !row.6.contains("this was a mistake")),
+        "no row carries the text: {held:?}"
+    );
+}
+
+/// A reaction taken back is no message: the feed is left alone.
+#[test]
+fn a_retracted_reaction_leaves_the_feed_alone() {
+    let (_dir, ws) = ws();
+    let lounge = channel(&ws, "lounge");
+    let said = post(&ws, &lounge, "well done");
+    let reaction = ws.react(&said, "👍", None).unwrap();
+    ws.retract(&reaction).unwrap();
+    assert_eq!(excerpts(&ws, &lounge), ["well done"]);
+}
+
+/// A retraction that stands before its message in the file — a peer's,
+/// which overtook it — still takes the message back when the index is
+/// rebuilt: retractions are applied after every message.
+#[test]
+fn a_retraction_before_its_message_in_the_log_still_takes_it_back_on_a_rebuild() {
+    let (_dir, ws) = ws();
+    let lounge = channel(&ws, "lounge");
+    let taken_back = post(&ws, &lounge, "never mind");
+    ws.retract(&taken_back).unwrap();
+    let log = ws.paths().conversation_log(&lounge).unwrap();
+    let lines: Vec<String> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines.len(), 2, "the message, then its retraction");
+    std::fs::write(&log, format!("{}\n{}\n", lines[1], lines[0])).unwrap();
+
+    ws.rebuild_index().unwrap();
+    assert!(excerpts(&ws, &lounge).is_empty());
+    let messages = ws.messages(&lounge, None, 10).unwrap();
+    assert!(messages.iter().all(|m| m.retracted), "{messages:?}");
+}
+
+/// A rebuild reproduces the feed row for row — every field of every row,
+/// in the same order — and not only its kinds.
+#[test]
+fn a_rebuilt_feed_is_the_live_feed_row_for_row() {
+    let (dir, ws) = ws();
+    let goal = ws.create_goal(NewGoal::captured("Ship it")).unwrap().id;
+    ws.append_journal(
+        &Home::Goal { goal },
+        JournalPayload::Note {
+            text: "kept".into(),
+        },
+        ws.owner_keys(),
+        None,
+    )
+    .unwrap();
+    let lounge = channel(&ws, "lounge");
+    post(&ws, &lounge, "still here");
+    for at in [7, 9] {
+        ws.record_activity(
+            &engine_fact(at, ActivityConcept::Node, "paused", ActivitySource::node()),
+            true,
+        )
+        .unwrap();
+    }
+    let live = rows_of(&ws);
+    assert!(live.len() >= 5, "{live:?}");
+    drop(ws);
+
+    let ws = reopened(&dir);
+    ws.rebuild_index().unwrap();
+    let rebuilt = rows_of(&ws);
+    let sorted = |rows: &[_]| {
+        let mut rows = rows.to_vec();
+        rows.sort();
+        rows
+    };
+    assert_eq!(sorted(&rebuilt), sorted(&live), "every row, every field");
+    let seconds = |rows: &[FeedRow]| rows.iter().map(|row| row.0).collect::<Vec<_>>();
+    assert_eq!(seconds(&rebuilt), seconds(&live), "newest first, as it was");
+    ws.rebuild_index().unwrap();
+    assert_eq!(rows_of(&ws), rebuilt, "two rebuilds write the same feed");
+}
+
+/// The feed says each row once it can be read — a journal fact's, a
+/// message's, an engine fact's — on a channel of its own, and a rebuild is
+/// one word: *rebuilt*, never a notice a row.
+#[test]
+fn the_feed_says_each_row_once_it_can_be_read_and_a_rebuild_says_so_once() {
+    use bisa_store::ActivityNotice;
+    let (_dir, ws) = ws();
+    let mut heard = ws.subscribe_activity();
+    let mut drain = |ws: &Workspace| -> Vec<ActivityNotice> {
+        let mut out = Vec::new();
+        while let Ok(notice) = heard.try_recv() {
+            if let ActivityNotice::Row { seq, .. } = &notice {
+                let page = ws.activity_page(None, None, 500).unwrap();
+                assert!(
+                    page.iter().any(|r| r.seq == *seq),
+                    "a notice names a row that can be read: {notice:?}"
+                );
+            }
+            out.push(notice);
+        }
+        out
+    };
+
+    let goal = ws.create_goal(NewGoal::captured("Ship it")).unwrap().id;
+    let lounge = channel(&ws, "lounge");
+    post(&ws, &lounge, "hello");
+    ws.record_activity(
+        &engine_fact(7, ActivityConcept::Node, "paused", ActivitySource::node()),
+        true,
+    )
+    .unwrap();
+    let said = drain(&ws);
+    let of = |kind: &str| {
+        said.iter()
+            .filter_map(|n| match n {
+                ActivityNotice::Row {
+                    kind: k,
+                    concept,
+                    source,
+                    ..
+                } if k == kind => Some((*concept, source.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        of("note"),
+        [(
+            ActivityConcept::Goals,
+            ActivitySource::new(ActivitySourceKind::Goal, goal.to_string())
+        )],
+        "the capture's note: {said:?}"
+    );
+    assert_eq!(
+        of("message"),
+        [(
+            ActivityConcept::Channels,
+            ActivitySource::new(ActivitySourceKind::Channel, lounge.clone())
+        )]
+    );
+    assert_eq!(
+        of("paused"),
+        [(ActivityConcept::Node, ActivitySource::node())]
+    );
+    assert_eq!(said.len(), ws.activity_page(None, None, 500).unwrap().len());
+
+    ws.rebuild_index().unwrap();
+    assert_eq!(
+        drain(&ws),
+        [ActivityNotice::Rebuilt],
+        "the rows a rebuild writes are no news"
+    );
+}
+
+/// One writer puts a row in the feed (`Workspace::feed_row_in`): a seam
+/// that inserted on its own would land a row nobody is told of.
+#[test]
+fn nothing_but_the_one_writer_inserts_a_feed_row() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut callers = Vec::new();
+    for entry in std::fs::read_dir(&src).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "index.rs" || !name.ends_with(".rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            if line.contains("idx.record_activity(") || line.contains("idx().record_activity(") {
+                callers.push(format!("{name}:{}", n + 1));
+            }
+        }
+    }
+    assert_eq!(
+        callers.len(),
+        1,
+        "the index's insert is called from: {callers:?}"
+    );
+    assert!(callers[0].starts_with("workspace.rs:"), "{callers:?}");
+}
+
+/// A retraction whose message the file no longer holds costs the rebuild
+/// nothing: it is said and passed over, and the rest of the scope is read.
+#[test]
+fn a_retraction_of_a_message_the_file_lost_is_passed_over_by_a_rebuild() {
+    let (_dir, ws) = ws();
+    let lounge = channel(&ws, "lounge");
+    let gone = post(&ws, &lounge, "cut from the file");
+    ws.retract(&gone).unwrap();
+    post(&ws, &lounge, "still told");
+    let log = ws.paths().conversation_log(&lounge).unwrap();
+    let kept: Vec<String> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.contains("cut from the file"))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(kept.len(), 2, "the retraction and the later message");
+    std::fs::write(&log, format!("{}\n", kept.join("\n"))).unwrap();
+
+    ws.rebuild_index().unwrap();
+    assert_eq!(excerpts(&ws, &lounge), ["still told"]);
+}

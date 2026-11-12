@@ -95,7 +95,7 @@ test("the feature is named Mobile Development everywhere a name is needed, and `
     assert.ok(model.includes(key), `the settings key: ${key}`);
   }
   assert.ok(!/"mobile\.[a-z]/.test(model) && !/"mobile\.[a-z]/.test(read("views/_settings/MobileDevelopmentPanel.tsx")), "no key of the feature says mobile alone");
-  assert.ok(read("activity.ts").includes("mobile_development_changed: true") && read("views/_pulse/pulseModel.mjs").includes('"mobile_development_changed"'), "the event");
+  assert.ok(read("activity.ts").includes("mobile_development_changed: true"), "the event");
   assert.ok(read("types.hand.ts").includes('type: "mobile_development_changed"'), "the frame's kind");
   const terminals = read("shell/terminalsModel.mjs");
   assert.ok(terminals.includes("mobileDevelopment: mobileDevelopmentOf(") && !/\bmobile:/.test(terminals), "a terminal's device runs under the feature's name");

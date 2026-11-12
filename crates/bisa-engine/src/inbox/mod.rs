@@ -213,6 +213,14 @@ const MESSAGE_WINDOW: usize = 200;
 /// than the window ages out of the Inbox and stays in the Pulse.
 const NOTICE_WINDOW: usize = 1000;
 
+/// The guard's decisions are read in a window of their own. Most of them
+/// are calls it let through, which are no notice: counted with the rest
+/// they would push a failed run or a blocked step out of the window above
+/// for nothing. What a rule or the classifier refused among the newest of
+/// them is a notice; an older refusal stays in the Pulse.
+const GUARD_TAG: &str = "guard_decided";
+const GUARD_WINDOW: usize = 200;
+
 /// The newest notices a row carries.
 const NOTICES_PER_ROW: usize = 20;
 
@@ -802,7 +810,16 @@ impl Facts {
     ) -> Result<HashMap<InboxTarget, Vec<NoticeDto>>, StoreError> {
         let mut titles = crate::feed::Titles::new(ws);
         let mut out: HashMap<InboxTarget, Vec<NoticeDto>> = HashMap::new();
-        for record in ws.activity_by_kinds(notices::NOTICE_TAGS, NOTICE_WINDOW)? {
+        let others: Vec<&str> = notices::NOTICE_TAGS
+            .iter()
+            .copied()
+            .filter(|tag| *tag != GUARD_TAG)
+            .collect();
+        let mut records = ws.activity_by_kinds(&others, NOTICE_WINDOW)?;
+        records.extend(ws.activity_by_kinds(&[GUARD_TAG], GUARD_WINDOW)?);
+        // Newest first across both reads: a row keeps its newest notices.
+        records.sort_by_key(|record| std::cmp::Reverse((record.at, record.seq)));
+        for record in records {
             let event = match serde_json::from_str::<serde_json::Value>(&record.event) {
                 Ok(event) => event,
                 // LCOV_EXCL_START: the index holds what serde wrote; a row that is no JSON is a corrupted database
@@ -1798,6 +1815,69 @@ mod tests {
     use bisa_core::event::JournalPayload;
     use bisa_core::AskKind;
     use bisa_store::{MemoryKeyStore, NewGoal};
+
+    /// The guard lets most calls through, and each is a row of the feed:
+    /// a thousand of them never push a failed run out of the Inbox, and a
+    /// call it refused among the newest is a notice on its goal.
+    #[test]
+    fn allowed_decisions_never_crowd_out_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(bisa_store::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let goal = ws
+            .create_goal(bisa_store::NewGoal::captured("guarded work"))
+            .unwrap()
+            .id
+            .to_string();
+        let row = |at: u64, kind: &str, event: serde_json::Value| bisa_core::ActivityFact {
+            at,
+            concept: bisa_core::ActivityConcept::Agents,
+            kind: kind.to_string(),
+            source: bisa_core::ActivitySource::new(
+                bisa_core::ActivitySourceKind::Goal,
+                goal.clone(),
+            ),
+            author: None,
+            event,
+        };
+        let guard = |verdict: &str| json!({"type": "guard_decided", "verdict": verdict});
+        ws.record_activity(
+            &row(
+                1,
+                "run_finished",
+                json!({"type": "run_finished", "outcome": "failed"}),
+            ),
+            false,
+        )
+        .unwrap();
+        ws.record_activity(&row(2, GUARD_TAG, guard("denied")), false)
+            .unwrap();
+        for at in 0..(NOTICE_WINDOW as u64 + 50) {
+            ws.record_activity(&row(10 + at, GUARD_TAG, guard("allowed")), false)
+                .unwrap();
+        }
+        ws.record_activity(&row(5_000, GUARD_TAG, guard("denied")), false)
+            .unwrap();
+
+        let notices = Facts::gather_notices(&ws, &HashSet::new()).unwrap();
+        let kinds: Vec<notices::NoticeKind> = notices
+            .values()
+            .flatten()
+            .map(|notice| notice.notice)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                notices::NoticeKind::GuardRefused,
+                notices::NoticeKind::RunFailed
+            ],
+            "the newest refusal, and the failure the decisions did not push out — \
+             the refusal older than the guard's own window stays in the Pulse"
+        );
+    }
 
     fn workspace(dir: &tempfile::TempDir) -> Workspace {
         Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap()

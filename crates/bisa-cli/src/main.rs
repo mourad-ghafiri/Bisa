@@ -39,6 +39,7 @@ mod net;
 mod notes;
 mod output;
 mod projects;
+mod pulse;
 mod reindex;
 mod run;
 mod security;
@@ -287,6 +288,7 @@ enum Command {
     /// activity timeline
     Log {
         id: String,
+        /// How many of the newest facts to print: 100 when absent
         #[arg(long, default_value_t = 100)]
         limit: usize,
     },
@@ -481,13 +483,20 @@ enum Command {
         #[command(subcommand)]
         command: studio::DmCmd,
     },
-    /// The workspace activity feed
+    /// The workspace activity feed, newest first — with a node or without one
     Pulse {
+        /// How many rows to read: 40 when absent, 200 at most
         #[arg(long, default_value_t = 40)]
         limit: usize,
         /// One concept — workspace, goals, workflows, projects, channels, agents, node — or all
         #[arg(long, default_value = "all")]
         concept: String,
+        /// Read the rows before this moment (Unix seconds) — the `at` of the page before's `next`
+        #[arg(long)]
+        before: Option<u64>,
+        /// With --before: the rows before this one inside that second — the `seq` of `next`
+        #[arg(long, requires = "before")]
+        before_seq: Option<i64>,
     },
     /// Mark a conversation read
     Read {
@@ -1067,7 +1076,24 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             before,
         } => studio::messages(ctx, out, &scope, limit, before).await,
         Command::Dm { command } => studio::dm(ctx, out, command).await,
-        Command::Pulse { limit, concept } => studio::pulse(ctx, out, limit, &concept).await,
+        Command::Pulse {
+            limit,
+            concept,
+            before,
+            before_seq,
+        } => {
+            pulse::pulse(
+                ctx,
+                out,
+                pulse::Ask {
+                    limit,
+                    concept,
+                    before,
+                    before_seq,
+                },
+            )
+            .await
+        }
         Command::Read { scope, at } => studio::read_marker(ctx, out, &scope, true, at).await,
         Command::Unread { scope } => studio::read_marker(ctx, out, &scope, false, None).await,
         Command::Relay { command } => match command {

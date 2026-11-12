@@ -620,13 +620,8 @@ impl Inner {
 
     /// Publish an event.
     pub fn emit(&self, event: EngineEvent) {
-        // The feed's row first, then the frame: a reader that reads the feed
-        // again on the frame finds what the frame announced.
-        activity::record(self, &event);
-        // A send fails only when nobody is subscribed, which is not a fault.
-        if self.bus.send(event).is_err() {
-            tracing::trace!("engine event dropped: no subscribers");
-        }
+        // The feed's row first, then the frame (`activity::publish`).
+        activity::publish(&self.ws, &self.bus, event);
     }
 }
 

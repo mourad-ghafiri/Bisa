@@ -639,7 +639,9 @@ impl Workspace {
 
     fn ingest_snapshot(&self, event: &Event, wire_kind: u16) -> Result<IngestOutcome, StoreError> {
         enum Parsed {
-            Goal(Goal),
+            /// A goal, and whether the index held no row of it before — when
+            /// its journal's facts, which wait for that row, are indexed.
+            Goal(Goal, bool),
             /// A run, and whether this node held no copy of it before.
             Run(Box<WorkflowRun>, bool),
             Item(WorkItemSpec),
@@ -663,7 +665,9 @@ impl Workspace {
                         return Ok(reject(format!("goal: {why}")));
                     }
                 }
-                (Home::Goal { goal: goal.id }, Parsed::Goal(goal))
+                let home = Home::Goal { goal: goal.id };
+                let first = !self.home_indexed(&home)?;
+                (home, Parsed::Goal(goal, first))
             }
             kind::KIND_WORKFLOW_RUN => {
                 let run: WorkflowRun = match serde_json::from_str(&event.content) {
@@ -730,14 +734,24 @@ impl Workspace {
             return Ok(reject("stale"));
         }
         match parsed {
-            Parsed::Goal(goal) => {
+            Parsed::Goal(goal, first) => {
                 self.index_goal(&goal, None)?;
-                // Journal facts that arrived before this snapshot could not be
-                // indexed then; replay them now so the cache matches truth.
+                // Journal facts that arrived before the goal's row could not
+                // be indexed then: the snapshot that brings the row indexes
+                // them, once. Every later snapshot only derives again what a
+                // fact could not give when it came — a project this node did
+                // not hold yet, a document whose bytes came after — and adds
+                // no row: a fact is in the feed and among the decisions once,
+                // however often its goal is synced.
                 let addr = self.goal_addr(&goal);
                 let d = goal.id.to_string();
                 for (ev, je) in crate::journal::EventLog::replay(&self.log, &addr, &self.owner)? {
-                    if let Err(e) = self.index_journal_fact(&ev, &je) {
+                    let indexed = if first {
+                        self.index_journal_fact(&ev, &je)
+                    } else {
+                        self.index_journal_derived(&ev, &je)
+                    };
+                    if let Err(e) = indexed {
                         // LCOV_EXCL_START: a fact `decode` accepted is one the index takes; the arm keeps a peer's oddity from stopping the replay
                         tracing::debug!("goal {d}: journal fact not indexed: {e}");
                         // LCOV_EXCL_STOP
@@ -2486,5 +2500,263 @@ mod tests {
             ws1.home_of_work_item(item.id).is_err(),
             "indexed by nobody until its goal is here"
         );
+    }
+
+    // The feed (the Pulse): one row per fact, however a goal reaches a node.
+
+    /// The feed's rows about one goal, as `(kind, at)`, and how many
+    /// decisions the index holds.
+    fn feed_of(ws: &Workspace, goal: GoalId) -> Vec<(String, u64)> {
+        let mut rows: Vec<(String, u64)> = ws
+            .activity_page(None, None, 500)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.source_id == goal.to_string())
+            .map(|r| (r.kind, r.at))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    /// A goal that has a note and a decision on the twin, as its raw events.
+    fn decided_goal(ws2: &Workspace) -> (GoalId, Vec<Event>, Event) {
+        let goal = ws2.create_goal(NewGoal::captured("synced often")).unwrap();
+        let home = Home::Goal { goal: goal.id };
+        ws2.append_journal(
+            &home,
+            JournalPayload::Note {
+                text: "said once".into(),
+            },
+            ws2.owner_keys(),
+            None,
+        )
+        .unwrap();
+        ws2.record_decision(&home, Gate::Publish, true, "workstream:w1", None, None)
+            .unwrap();
+        let (journal, snapshot) = raw_events(ws2, goal.id);
+        (goal.id, journal, snapshot)
+    }
+
+    /// A newer snapshot of a goal, with no new fact: its title edited.
+    fn newer_snapshot(ws2: &Workspace, goal: GoalId) -> Event {
+        let mut edited = ws2.get_goal(goal).unwrap();
+        edited.title = Some(format!("{}!", edited.title.unwrap_or_default()));
+        ws2.update_goal(edited).unwrap();
+        raw_events(ws2, goal).1
+    }
+
+    /// Every later snapshot of a goal used to replay its whole journal into
+    /// the feed and the decisions: a goal synced three times read three
+    /// times over.
+    #[test]
+    fn a_goal_synced_three_times_has_each_fact_once() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let (goal, journal, snapshot) = decided_goal(&ws2);
+        ws1.ingest_remote_event(&snapshot).unwrap();
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        let once = feed_of(&ws1, goal);
+        assert_eq!(once.len(), journal.len(), "a row a fact: {once:?}");
+        let decisions = ws1.decisions().unwrap().len();
+        assert_eq!(decisions, 1);
+        for _ in 0..2 {
+            let newer = newer_snapshot(&ws2, goal);
+            assert_eq!(
+                ws1.ingest_remote_event(&newer).unwrap(),
+                IngestOutcome::AppliedSnapshot {
+                    kind: kind::KIND_GOAL,
+                    home: Home::Goal { goal }
+                },
+                "a newer snapshot is taken"
+            );
+            assert_eq!(feed_of(&ws1, goal), once, "the feed is what it was");
+            assert_eq!(ws1.decisions().unwrap().len(), decisions);
+        }
+        assert_eq!(ws1.get_goal(goal).unwrap().title.as_deref(), Some("!!"));
+    }
+
+    /// Facts that reached a node before their goal are indexed by the
+    /// snapshot that brings it — once.
+    #[test]
+    fn facts_that_came_before_their_goal_are_rows_once_it_lands() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let (goal, journal, snapshot) = decided_goal(&ws2);
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        assert!(feed_of(&ws1, goal).is_empty(), "no home, no row yet");
+        ws1.ingest_remote_event(&snapshot).unwrap();
+        let landed = feed_of(&ws1, goal);
+        assert_eq!(landed.len(), journal.len(), "{landed:?}");
+        assert_eq!(ws1.decisions().unwrap().len(), 1);
+        let newer = newer_snapshot(&ws2, goal);
+        ws1.ingest_remote_event(&newer).unwrap();
+        assert_eq!(feed_of(&ws1, goal), landed);
+        assert_eq!(ws1.decisions().unwrap().len(), 1);
+    }
+
+    /// What the replay still repairs: an attachment whose project arrived
+    /// after its fact is made by the goal's next snapshot — and adds no row.
+    #[test]
+    fn a_late_project_is_attached_by_the_next_snapshot_and_adds_no_row() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let goal = ws2
+            .create_goal(NewGoal::captured("needs a project"))
+            .unwrap();
+        let p = ws2
+            .create_project(crate::projects::NewProject::managed("web").unwrap())
+            .unwrap();
+        ws2.attach(goal.id, p.id).unwrap();
+        let (journal, snapshot) = raw_events(&ws2, goal.id);
+        ws1.ingest_remote_event(&snapshot).unwrap();
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        assert!(
+            ws1.projects_for(goal.id).unwrap().is_empty(),
+            "the project is not here yet"
+        );
+        let rows = feed_of(&ws1, goal.id);
+        let project_snapshot: Event = serde_json::from_slice(
+            &std::fs::read(ws2.paths().state_dir(Paths::NS_PROJECTS).join(format!(
+                "{}-{}.json",
+                kind::KIND_PROJECT,
+                p.id
+            )))
+            .unwrap(),
+        )
+        .unwrap();
+        ws1.ingest_remote_event(&project_snapshot).unwrap();
+        let newer = newer_snapshot(&ws2, goal.id);
+        ws1.ingest_remote_event(&newer).unwrap();
+        assert_eq!(ws1.projects_for(goal.id).unwrap().len(), 1);
+        assert_eq!(feed_of(&ws1, goal.id), rows, "a repair is no new fact");
+    }
+
+    /// A peer's facts are rows of the feed, and the feed says so on its own
+    /// channel — the store's events, which the relay and the agents' wake
+    /// read, stay silent for what a peer wrote.
+    #[test]
+    fn a_peers_facts_are_said_on_the_feed_and_never_on_the_store_bus() {
+        use crate::workspace::ActivityNotice;
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let (goal, journal, snapshot) = decided_goal(&ws2);
+        ws2.post_message(
+            "general",
+            bisa_core::MessageBody::post("from the other machine"),
+            None,
+            &[],
+            &[],
+            None,
+            crate::workspace::PostOrigin::Asked,
+        )
+        .unwrap();
+        let said: Event = serde_json::from_str(
+            std::fs::read_to_string(ws2.paths().conversation_log("general").unwrap())
+                .unwrap()
+                .lines()
+                .last()
+                .unwrap(),
+        )
+        .unwrap();
+        let mut bus = ws1.subscribe_store_events();
+        let mut feed = ws1.subscribe_activity();
+        ws1.ingest_remote_event(&snapshot).unwrap();
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        ws1.ingest_remote_event(&said).unwrap();
+        let mut kinds = Vec::new();
+        while let Ok(notice) = feed.try_recv() {
+            match notice {
+                ActivityNotice::Row { kind, seq, .. } => {
+                    assert!(
+                        ws1.activity_page(None, None, 500)
+                            .unwrap()
+                            .iter()
+                            .any(|r| r.seq == seq),
+                        "the row a notice names can be read"
+                    );
+                    kinds.push(kind);
+                }
+                other => panic!("no rebuild ran: {other:?}"),
+            }
+        }
+        kinds.sort();
+        assert_eq!(kinds, ["decision", "message", "note", "note"]);
+        assert!(feed_of(&ws1, goal).len() == journal.len());
+        assert!(matches!(
+            bus.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// A peer's retraction that overtook its message is refused, not taken
+    /// as done: offered again once the message is here, it takes it back —
+    /// from the conversation and from the feed.
+    #[test]
+    fn a_retraction_that_came_before_its_message_is_taken_on_retry() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let posted = ws2
+            .post_message(
+                "general",
+                bisa_core::MessageBody::post("sent in error"),
+                None,
+                &[],
+                &[],
+                None,
+                crate::workspace::PostOrigin::Asked,
+            )
+            .unwrap();
+        ws2.retract(&posted).unwrap();
+        let facts: Vec<Event> =
+            std::fs::read_to_string(ws2.paths().conversation_log("general").unwrap())
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+        let (message, retraction) = (&facts[facts.len() - 2], &facts[facts.len() - 1]);
+        assert_eq!(message.id.to_hex(), posted);
+
+        assert!(
+            matches!(
+                ws1.ingest_remote_event(retraction).unwrap(),
+                IngestOutcome::Rejected { .. }
+            ),
+            "nothing to take back yet"
+        );
+        ws1.ingest_remote_event(message).unwrap();
+        let excerpts = |ws: &Workspace| -> Vec<String> {
+            ws.activity_page(None, None, 500)
+                .unwrap()
+                .into_iter()
+                .filter(|r| r.kind == "message")
+                .map(|r| r.event)
+                .collect()
+        };
+        assert!(excerpts(&ws1).iter().any(|e| e.contains("sent in error")));
+        assert_eq!(
+            ws1.ingest_remote_event(retraction).unwrap(),
+            IngestOutcome::AppliedConversation {
+                scope: "general".into()
+            },
+            "the retraction was never marked seen, so its retry lands"
+        );
+        assert!(
+            excerpts(&ws1).iter().all(|e| !e.contains("sent in error")),
+            "{:?}",
+            excerpts(&ws1)
+        );
+        assert!(ws1
+            .messages("general", None, 10)
+            .unwrap()
+            .iter()
+            .any(|m| m.id == posted && m.retracted));
     }
 }

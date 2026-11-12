@@ -907,12 +907,31 @@ export interface SearchHit {
   status: GoalStatus;
 }
 
-/** SSE envelope: one connection, three streams — and the bus's own `system` frame, for the client, never a subscriber. */
+/** SSE envelope: one connection, four streams — and the bus's own `system` frame, for the client, never a subscriber. */
 export type BusFrame =
   | { stream: "engine"; payload: EngineEvent }
   | { stream: "conversation"; payload: ConversationFrame }
   | { stream: "inbox"; payload: InboxFrame }
+  | { stream: "pulse"; payload: PulseFrame }
   | { stream: "system"; payload: SystemFrame };
+
+/**
+ * The activity feed's own frame: one row as it lands — sent once the row can
+ * be read, whoever wrote it — or, with `concept: null`, that the feed moved
+ * as no one row tells (the index was rebuilt, this client fell behind) and
+ * every reader of `GET /pulse` reads again.
+ *
+ * Source: `bisa_node::pulse::frame`.
+ */
+export type PulseFrame =
+  | {
+      seq: number;
+      at: number;
+      concept: import("./types.gen").ActivityConcept;
+      kind: string;
+      source: import("./types.gen").PulseSource;
+    }
+  | { concept: null };
 
 /** What the node tells a client's bus about itself: it lagged, and `dropped` events are gone. */
 export interface SystemFrame {

@@ -635,12 +635,18 @@ workflows. The node ships the event, not a sentence: a row carries the payload v
 desktop renders it, so a step's failure, a decision's rationale and per-turn cost all appear, and
 a row reads the same the moment it happens and after a reload. Scroll and the feed keeps coming —
 a page at a time, as far back as the workspace goes; something that happens while you look
-arrives within a second. A Pulse left open holds ten pages and lets the oldest rows go past that,
-never the ones you are reading; scrolling down brings them back. A row opens what it is about — the goal, the channel, the workstream in
-the Project IDE, the workflow, the agent — and opens rather than truncates its detail, where every
+arrives within a second — whoever wrote it: an agent's note or its progress, a message, what the
+engine did, and what another of your machines synced, which lands where it happened and not at
+the top. One happening is one row: a run that finished is recorded by its journal and by the
+engine, and drawn once. A message taken back leaves the feed. A Pulse left open holds ten pages and lets the oldest rows go past that,
+never the ones you are reading; scrolling down brings them back. When a page cannot be read the
+feed says so above the list, and *Retry* reads that page again. A row opens what it is about — the goal, the channel, the workstream in
+the Project IDE, the workflow, the agent — unless that thing is gone: a row about a goal since
+deleted still says what happened, and opens nothing — and opens rather than truncates its detail, where every
 path and URL is a door: the file in the Project IDE or the file manager, the URL after a card
 asks, looked up across every checkout on this machine. `bisa pulse --concept <name>` renders
-the same facts in the terminal.
+the same rows in the terminal — with the app running or closed — and reads further back with the
+`--before` it prints at the end of a page.
 
 ## Notes
 

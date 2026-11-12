@@ -796,3 +796,105 @@ async fn a_step_waiting_on_the_clock_is_no_ask() {
     );
     node.shutdown().await;
 }
+
+// ---------------------------------------------------------------------
+// The feed of a run of the workspace: its frames and its echoes
+// ---------------------------------------------------------------------
+
+/// A run of the workspace is no goal's: its facts are filed under its
+/// workflow, and the feed's frame says so — where a reader that placed the
+/// frame by its payload alone took a step's change for a goal's and never
+/// moved the Workflows tab.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_runs_step_sends_a_frame_filed_under_workflows() {
+    let node = Node::start().await;
+    let wf = node.workflow(held_workflow()).await;
+    let mut frames = crate::node::Frames::open(&node).await;
+    let run = start(&node, &wf).await;
+    for kind in ["run_started", "step_changed"] {
+        let frame = frames.pulse_of(kind).await;
+        assert_eq!(frame["concept"], json!("workflows"), "{kind}: {frame}");
+        assert_eq!(
+            frame["source"],
+            json!({"kind": "workflow", "id": wf.to_string()}),
+            "{kind}"
+        );
+        // The frame comes after its row can be read.
+        let row = crate::node::row_of_frame(&node, &frame).await;
+        assert_eq!(row["event"]["run"], json!(run.to_string()), "{row}");
+    }
+    node.shutdown().await;
+}
+
+/// One happening is two rows and is drawn once: the engine's row says which
+/// journal row it repeats (`echo_of`) — on a page that holds both, and on a
+/// page of one row whose twin is on the page after.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_started_is_two_rows_returned_and_one_drawn_on_any_page() {
+    let node = Node::start().await;
+    let wf = node.workflow(held_workflow()).await;
+    let mut frames = crate::node::Frames::open(&node).await;
+    let run = start(&node, &wf).await;
+    frames.pulse_of("step_changed").await;
+
+    let all = node.get("/pulse?concept=workflows&limit=200").await["rows"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let of_run = |kind: &str| -> Vec<Value> {
+        all.iter()
+            .filter(|row| {
+                row["kind"] == json!(kind) && row["event"]["run"] == json!(run.to_string())
+            })
+            .cloned()
+            .collect()
+    };
+    let journal = of_run("run");
+    let engine = of_run("run_started");
+    assert_eq!(
+        (journal.len(), engine.len()),
+        (1, 1),
+        "both are returned: {all:?}"
+    );
+    assert_eq!(engine[0]["echo_of"], journal[0]["seq"], "{engine:?}");
+    assert!(
+        journal[0].get("echo_of").is_none(),
+        "a journal row is nobody's echo"
+    );
+    // What a reader draws: every row but the echoes — the run began once.
+    let drawn: Vec<&Value> = all
+        .iter()
+        .filter(|row| row.get("echo_of").is_none())
+        .collect();
+    assert_eq!(
+        drawn
+            .iter()
+            .filter(|row| row["event"]["run"] == json!(run.to_string())
+                && (row["kind"] == json!("run") || row["kind"] == json!("run_started")))
+            .count(),
+        1
+    );
+    // Page by page, one row at a time: the echo is marked on its own page.
+    let mut cursor = String::new();
+    let mut echoes = 0;
+    loop {
+        let page = node
+            .get(&format!("/pulse?concept=workflows&limit=1{cursor}"))
+            .await;
+        for row in page["rows"].as_array().unwrap() {
+            if row["seq"] == engine[0]["seq"] {
+                assert_eq!(
+                    row["echo_of"], journal[0]["seq"],
+                    "alone on its page: {row}"
+                );
+                echoes += 1;
+            }
+        }
+        match page.get("next") {
+            Some(next) => cursor = format!("&before={}&before_seq={}", next["at"], next["seq"]),
+            None => break,
+        }
+    }
+    assert_eq!(echoes, 1, "the feed was paged to its end");
+    node.shutdown().await;
+}

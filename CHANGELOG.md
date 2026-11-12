@@ -16,7 +16,24 @@ notes (`docs/contributing/release.md`).
   publishes on its own site and recommends keeping the tarball beside the project. A `.xlsx`,
   `.xls` or `.ods` file opens as before, and the advisory check of the licence gate passes.
 
+- **Two dependencies with published advisories are upgraded.** `hickory-proto` 0.26.3 (five
+  RustSec advisories against 0.26.1: panics and a memory amplification in DNS parsing) and
+  `rustix` 1.1.6 (RUSTSEC, an unsound `xattr` read). Patch releases: `Cargo.lock`, with the unification crate and the notices regenerated.
+
 ### Added
+
+- **The event stream says the Pulse's rows.** `GET /events` has a fourth stream, `pulse`: one frame
+  per row of the activity feed as it lands — `{seq, at, concept, kind, source}` — for every row,
+  whoever wrote it. What an agent wrote into a journal (a note, its progress, a claim, a turn's
+  cost) and what another of your machines synced had no frame at all, so an open Pulse showed them
+  only when something else moved; and a run of the workspace's step, filed under *Workflows*, was
+  placed by its payload as a goal's. `{concept: null}` says the feed moved as no one row tells —
+  the index was rebuilt, or the reader fell behind — and a reader reads again.
+- **`bisa pulse` pages back.** `--before <seconds>` and `--before-seq <n>` read the rows before a
+  moment — the `next` a page of `--json` names — and for a person a page that has more ends with
+  the command that reads on. `--limit` says in `--help` what it does, as `bisa log`'s does.
+- **A Pulse row says when it only repeats another.** `echo_of` on a row of `GET /pulse` is the
+  `seq` of the journal row the engine's fact repeats (see *Changed*).
 
 - **A skill can carry reference sections, read on demand.** A heading `## Reference: <Title>` in a
   skill's markdown opens a section; what comes before the first is the body every session of a
@@ -114,6 +131,21 @@ notes (`docs/contributing/release.md`).
   live or rebuilt after a restart, and never another the home owes; one already answered is `409`.
 
 ### Changed
+
+- **`bisa pulse` with no node is the same feed.** It printed the open goals' journals alone,
+  oldest first, with no message, no fact of the engine and no run of the workspace, ignored
+  `--concept`, and answered `--json` in a shape of its own (`{rows: [{at, text}]}`). It reads the
+  workspace's own index through the builder the node uses: the same rows, newest first, with
+  their titles and concepts, and under `--json` the node's `{rows, next}`. A script that read the
+  offline shape reads the node's now.
+- **A word that is no concept is refused by `bisa pulse`** with a node or without one, before
+  anything is read (exit 1). With no node it used to print a note and answer everything.
+
+- **One happening is one row of the Pulse.** A run that started, a step that moved, a question, a
+  decision, a document given: each is recorded twice — by the journal, which is signed and synced,
+  and by the engine, which says it live — and was drawn twice. Both are still recorded and both are
+  still returned by `GET /pulse`; the engine's row now carries `echo_of`, the journal row it
+  repeats, so a reader of the feed draws the happening once.
 
 - **Skills reach a harness by what it can do.** A harness that mounts the platform's MCP servers gets
   a skill's body and one line naming its reference sections; one that cannot gets the whole text. A
@@ -281,6 +313,73 @@ notes (`docs/contributing/release.md`).
 - **Two rows of one second could trade places between reads.** The order ends in the key.
 - **Every Inbox read opened every goal's journal**, and verified each event's signature. A journal
   is read only for a goal that ever journaled a question and is still open.
+
+- **A goal synced from another of your machines repeated its history in the Pulse.** Every newer
+  snapshot of a goal indexed the goal's whole journal again, so each sync added every fact to the
+  feed, and every decision to the decisions, once more. A fact is indexed once — by the snapshot
+  that brings its goal, or as it arrives — and a later snapshot only repairs what could not be
+  derived at the time (a project that arrived after its attachment, a document after its fact).
+  Rows already repeated stay until `bisa workspace reindex`.
+- **A retracted message's text stayed in the Pulse**, and came back after a rebuild. The row
+  leaves the feed when its message is taken back, and a rebuild takes it back again.
+- **A retraction that arrived before its message was lost.** A peer's retraction of a message this
+  node did not hold yet was taken as done, and the message then stood. It is refused, like a
+  reaction to nothing, and takes the message back when it is offered again; a rebuild applies every
+  retraction after every message, whatever the order of the file.
+- **A message indexed twice was two rows and two messages.** A log that carried a line twice gave
+  the Pulse the row twice and the conversation a count of two. A message is counted by the call
+  that put it in the index.
+- **One concept's Pulse page, and the Inbox's notices, read more as a workspace aged.** A page of
+  one concept walked every concept's rows to find its own, and the Inbox sorted every notice ever
+  recorded to keep the newest. Each read now follows its own index in order.
+
+- **The guard's decisions and the redactor's work never reached the Pulse.** A command a rule or the
+  classifier refused, allowed or asked about, and a secret taken out of a prompt, were said on the
+  live stream alone: nothing kept them, the Pulse did not show them after the moment, and the
+  Inbox's *command refused* notice could never appear. Both are rows of the feed now, kept across a
+  restart, and a refusal is a notice on its goal's row — or its workflow's, for a run of the
+  workspace. The guard's decisions are read in a window of their own, so the many it lets through
+  never push a failed run out of the Inbox.
+- **A held message let through or refused opened the wrong place.** Its row was filed as a
+  conversation though it was sent to a channel, so it had no title and its door led nowhere.
+
+- **A command beside a running node could cost the index a row.** Two processes write one index —
+  the node, and any `bisa` command opened next to it. A step of the index that read and then wrote
+  was refused at once (*database is locked*, with no wait) whenever the other process had written
+  in between, and the row it was writing — a run's, most often — was left out until the next
+  rebuild. Every such step now takes its turn from its start, and the other waits.
+
+- **`bisa pulse` printed a bare tag for most of what the engine records.** With a node, a project
+  made, a workstream opened or committed, a goal archived, a setting changed and some forty other
+  facts read as their type — `project created` — and `bisa run --watch` through a node printed
+  nothing for them, because a second renderer over the wire's shape knew twenty-two facts where the
+  in-process one knows them all. There is one renderer: what arrives as JSON is read back and
+  worded as the live timeline words it.
+- **A run of the workspace wrote on a goal's timeline.** `bisa run <goal>` through a node kept
+  every frame that named no goal — and a run of the workspace names none. Only a frame about
+  nothing in particular (the node paused, a setting changed) is everybody's.
+- **A page of the feed that held no row was taken for the end.** `bisa pulse` said *nothing has
+  happened yet* when every record of a page was one this version cannot type; it reads on.
+- **The live stream ending was silent.** A follower whose stream ended went on polling and printed
+  no more lines without a word; it says once that the lines stopped.
+
+- **The Pulse missed what had no frame of its own.** The *Workflows* tab did not move for a run of
+  the workspace, and no tab moved for what an agent wrote into a journal or for what another of
+  your machines synced, until something else did. The screen follows the feed's own stream.
+- **The Pulse could keep a hole.** A page the node shortened — it leaves out a row it cannot type —
+  was taken for the whole feed and joined to rows it did not reach; an older page that landed
+  after the feed had started over was appended below a tail that had moved; and a first page of
+  rows nobody could draw read *Nothing has happened yet* for good. A page is the whole feed when
+  the node says so, a late page is let go, and an empty page with more behind it reads on.
+- **Retry on the Pulse read the wrong page.** After an older page failed, *Retry* read the head
+  and the page was never asked for again; a later page that succeeded left the error standing.
+- **A message taken back stayed on an open Pulse**, and a fact a peer synced late never appeared in
+  a feed loaded past it.
+- **A row about a deleted goal opened a page that could only say not found**, and an agent's row
+  opened the list of agents. A row about a thing that is gone opens nothing; an agent's opens the
+  agent.
+- **An unknown fact of a run read as *cancelled*** on the Pulse, a claim with no work item read
+  `efined`, and a turn with no counts read *NaN tokens*. Each reads as what it is.
 
 ## [0.7.0] - 2026-11-06
 

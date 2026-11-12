@@ -29502,6 +29502,14 @@
         },
         "event": {
           "$ref": "#/definitions/PulseEvent"
+        },
+        "echo_of": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "description": "Set on an engine's fact that only repeats a journal fact of the same\nhappening — a run that finished is said by its journal and by the\nengine — to that journal row's `seq`. Both rows are in the feed; a\nreader that draws the feed draws the journal's and passes over the\necho. Absent on every other row."
         }
       },
       "required": [
@@ -30476,6 +30484,14 @@
         },
         "event": {
           "$ref": "#/definitions/PulseEvent"
+        },
+        "echo_of": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "description": "Set on an engine's fact that only repeats a journal fact of the same\nhappening — a run that finished is said by its journal and by the\nengine — to that journal row's `seq`. Both rows are in the feed; a\nreader that draws the feed draws the journal's and passes over the\necho. Absent on every other row."
         }
       },
       "required": [
@@ -30511,7 +30527,7 @@
       "required": [
         "rows"
       ],
-      "description": "One page of the activity feed: the rows, newest first, and where the next\npage starts — `null` on the last one."
+      "description": "One page of the activity feed: the rows, newest first, and where the next\npage starts — absent on the last one."
     },
     "PulseCursor": {
       "type": "object",

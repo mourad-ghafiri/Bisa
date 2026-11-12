@@ -316,7 +316,7 @@ Then watch it go:
 ```sh
 bisa status $GID        # status, workflow, one line per step with its mark
 bisa log $GID           # the signed journal as an activity timeline
-bisa pulse              # everything happening across the workspace
+bisa pulse              # everything that happened across the workspace, newest first
 bisa search hello       # full-text search over goals
 bisa files tree goal $GID           # what the work left on disk, annotated
 bisa files show goal $GID --path work/notes.md

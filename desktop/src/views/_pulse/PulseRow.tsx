@@ -31,6 +31,10 @@ export interface PulseItem {
   /** A kit glyph, or a tool's mark (git). */
   icon?: LucideIcon | Mark;
   detail?: DetailField[];
+  /** The engine's fact of a happening its journal already tells: held, never drawn (`pulseModel.itemOf`). */
+  echo?: boolean;
+  /** What the row is about is gone: it says what happened and opens nothing. */
+  gone?: boolean;
 }
 
 // The routine spine (a step started, a step done) recedes so a line that

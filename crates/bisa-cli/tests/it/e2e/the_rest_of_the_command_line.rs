@@ -334,7 +334,12 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     ws.json(&["channels", "list"]);
     assert_eq!(ws.json(&["dm", "list"])["dms"], json!([]));
     ws.json(&["pulse"]);
-    ws.json(&["pulse", "--concept", "runs"]);
+    // With no node the feed is the workspace's own, one concept at a time —
+    // and a word that is no concept is refused, as the node refuses it.
+    ws.json(&["pulse", "--concept", "goals"]);
+    assert!(ws
+        .refused(&["pulse", "--concept", "runs"])
+        .contains("workflows"));
     let _ = ws.bisa(&["status", &goal, "--lang"]);
     let restarted = ws.bisa(&["restart", &goal]);
     assert!(!restarted.status.success(), "{}", said_by(&restarted));

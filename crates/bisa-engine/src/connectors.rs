@@ -377,6 +377,9 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// A frame alone, never a row of the feed: a token the platform refreshed
+/// on its own is no news to a person — an account they connected, changed
+/// or removed is, and goes through [`announce`].
 fn emit(bus: &broadcast::Sender<EngineEvent>, what: ConnectorsChange) {
     if bus
         .send(EngineEvent::global(EnginePayload::ConnectorsChanged {

@@ -34,7 +34,7 @@ use crate::projects::{blocking, checkout_tree};
 use crate::{EngineError, Inner};
 
 /// Why a person is being asked who commits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitterReason {
     /// A project was just created and no identity resolves in it.

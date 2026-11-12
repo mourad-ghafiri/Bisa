@@ -16,7 +16,7 @@ use bisa_core::{
 };
 use bisa_harness::SessionEvent;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::presence::SessionPresence;
@@ -24,7 +24,7 @@ use crate::registry::LiveRunId;
 
 /// How a work item's execution ended — typed, so a screen matches a tag and
 /// never a sentence.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "outcome")]
 pub enum ExecutionOutcome {
     Completed,
@@ -66,7 +66,7 @@ impl ExecutionOutcome {
 /// One event on the engine's broadcast bus. `goal`/`workflow`/`run`/
 /// `work_item` scope the payload when known; subscribers filter by scope and
 /// payload kind.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalId>,
@@ -86,7 +86,7 @@ pub struct EngineEvent {
     pub payload: EnginePayload,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum EnginePayload {
     /// A harness session event, re-broadcast with goal/work-item scope.
@@ -742,7 +742,7 @@ pub enum EnginePayload {
 }
 
 /// What became of a signal at its listener, for [`EnginePayload::ListenerFired`].
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "outcome")]
 pub enum FiredOutcome {
     /// It started this run — on `goal`, or in the workspace.
@@ -819,7 +819,7 @@ impl GitSetup {
 }
 
 /// What happened to a file, as the watcher and the write routes report it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileChangeKind {
     Created,
@@ -1499,5 +1499,56 @@ mod edge_tests {
         .fields();
         assert_eq!(changed["on"], "true");
         assert_eq!(changed["host"], format!("workspace:{workflow}"));
+    }
+
+    /// A fact the feed stored is read back as the payload it was: the
+    /// shapes serde is least sure of — a variant flattened into its tag, a
+    /// tagged outcome inside a field, a field that is absent or null, a
+    /// unit variant — each come back and say the same JSON again. What the
+    /// command line words a stored row from (every variant is held there,
+    /// beside its line).
+    #[test]
+    fn a_stored_fact_is_read_back_as_the_payload_it_was() {
+        use serde_json::json;
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        for stored in [
+            json!({"type": "paused"}),
+            json!({"type": "result_accepted"}),
+            json!({"type": "addons_changed", "what": "installed", "id": "media"}),
+            json!({"type": "execution_ended", "outcome": {"outcome": "completed"}}),
+            json!({"type": "execution_ended", "outcome": {"outcome": "budget_exhausted"}}),
+            json!({"type": "run_finished", "run": id, "workflow": id, "outcome": "done"}),
+            json!({"type": "step_changed", "run": id, "workflow": id, "step": "build", "state": "running", "kind": "agent"}),
+            json!({"type": "guard_decided", "tool": "Bash", "subject": "ls", "verdict": "allowed", "by": "rule"}),
+            json!({"type": "guard_decided", "tool": "Bash", "subject": "ls", "verdict": "denied", "by": "rule", "rule": "r", "reason": "no"}),
+            json!({"type": "settings_changed", "scope": "workspace", "project": null, "keys": ["a.b"]}),
+            json!({"type": "file_changed", "scope": "goal", "id": id, "path": "a.rs", "kind": "modified", "from": null, "ignored": false, "dir": false}),
+            json!({"type": "redacted", "count": 2, "kinds": ["github_token"], "at": "prompt"}),
+            json!({"type": "relays_changed"}),
+        ] {
+            let payload: EnginePayload =
+                serde_json::from_value(stored.clone()).unwrap_or_else(|e| panic!("{stored}: {e}"));
+            assert_eq!(serde_json::to_value(&payload).unwrap(), stored);
+        }
+        // A fact written before a field existed is read with the field at
+        // its default, never refused: `dir` came after the first rows.
+        let old = json!({"type": "file_changed", "scope": "goal", "id": id, "path": "a.rs", "kind": "modified", "from": null, "ignored": false});
+        assert!(matches!(
+            serde_json::from_value::<EnginePayload>(old).unwrap(),
+            EnginePayload::FileChanged { dir: false, .. }
+        ));
+        // The envelope of a frame: every scope it names, or none.
+        for frame in [
+            json!({"payload": {"type": "paused"}}),
+            json!({"goal": id, "workflow": id, "run": id, "work_item": id, "payload": {"type": "result_accepted"}}),
+        ] {
+            let event: EngineEvent = serde_json::from_value(frame.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&event).unwrap(), frame);
+        }
+        // What is no payload is refused, by its tag.
+        assert!(
+            serde_json::from_value::<EnginePayload>(json!({"type": "from_a_newer_build"})).is_err()
+        );
+        assert!(serde_json::from_value::<EnginePayload>(json!({"no": "type"})).is_err());
     }
 }

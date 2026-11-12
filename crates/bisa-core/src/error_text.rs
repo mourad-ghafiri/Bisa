@@ -355,6 +355,10 @@ impl Localize for crate::error::CoreError {
                 "error-core-unknown-activity-concept",
                 v0 = format!("{v0:?}")
             ),
+            crate::error::CoreError::UnknownActivitySourceKind(v0) => crate::text!(
+                "error-core-unknown-activity-source-kind",
+                v0 = format!("{v0:?}")
+            ),
             crate::error::CoreError::TooManyArtifacts(v0) => crate::text!(
                 "error-core-too-many-artifacts",
                 max = (crate::artifact::MAX_ARTIFACTS_PER_MESSAGE).to_string(),
@@ -1068,6 +1072,7 @@ mod tests {
             CoreError::UnknownFileScope("x".into()),
             CoreError::UnknownArtifactKind("x".into()),
             CoreError::UnknownActivityConcept("x".into()),
+            CoreError::UnknownActivitySourceKind("x".into()),
             CoreError::TooManyArtifacts(9),
             CoreError::InvalidArtifactName("x".into()),
             CoreError::InvalidArtifactTitle("x".into()),

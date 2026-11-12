@@ -160,7 +160,7 @@ impl FromStr for ActivitySourceKind {
             .iter()
             .copied()
             .find(|k| k.as_str() == s)
-            .ok_or_else(|| crate::CoreError::UnknownActivityConcept(s.to_string()))
+            .ok_or_else(|| crate::CoreError::UnknownActivitySourceKind(s.to_string()))
     }
 }
 
@@ -230,6 +230,23 @@ mod tests {
         assert!("trigger".parse::<ActivitySourceKind>().is_err());
         assert!("goal".parse::<ActivitySourceKind>().is_ok());
         assert!("peer".parse::<ActivitySourceKind>().is_err());
+    }
+
+    /// A source kind parses its nine words back, and a word that is none of
+    /// them is refused as a source kind — not as a concept, which is what
+    /// the log line of a row nobody can type used to say.
+    #[test]
+    fn a_source_kind_parses_its_nine_names_and_an_unknown_one_is_named_as_such() {
+        for kind in ActivitySourceKind::ALL {
+            assert_eq!(ActivitySourceKind::from_str(kind.as_str()).unwrap(), *kind);
+        }
+        assert_eq!(ActivitySourceKind::ALL.len(), 9);
+        let refused = ActivitySourceKind::from_str("trigger").unwrap_err();
+        assert!(
+            matches!(&refused, crate::CoreError::UnknownActivitySourceKind(word) if word == "trigger"),
+            "{refused:?}"
+        );
+        assert!(refused.to_string().contains("activity source kind"));
     }
 
     #[test]

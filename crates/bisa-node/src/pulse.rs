@@ -28,7 +28,7 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use bisa_core::ActivityConcept;
-use bisa_store::ActivityCursor;
+use bisa_store::{ActivityCursor, ActivityNotice};
 use serde::Deserialize;
 use std::str::FromStr;
 
@@ -99,12 +99,43 @@ async fn pulse(
             })
         })
         .flatten();
-    let mut titles = bisa_engine::feed::Titles::new(ws);
-    let rows: Vec<PulseRow> = records
-        .into_iter()
-        .filter_map(|r| bisa_engine::feed::typed(r, &mut titles))
-        .collect();
+    // Every record typed, and every engine fact that only repeats a journal
+    // fact marked as its echo: the feed's one page builder.
+    let rows: Vec<PulseRow> = bisa_engine::feed::page(ws, records);
     Ok(Json(PulsePage { rows, next }))
+}
+
+/// The feed's own frame on the event stream — `{"stream": "pulse", …}` —
+/// for what the store says of its feed ([`ActivityNotice`]).
+///
+/// A row that landed is said with where it stands and what it is filed
+/// under: `{seq, at, concept, kind, source}`. A reader holding that
+/// concept's page reads its head again and finds the row, since the notice
+/// is sent only once the row can be read — a journal fact's, a message's,
+/// an engine fact's, and a peer's as much as this node's own.
+///
+/// `{"concept": null}` says the feed moved in a way no one row tells: the
+/// index was rebuilt (every row may wear another `seq`), or this reader fell
+/// behind and missed notices (`None`). Whatever a reader holds, it reads
+/// again.
+pub(crate) fn frame(notice: Option<&ActivityNotice>) -> serde_json::Value {
+    let payload = match notice {
+        Some(ActivityNotice::Row {
+            seq,
+            at,
+            concept,
+            kind,
+            source,
+        }) => serde_json::json!({
+            "seq": seq,
+            "at": at,
+            "concept": concept,
+            "kind": kind,
+            "source": source,
+        }),
+        Some(ActivityNotice::Rebuilt) | None => serde_json::json!({"concept": null}),
+    };
+    serde_json::json!({"stream": "pulse", "payload": payload})
 }
 
 /// The routes this module mounts, for `bisa-node --bin api-docs` and the
@@ -112,7 +143,7 @@ async fn pulse(
 pub const ROUTES: &[RouteDoc] = &[RouteDoc {
     method: "GET",
     path: "/pulse",
-    summary: "One page of the activity feed, newest first (`?concept=all|workspace|goals|workflows|projects|channels|agents|node&before=&before_seq=&limit=`): rows with the fact verbatim, its concept, what it is about and a title; `next` is the cursor of the page after, null on the last. What a listener heard, started or could not start is filed under its host — `workflows` for a library workflow, `goals` for a goal. A row this build cannot type is skipped and logged, never the reason a page fails.",
+    summary: "One page of the activity feed, newest first (`?concept=all|workspace|goals|workflows|projects|channels|agents|node&before=&before_seq=&limit=`): rows with the fact verbatim, its concept, what it is about and a title; `next` is the cursor of the page after, absent on the last. `limit` is 60 when absent, 200 at most and never less than one; `before` alone reads from the end of that second, `before_seq` alone is refused. What a listener heard, started or could not start is filed under its host — `workflows` for a library workflow, `goals` for a goal. One happening the journal and the engine both recorded is two rows, and the engine's carries `echo_of`, the `seq` of the journal's: a reader draws the journal's row and passes over the echo. A row this build cannot type is skipped and logged, never the reason a page fails — so a page may hold fewer rows than `limit`, none at all, and still carry `next`. Live: the event stream's `pulse` frame says each row as it lands.",
 }];
 
 #[cfg(test)]
@@ -132,5 +163,31 @@ mod tests {
             );
         }
         assert!(parse_concept(Some("everything")).is_err());
+    }
+
+    /// A row that landed is said with its place and what it is filed under;
+    /// a rebuild, and a reader that fell behind, are one word to every tab.
+    #[test]
+    fn a_pulse_frame_says_the_row_that_landed_or_that_everything_moved() {
+        let row = ActivityNotice::Row {
+            seq: 7,
+            at: 42,
+            concept: ActivityConcept::Workflows,
+            kind: "step_changed".into(),
+            source: bisa_core::ActivitySource::new(
+                bisa_core::ActivitySourceKind::Workflow,
+                "w1".to_string(),
+            ),
+        };
+        assert_eq!(
+            frame(Some(&row)),
+            serde_json::json!({"stream": "pulse", "payload": {
+                "seq": 7, "at": 42, "concept": "workflows", "kind": "step_changed",
+                "source": {"kind": "workflow", "id": "w1"},
+            }})
+        );
+        let moved = serde_json::json!({"stream": "pulse", "payload": {"concept": null}});
+        assert_eq!(frame(Some(&ActivityNotice::Rebuilt)), moved);
+        assert_eq!(frame(None), moved, "a reader that fell behind");
     }
 }

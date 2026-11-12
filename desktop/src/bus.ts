@@ -11,7 +11,7 @@ import { useEffect, useRef } from "react";
 import { apiBaseSync, resolveApiBase, resolveApiToken, withToken } from "./api";
 import { FIRST_CONN, type Conn, type StreamEvent, connAfter, endLine, matches, parseFrame, retryDelay, warnsMalformed } from "./busModel.mjs";
 import { errorFields, log } from "./log";
-import type { BusFrame, EngineEvent, ConversationFrame } from "./types";
+import type { BusFrame, EngineEvent, ConversationFrame, PulseFrame } from "./types";
 
 /**
  * The connection as the shell sees it (`busModel.connAfter`): `connecting`
@@ -24,7 +24,7 @@ export type ConnState = Conn;
 
 export interface Filter {
   /** Omit for every stream. */
-  stream?: "engine" | "conversation" | "inbox";
+  stream?: "engine" | "conversation" | "inbox" | "pulse";
   /** Only engine frames scoped to this goal. */
   goal?: string;
   /** Only conversation frames for this conversation scope. */
@@ -242,6 +242,13 @@ export function useEngineEvents(
 ): void {
   useBus({ stream: "engine", goal }, (f) => {
     if (f.stream === "engine") handler(f.payload);
+  });
+}
+
+/** The activity feed's own frames, already unwrapped: one per row as it lands, or the feed moving as no one row tells. */
+export function usePulseEvents(handler: (f: PulseFrame) => void): void {
+  useBus({ stream: "pulse" }, (f) => {
+    if (f.stream === "pulse") handler(f.payload);
   });
 }
 

@@ -1210,3 +1210,29 @@ test("a run retired with its goal says so, in the journal's line and the bus's",
   assert.equal(payloadLine({ type: "run", run: RUN, event: { fact: "cancelled", cause: { cause: "retired" } } }).text, "run 00RUN1 retired with its goal");
   assert.equal(engineLine({ payload: { ...ENGINE.run_cancelled, cause: { cause: "retired" } } }, 1).text, "run 00RUN1 retired with its goal");
 });
+
+test("a journal fact cut short or from a newer node still reads as a line, never as a throw or a wrong word", () => {
+  // What became of a run that this build has no word for is said by its name — never as a run cancelled.
+  const newer = payloadLine({ type: "run", run: "01RUNAAAAAAAAAAAAAAAAAAAAA", event: { fact: "handed_over" } });
+  assert.equal(newer.text, "run handed over");
+  assert.equal(newer.tone, "dim");
+  const cancelled = payloadLine({ type: "run", run: "01RUNAAAAAAAAAAAAAAAAAAAAA", event: { fact: "cancelled", cause: { cause: "stopped" } } });
+  assert.match(cancelled.text, /stopped/);
+  // A document with no file, a claim with no item, a turn with no counts: a line each, with nothing invented.
+  const document = payloadLine({ type: "document" });
+  assert.ok(document.text.length > 0 && !document.text.includes("undefined"));
+  const claim = payloadLine({ type: "claim", harness: "mock" });
+  assert.ok(!claim.text.includes("efined"), claim.text);
+  const result = payloadLine({ type: "result" });
+  assert.ok(!result.text.includes("efined"), result.text);
+  const cost = payloadLine({ type: "turn_metrics" });
+  assert.ok(!cost.text.includes("NaN"), cost.text);
+  assert.ok(cost.detail.every((d) => !String(d.value).includes("NaN")), JSON.stringify(cost.detail));
+});
+
+test("a row's detail labels are the catalogue's, as every other label is", () => {
+  const cancelled = pulseLine({ seq: 1, at: 1, concept: "goals", source: { kind: "goal", id: "G" }, event: { type: "run_cancelled", run: "01RUNAAAAAAAAAAAAAAAAAAAAA", cause: { cause: "stopped", rationale: "enough" } } });
+  assert.deepEqual(cancelled.detail.map((d) => d.label), ["Run", "Cause", "Rationale"]);
+  const created = pulseLine({ seq: 2, at: 1, concept: "workspace", source: { kind: "goal", id: "G" }, event: { type: "goal_created", goal: "01GOALAAAAAAAAAAAAAAAAAAAA", origin: { origin: "captured" } } });
+  assert.deepEqual(created.detail.map((d) => d.label), ["Goal", "Origin"]);
+});

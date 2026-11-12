@@ -36,7 +36,7 @@ Every durable fact is a file.
 | A note | `notes/workspace/<NoteId>.md`, `notes/goals/<GoalId>/<NoteId>.md`, `notes/projects/<slug>/<NoteId>.md`, `notes/workflows/<WorkflowId>/<NoteId>.md`, `notes/channels/<ChannelId>/<NoteId>.md`, `notes/node/<NoteId>.md` | Markdown with a front matter block (`title`, `pinned`, `created_at`, `updated_at`); `notes/` is one git repository — the engine makes it with the first note, and the person commits and pushes from the overlay. The `notes` table is the locator, the file the truth |
 | A drawing | `drawings/state/33401-<DrawingId>.json`; `drawings/workspace/<DrawingId>.excalidraw`, `drawings/goals/<GoalId>/…`, `drawings/projects/<slug>/…`, `drawings/workflows/<WorkflowId>/…`, `drawings/channels/<ChannelId>/…`, `drawings/node/…` | the **record** — title, scope, `pinned`, the scene (vector only, under 768 KiB) — is the snapshot, signed and addressable like an addon's, and syncs; the `.excalidraw` **file** is its export, rewritten by every write and every ingest, with a `bisa` block naming it; `drawings/` is one git repository the engine makes with the first drawing, excluding `state/` through `.git/info/exclude` — commit, push, fetch, no pull. The `drawings` table holds every column a list draws ([19](19-drawings.md)) |
 | A message stream — a channel's, a goal's thread, a conversation's | `conversation/<scope>.jsonl` | append-only; the scope is the channel id, the goal id or the conversation id |
-| The activity log — the engine's own facts (a project made, a workstream opened, a listener that began a run, a setting changed, the node paused), which have no journal and no channel to live in | `activity/<YYYY-MM>.jsonl` | append-only, one JSON `ActivityFact` per line, local and unsigned — no GEP kind, by the test 09 applies to workstreams; the index's `activity` table is derived from it beside the journals and the conversations, so a rebuild loses nothing (`activity_log.rs`) |
+| The activity log — the engine's own facts (a project made, a workstream opened, a listener that began a run, a setting changed, the node paused), which have no journal and no channel to live in | `activity/<YYYY-MM>.jsonl` | append-only, one JSON `ActivityFact` per line, local and unsigned — no GEP kind, by the test 09 applies to workstreams; the index's `activity` table is derived from it beside the journals and the conversations, so a rebuild loses nothing (`activity_log.rs`) — it numbers the rows again (`seq` is the insertion order, a tiebreak inside one second and no fact's name), and a retracted message's row is taken back again, since the conversation's file holds the retraction |
 | The diagnostic log — what the node, a command, an MCP server and the desktop write about themselves: a 5xx, a panic, a crashed screen, and at `info` one line per activity fact | `logs/<process>/<process>.<period>.jsonl` | one JSON object per line, written synchronously by `bisa-log`, rotated by the hour or the day and pruned past `logging.keep_files` — **the files the platform removes on its own**, with the crash reports past fifty and a stale run marker; this machine's, never indexed, never synced, no GEP kind by the same test; nothing reads a file back but a person ([crates/log](crates/log.md)) |
 | A crash report — a panic with its location, thread and backtrace, a run that ended without a goodbye, the desktop's node exiting with its last stderr lines — and the flight recorder's last lines before it | `logs/crashes/<process>.<stamp>.<pid>.json` | one JSON document, written atomically by the hook, the next start of the family or the shell; fifty kept; read back by `GET /logs/crashes/{name}`, `bisa logs` and Settings › Node › Logging |
 | A run's marker | `logs/runs/<process>.<pid>.json` | written when a process opens its file, removed by its goodbye; found by the next start of the family with the pid dead, it becomes the report above |
@@ -782,7 +782,14 @@ work items, its decisions (`approvals`), its spend (`budget_ledger`) — is keye
 for a goal's run, the run itself for a run of the workspace, so deleting either cascades. A journal
 fact's `activity` row files under its home's source: the goal, or — for a run of the workspace — its
 workflow (`source_kind` `workflow`, the Workflows concept), which is where the Pulse and the Inbox's
-workflow row read a run's story (`record_journal_activity`); `events_fts` indexes a goal's facts,
+workflow row read a run's story (`record_journal_activity`). Every row is written by one writer
+(`Workspace::feed_row_in`), which then says so on the feed's own channel (`subscribe_activity`: one
+`ActivityNotice::Row` per row once it can be read, a peer's among them, and one `Rebuilt` after a
+rebuild) — apart from the store's events, which a peer's facts never re-emit. A journal fact is
+indexed in two halves: what can be derived again from the journal (`index_journal_derived`: an
+attachment, the documents' folder, the search text) and what is written once (`index_journal_once`:
+the feed's row and a decision's), so a goal synced again from a peer repairs the first and never
+repeats the second; `events_fts` indexes a goal's facts,
 since search finds goals.
 
 ### Rebuild order
@@ -817,8 +824,11 @@ than a dangling row.
                                land with the messages below)
 8. sessions                   (a conversation's turn names its conversation)
 9. messages → attachments · artifacts · message_mentions · reactions; activity
-                              (a journal fact's row lands with its home, the engine's
-                               own facts from the activity log)
+                              (the conversation files in the order of their names, every
+                               retraction after every message and reaction, so one that
+                               overtook its target still takes it back; a journal fact's
+                               row lands with its home, the engine's own facts from the
+                               activity log)
 10. signals                   (from events/queue.jsonl; a signal whose host is gone is skipped)
 11. seen_events               (tags are written beside each object; read_markers are lost)
 12. the stamp                 (written last: a rebuild a crash cut short reads as unstamped

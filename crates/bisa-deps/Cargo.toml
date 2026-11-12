@@ -112,7 +112,6 @@ zerovec = { version = "0.11", default-features = false, features = ["alloc", "de
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
 crossbeam-epoch = { version = "0.9" }
 errno = { version = "0.3" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 h2 = { version = "0.4", default-features = false, features = ["stream"] }
 hyper = { version = "1", default-features = false, features = ["http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }
@@ -137,7 +136,6 @@ libc = { version = "0.2", features = ["extra_traits"] }
 aws-lc-rs = { version = "1", features = ["prebuilt-nasm"] }
 crossbeam-epoch = { version = "0.9" }
 errno = { version = "0.3" }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 h2 = { version = "0.4", default-features = false, features = ["stream"] }
 hyper = { version = "1", default-features = false, features = ["http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }

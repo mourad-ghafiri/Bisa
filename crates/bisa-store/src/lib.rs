@@ -117,5 +117,7 @@ pub use tree::{
 pub use usage::{Reference, ReferenceKind, Usage, UsageKind};
 pub use workflows::{NewWorkflow, WorkflowScope};
 pub use workspace::PeopleChange;
-pub use workspace::{EventAudience, KnownRuntime, NewGoal, PostOrigin, StoreEvent, Workspace};
+pub use workspace::{
+    ActivityNotice, EventAudience, KnownRuntime, NewGoal, PostOrigin, StoreEvent, Workspace,
+};
 pub use workstreams::{primary_is_the_project, WorkstreamFilter};

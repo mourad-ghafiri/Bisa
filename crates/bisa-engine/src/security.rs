@@ -616,10 +616,12 @@ impl SecurityState {
         }
     }
 
+    /// What the guard decided and what the redactor took out are facts of
+    /// the feed like any other: through the engine's one door, the row
+    /// before the frame. Sent to the bus alone they were toasts nobody
+    /// could read back, and the Inbox's *command refused* never appeared.
     fn announce(&self, event: EngineEvent) {
-        if self.bus.send(event).is_err() {
-            tracing::trace!("security event dropped: no subscribers"); // LCOV_EXCL_LINE: the engine holds a receiver of its own bus for its lifetime
-        }
+        crate::activity::publish(&self.ws, &self.bus, event);
     }
 
     fn redacted(&self, at: &str, redaction: &bisa_security::redact::Redaction) {

@@ -233,6 +233,7 @@ screens-messages-pick-people-agents-both-opening-same = Pick people, agents, or 
 screens-messages-search = Search by name…
 screens-messages-search-people-agents-name-role-tag = Search people and agents by name, role or tag…
 screens-messages-talk = Talk to { $soloAgent }
+screens-pulse-concepts = Concepts
 screens-pulse-could-not-load-older-activity = could not load older activity
 screens-pulse-could-not-load-pulse = could not load the pulse
 screens-pulse-read-again-from-node = Read again from the node

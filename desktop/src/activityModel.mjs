@@ -129,6 +129,12 @@ export function hostOf(word) {
   return String(word ?? "").startsWith("goal:") ? "goal" : "workflow";
 }
 
+/** A count as a row carries it, or nothing: a fact cut short reads as zero, never as *NaN tokens*. */
+function count(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function cents(v) {
   return v >= 100 ? `$${(v / 100).toFixed(2)}` : `${v}¢`;
 }
@@ -219,7 +225,7 @@ function judgementAnswerWords(answers) {
     .map((a) => {
       if (a.type === "choice") return `${a.choice} (${Number(a.confidence).toFixed(2)})`;
       if (a.type === "score") return `${a.score} (${Number(a.confidence).toFixed(2)})`;
-      if (a.type === "noul") return `${Number(a.noul) >= 0.5 ? "yes" : "no"} (${(Math.abs(Number(a.noul) - 0.5) * 2).toFixed(2)})`;
+      if (a.type === "noul") return `${Number(a.noul) >= 0.5 ? t("app-activity-answer-yes") : t("app-activity-answer-no")} (${(Math.abs(Number(a.noul) - 0.5) * 2).toFixed(2)})`;
       return null;
     })
     .filter(Boolean)
@@ -376,19 +382,23 @@ export function payloadLine(p) {
     case "run": {
       const f = p.event ?? {};
       const fact = String(f.fact);
-      const run = shortId(String(p.run));
+      const run = shortId(p.run);
       const line =
         fact === "queued"
-          ? { tone: "dim", icon: "icon:queued", text: t("app-activity-run-queued-workflow-rev", { run, workflow: shortId(String(f.workflow)), revision: f.revision }) }
+          ? { tone: "dim", icon: "icon:queued", text: t("app-activity-run-queued-workflow-rev", { run, workflow: shortId(f.workflow), revision: f.revision }) }
           : fact === "started"
-            ? { tone: "spine", icon: "icon:run", text: t("app-activity-run-started-workflow-rev", { run, workflow: shortId(String(f.workflow)), revision: f.revision }) }
+            ? { tone: "spine", icon: "icon:run", text: t("app-activity-run-started-workflow-rev", { run, workflow: shortId(f.workflow), revision: f.revision }) }
             : fact === "amended"
               ? { tone: "spine", icon: "icon:workflow", text: t("app-activity-run-amended-revision", { run, revision: f.revision }) }
               : fact === "finished"
                 ? f.outcome === "failed"
                   ? { tone: "fail", icon: "status:failed", text: t("app-activity-run-failed", { run }) }
                   : { tone: "spine", icon: "status:done", text: t("app-activity-run-finished-done", { run }) }
-                : { tone: "dim", icon: "status:closed", text: t("app-activity-run-cancelled", { run, cause: cancelCauseWord(f.cause) }) };
+                : fact === "cancelled"
+                  ? { tone: "dim", icon: "status:closed", text: t("app-activity-run-cancelled", { run, cause: cancelCauseWord(f.cause) }) }
+                  : // What became of a run that this build has no word for — a newer node's
+                    // fact: said by its name, never as a run cancelled.
+                    { tone: "dim", text: `${String(p.type)} ${fact}`.replace(/_/g, " ") };
       return {
         ...line,
         detail: details(
@@ -413,7 +423,7 @@ export function payloadLine(p) {
       return {
         tone: "spine",
         icon: "icon:project",
-        text: t("app-activity-project-attached-detached", { project: shortId(String(p.project)), flag: p.attached ? "yes" : "no" }),
+        text: t("app-activity-project-attached-detached", { project: shortId(p.project), flag: p.attached ? "yes" : "no" }),
         detail: details(field(t("app-activity-project"), p.project)),
       };
 
@@ -423,8 +433,8 @@ export function payloadLine(p) {
       return {
         tone: "spine",
         icon: "icon:document",
-        text: t("app-activity-gave-document", { file: p.file.name }),
-        detail: details(field(t("app-activity-name"), p.file.name), field(t("app-activity-type"), p.file.mime), field(t("app-activity-size"), formatBytes(p.file.size)), field(t("app-activity-hash"), p.file.sha256)),
+        text: t("app-activity-gave-document", { file: p.file?.name ?? "?" }),
+        detail: details(field(t("app-activity-name"), p.file?.name), field(t("app-activity-type"), p.file?.mime), field(t("app-activity-size"), formatBytes(Number(p.file?.size) || 0)), field(t("app-activity-hash"), p.file?.sha256)),
       };
 
     // The Decision-Making Agent's own answer, standing beside the journal's
@@ -467,7 +477,7 @@ export function payloadLine(p) {
       return {
         tone: "dim",
         icon: "work:claimed",
-        text: t("app-activity-claimed-item-via", { work_item: shortId(String(p.work_item)), harness: String(p.harness) }),
+        text: t("app-activity-claimed-item-via", { work_item: shortId(p.work_item), harness: String(p.harness) }),
         detail: details(
           field(t("app-activity-work-item"), p.work_item),
           field(t("app-activity-harness"), p.harness),
@@ -502,8 +512,8 @@ export function payloadLine(p) {
         icon: "work:review",
         text:
           artifacts.length > 0
-            ? t("app-activity-submitted-result-artifact-artifacts", { work_item: shortId(String(p.work_item)), artifacts: artifacts.length })
-            : t("app-activity-submitted-result", { work_item: shortId(String(p.work_item)) }),
+            ? t("app-activity-submitted-result-artifact-artifacts", { work_item: shortId(p.work_item), artifacts: artifacts.length })
+            : t("app-activity-submitted-result", { work_item: shortId(p.work_item) }),
         detail: details(
           field(t("app-activity-work-item"), p.work_item),
           field(t("app-activity-output"), p.output),
@@ -535,11 +545,11 @@ export function payloadLine(p) {
       return {
         tone: "dim",
         icon: "icon:cost",
-        text: t("app-activity-tokens", { output_tokens: Number(p.input_tokens) + Number(p.output_tokens), usd_cents: cents(Number(p.usd_cents)) }),
+        text: t("app-activity-tokens", { output_tokens: count(p.input_tokens) + count(p.output_tokens), usd_cents: cents(count(p.usd_cents)) }),
         detail: details(
-          field(t("app-activity-input-tokens"), String(p.input_tokens)),
-          field(t("app-activity-output-tokens"), String(p.output_tokens)),
-          field(t("app-activity-cost"), cents(Number(p.usd_cents))),
+          field(t("app-activity-input-tokens"), String(count(p.input_tokens))),
+          field(t("app-activity-output-tokens"), String(count(p.output_tokens))),
+          field(t("app-activity-cost"), cents(count(p.usd_cents))),
           field(t("app-activity-session"), p.session),
         ),
       };
@@ -746,7 +756,7 @@ function progressLine(ev, parent) {
 }
 
 /** The words for each part of the git setup a `git_setup_changed` names. */
-const GIT_SETUP_WORDS = Object.freeze({ profiles: "profiles", keys: t("app-activity-ssh-keys"), accounts: t("app-activity-code-host-accounts"), identity: t("app-activity-global-git-identity") });
+const GIT_SETUP_WORDS = Object.freeze({ profiles: t("app-activity-git-profiles"), keys: t("app-activity-ssh-keys"), accounts: t("app-activity-code-host-accounts"), identity: t("app-activity-global-git-identity") });
 
 /**
  * What an ask in a conversation is about, in a word for the feed: the tool's
@@ -892,7 +902,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         tone: "dim",
         icon: "status:closed",
         text: t("app-activity-run-cancelled", { run: shortId(p.run), cause: cancelCauseWord(p.cause) }),
-        detail: details(field("run", p.run), field("cause", p.cause?.cause), field("rationale", p.cause?.rationale)),
+        detail: details(field(t("app-activity-run"), p.run), field(t("app-activity-cause"), p.cause?.cause), field(t("app-activity-rationale"), p.cause?.rationale)),
       };
     case "step_changed":
       return { ...base, key, ...stepWords(p.step, p.state) };
@@ -905,7 +915,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         tone: "spine",
         icon: "icon:goal",
         text: t("app-activity-goal-created", { goal: shortId(p.goal), origin: String(p.origin?.origin ?? "captured"), run: shortId(p.origin?.run) }),
-        detail: details(field("goal", p.goal), field("origin", p.origin?.origin)),
+        detail: details(field(t("app-activity-goal-label"), p.goal), field(t("app-activity-origin-label"), p.origin?.origin)),
       };
     case "goal_closed":
       return {

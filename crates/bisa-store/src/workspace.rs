@@ -123,6 +123,28 @@ pub enum PostOrigin {
     Announced,
 }
 
+/// What the feed says to whoever listens when it moves: a row landed, or
+/// the whole index was rebuilt from the files. A channel of its own, apart
+/// from [`StoreEvent`]: a row lands for every journal fact, every message
+/// and every engine fact — a peer's among them, which the store events
+/// never re-emit — and that volume must never crowd the bus the relay and
+/// the agents' wake read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActivityNotice {
+    /// One row is in the index and can be read: its `seq`, its second, the
+    /// concept it is filed under, its kind and what it is about.
+    Row {
+        seq: i64,
+        at: u64,
+        concept: ActivityConcept,
+        kind: String,
+        source: ActivitySource,
+    },
+    /// The index was rebuilt: every row may wear another `seq`, and a
+    /// reader that holds rows reads them again.
+    Rebuilt,
+}
+
 /// A locally-authored write, for the net layer to publish outward. Ingested
 /// remote events never re-emit (that would echo loops).
 #[derive(Clone, Debug)]
@@ -251,6 +273,12 @@ pub struct Workspace {
     /// offline tool), and then the harness checks are skipped.
     known_runtime: RwLock<KnownRuntime>,
     pub(crate) store_events: tokio::sync::broadcast::Sender<StoreEvent>,
+    /// The feed's own channel ([`ActivityNotice`]): one notice per row, said
+    /// once the row can be read.
+    activity_events: tokio::sync::broadcast::Sender<ActivityNotice>,
+    /// Set while the index is rebuilt from the files: the rows a rebuild
+    /// writes are no news, and one [`ActivityNotice::Rebuilt`] says it all.
+    feed_rebuilding: std::sync::atomic::AtomicBool,
     /// What this open and its rebuild found wrong and worked around — a
     /// file quarantined, a record skipped, a row the index could not take.
     /// Recomputed at every open; the quarantine folder is the durable record.
@@ -341,6 +369,7 @@ impl Workspace {
         let index = Index::open(&paths.index_db())?;
         let rebuild = index.is_fresh();
         let (store_events, _) = tokio::sync::broadcast::channel(1024);
+        let (activity_events, _) = tokio::sync::broadcast::channel(1024);
         let problems = ProblemSink::default();
         let ws = Self {
             log: JsonlEventLog::new(paths.clone()),
@@ -358,6 +387,8 @@ impl Workspace {
             identity,
             owner,
             store_events,
+            activity_events,
+            feed_rebuilding: std::sync::atomic::AtomicBool::new(false),
             problems,
         };
         // Bootstrap, in this order and nowhere else: the owner is a member,
@@ -417,6 +448,14 @@ impl Workspace {
     /// Subscribe to locally-authored writes. Lagging receivers miss events.
     pub fn subscribe_store_events(&self) -> tokio::sync::broadcast::Receiver<StoreEvent> {
         self.store_events.subscribe()
+    }
+
+    /// Subscribe to the feed: one [`ActivityNotice`] per row once it can be
+    /// read — a local write's and a peer's alike — and one when the index
+    /// was rebuilt. A receiver that lags has missed rows and reads the feed
+    /// again.
+    pub fn subscribe_activity(&self) -> tokio::sync::broadcast::Receiver<ActivityNotice> {
+        self.activity_events.subscribe()
     }
 
     pub(crate) fn emit_store_event(&self, event: StoreEvent) {
@@ -1072,7 +1111,43 @@ impl Workspace {
         if durable {
             crate::activity_log::append(&self.paths.activity_dir(), fact)?;
         }
-        self.idx().record_activity(fact)
+        self.feed_row(fact)
+    }
+
+    /// The feed's one writer: the row into the index, then the notice that
+    /// it is there. Every row — a journal fact's, a message's, an engine
+    /// fact's, live, ingested or rebuilt — is written here and nowhere else
+    /// (`nothing_but_the_one_writer_inserts_a_feed_row`), so the notice can
+    /// never be forgotten by a new seam. Takes the index as its caller
+    /// holds it: the notice goes out under the same lock the row was
+    /// written under, so whoever reads on it finds the row.
+    pub(crate) fn feed_row_in(&self, idx: &Index, fact: &ActivityFact) -> Result<i64, StoreError> {
+        let seq = idx.record_activity(fact)?;
+        if !self
+            .feed_rebuilding
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            self.say_activity(ActivityNotice::Row {
+                seq,
+                at: fact.at,
+                concept: fact.concept,
+                kind: fact.kind.clone(),
+                source: fact.source.clone(),
+            });
+        }
+        Ok(seq)
+    }
+
+    fn say_activity(&self, notice: ActivityNotice) {
+        // A send fails only when nobody is listening, which is fine.
+        if self.activity_events.send(notice).is_err() {
+            tracing::trace!("no activity listeners");
+        }
+    }
+
+    /// [`Self::feed_row_in`] for a caller that holds no index.
+    pub(crate) fn feed_row(&self, fact: &ActivityFact) -> Result<i64, StoreError> {
+        self.feed_row_in(&self.idx(), fact)
     }
 
     /// A journal fact's row: the concept the core decides, the payload
@@ -1080,16 +1155,21 @@ impl Workspace {
     /// workspace's workflow, whose row the Inbox and the Pulse read it on.
     /// Called on append and on rebuild.
     pub(crate) fn record_journal_activity(&self, je: &JournalEvent) -> Result<(), StoreError> {
+        let fact = self.journal_activity(je)?;
+        self.feed_row(&fact).map(|_| ())
+    }
+
+    /// A journal fact as the feed stores it.
+    fn journal_activity(&self, je: &JournalEvent) -> Result<ActivityFact, StoreError> {
         let event = serde_json::to_value(&je.payload)?;
-        let fact = ActivityFact {
+        Ok(ActivityFact {
             at: je.at,
             concept: ActivityConcept::of_journal(&je.home, &je.payload),
             kind: bisa_core::tag_of(&event),
             source: self.activity_source_of(&je.home)?,
             author: Some(je.author.to_string()),
             event,
-        };
-        self.idx().record_activity(&fact).map(|_| ())
+        })
     }
 
     /// Where a home's feed rows file: the goal itself, or the workflow a run
@@ -1124,8 +1204,6 @@ impl Workspace {
         self.idx().activity_page(concept, before, limit)
     }
 
-    /// The newest `limit` activity rows under any of `kinds`, newest first
-    /// — what the Inbox classifies into notices. One bounded read.
     /// The sources — `(kind, id)`: a goal, or the workflow a run of the
     /// workspace runs — the feed holds a row of `kind` for. Every journal
     /// fact is a row of the feed, recorded on append and replayed by a
@@ -1142,6 +1220,19 @@ impl Workspace {
             .collect())
     }
 
+    /// The feed's rows of a span of seconds, oldest first
+    /// (`index::activity_between`) — what stands beside a row in time.
+    pub fn activity_between(
+        &self,
+        from: u64,
+        to: u64,
+        limit: usize,
+    ) -> Result<Vec<ActivityRecord>, StoreError> {
+        self.idx().activity_between(from, to, limit)
+    }
+
+    /// The newest `limit` activity rows under any of `kinds`, newest first
+    /// — what the Inbox classifies into notices. One bounded read.
     pub fn activity_by_kinds(
         &self,
         kinds: &[&str],
@@ -1155,7 +1246,7 @@ impl Workspace {
     /// by their own passes.
     pub(crate) fn reindex_activity_log(&self) -> Result<(), StoreError> {
         for fact in crate::activity_log::read_all(&self.paths.activity_dir())? {
-            self.idx().record_activity(&fact)?;
+            self.feed_row(&fact)?;
         }
         Ok(())
     }
@@ -1667,7 +1758,18 @@ impl Workspace {
         observer: &dyn crate::boot::BootObserver,
     ) -> Result<(), StoreError> {
         use crate::boot::BootPhase;
+        use std::sync::atomic::Ordering;
         let started = std::time::Instant::now();
+        // The rows a rebuild writes are no news: the feed is quiet until it
+        // ends, however it ends, and then says once that it was rebuilt.
+        struct Quiet<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for Quiet<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Relaxed);
+            }
+        }
+        self.feed_rebuilding.store(true, Ordering::Relaxed);
+        let quiet = Quiet(&self.feed_rebuilding);
         {
             let idx = self.idx();
             idx.mark_building()?;
@@ -1791,6 +1893,8 @@ impl Workspace {
         // Stamped last: an index whose rebuild a crash cut short reads as
         // unstamped and is rebuilt again at the next open.
         self.idx().mark_built()?;
+        drop(quiet);
+        self.say_activity(ActivityNotice::Rebuilt);
         observer.phase(BootPhase::RebuildingIndex { done: of, of });
         tracing::info!(target: "bisa_store::rebuild", goals = of, secs = started.elapsed().as_secs_f64(), "the index is rebuilt");
         Ok(())
@@ -2137,24 +2241,36 @@ impl Workspace {
         Ok(())
     }
 
-    /// The index rows one journal fact produces — shared by ingest and the
-    /// rebuild so both derive exactly the same cache. The goal-only facts —
-    /// an attachment, a document, the search text — land for a goal's
-    /// journal alone.
+    /// The index rows one journal fact produces — shared by the append, the
+    /// ingest and the rebuild, so all three derive exactly the same cache.
+    /// Two halves: what can be derived again from the journal any number of
+    /// times ([`Self::index_journal_derived`]), then what is written once
+    /// per fact ([`Self::index_journal_once`]) — last, so a fact whose
+    /// derived half failed and is offered again leaves no second row.
     pub(crate) fn index_journal_fact(
         &self,
         ev: &nostr::event::Event,
         je: &JournalEvent,
     ) -> Result<(), StoreError> {
-        self.record_journal_activity(je)?;
-        match &je.payload {
-            JournalPayload::Decision {
+        self.index_journal_derived(ev, je)?;
+        self.index_journal_once(je)
+    }
+
+    /// What a journal fact adds to the index once and never again: its row
+    /// in the feed and, for a decision, its row among the decisions. Both
+    /// or neither.
+    fn index_journal_once(&self, je: &JournalEvent) -> Result<(), StoreError> {
+        let fact = self.journal_activity(je)?;
+        let idx = self.idx();
+        idx.in_transaction(|| {
+            if let JournalPayload::Decision {
                 gate,
                 approve,
                 subject,
                 ..
-            } => {
-                self.idx().add_approval(
+            } = &je.payload
+            {
+                idx.add_approval(
                     &HomeKey::from(&je.home),
                     gate.as_str(),
                     subject,
@@ -2163,16 +2279,33 @@ impl Workspace {
                     je.at,
                 )?;
             }
+            self.feed_row_in(&idx, &fact).map(|_| ())
+        })
+    }
+
+    /// What a journal fact lets the index derive, however often it is read:
+    /// a project attached or detached, the documents' folder, the search
+    /// text — a goal's journal alone carries them. Run again for a fact
+    /// already indexed it changes nothing, which is what lets a goal's later
+    /// snapshot repair what could not be derived when the fact arrived — a
+    /// project this node did not hold yet, a document whose bytes came
+    /// after.
+    pub(crate) fn index_journal_derived(
+        &self,
+        ev: &nostr::event::Event,
+        je: &JournalEvent,
+    ) -> Result<(), StoreError> {
+        let Some(goal) = je.home.goal() else {
+            return Ok(());
+        };
+        let goal_d = goal.to_string();
+        match &je.payload {
             JournalPayload::Attachment { project, attached } => {
-                let Some(goal) = je.home.goal() else {
-                    return Ok(());
-                };
-                let goal_d = goal.to_string();
                 let idx = self.idx();
                 if *attached {
                     // A project this node does not (yet) hold cannot be
-                    // attached in the cache; the next rebuild after it arrives
-                    // will. The journal is the truth either way.
+                    // attached in the cache; the goal's next snapshot after
+                    // it arrives will. The journal is the truth either way.
                     if idx.project_slug(&project.to_string())?.is_some() {
                         idx.attach(&goal_d, &project.to_string(), je.at, je.author.as_hex())?;
                     } else {
@@ -2186,17 +2319,12 @@ impl Workspace {
             }
             // The folder is derived from the facts: a rebuild and a peer's
             // ingest both bring it up to date here, for the bytes held.
-            JournalPayload::Document { .. } => {
-                if let Some(goal) = je.home.goal() {
-                    self.materialise_goal_documents(goal)?;
-                }
-            }
+            JournalPayload::Document { .. } => self.materialise_goal_documents(goal)?,
             _ => {}
         }
         // Search finds goals: a goal's facts are indexed for it.
-        if let (Some(text), Some(goal)) = (searchable_text(&je.payload), je.home.goal()) {
-            self.idx()
-                .index_text(&ev.id.to_hex(), &goal.to_string(), &text)?;
+        if let Some(text) = searchable_text(&je.payload) {
+            self.idx().index_text(&ev.id.to_hex(), &goal_d, &text)?;
         }
         Ok(())
     }
