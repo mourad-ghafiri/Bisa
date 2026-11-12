@@ -34,7 +34,9 @@ import { idOf, kindOf } from "./assigneeWire.mjs";
 import type { AssigneeKind } from "./assigneeWire.mjs";
 import { useAsync } from "./useAsync";
 import { t as tr } from "../../i18n/l10n.mjs";
-import { teamOptionLine, teamTakesWork } from "../rosterModel.mjs";
+import { agentOptionLine, goneMemberName, teamOptionLine, teamTakesWork } from "../rosterModel.mjs";
+import { roleLabel } from "../_settings/peopleModel.mjs";
+import { useHarnessLabels } from "../../shell/useHarnesses";
 
 /**
  * The wire grammar lives in `assigneeWire.mjs` and is re-exported here so the
@@ -63,12 +65,6 @@ interface AssigneeOption {
   offered: boolean;
 }
 
-const KIND_LABEL: Record<AssigneeKind, string> = {
-  agent: tr("work-assignee-picker-kind-agent"),
-  human: tr("work-assignee-picker-kind-person"),
-  team: tr("work-assignee-picker-kind-team"),
-};
-
 const GROUP_LABEL: Record<AssigneeKind, string> = {
   agent: tr("work-assignee-picker-agents"),
   human: tr("work-assignee-picker-people"),
@@ -92,6 +88,8 @@ export function useAssigneeOptions(kinds: AssigneeKind[] = ["agent", "human", "t
   reload: () => void;
 } {
   const ws = useWorkspace();
+  // A harness by its name, as the Agents screen says it; its id where the name is not known yet.
+  const harnessLabels = useHarnessLabels();
   const wantTeams = kinds.includes("team");
   const {
     data: teamData,
@@ -115,7 +113,8 @@ export function useAssigneeOptions(kinds: AssigneeKind[] = ["agent", "human", "t
           key: `agent:${a.id}`,
           kind: "agent",
           name: a.name,
-          sub: `${a.harness} · ${planSummary(a.models)}`,
+          // What it runs on — said after *disabled* for one that was stood down: offered still, never unknowing.
+          sub: agentOptionLine(a, `${harnessLabels[a.harness] ?? a.harness} · ${planSummary(a.models)}`),
           avatar: a.pubkey,
           photo: a.photo,
           known: true,
@@ -129,7 +128,8 @@ export function useAssigneeOptions(kinds: AssigneeKind[] = ["agent", "human", "t
           key: `human:${m.pubkey}`,
           kind: "human",
           name: m.label ?? ws.nameOf(m.pubkey),
-          sub: m.pubkey === ws.me ? tr("work-assignee-picker-words", { role: m.role }) : m.role,
+          // The role in its word — *Owner*, *Member* — never the wire's.
+          sub: m.pubkey === ws.me ? tr("work-assignee-picker-words", { role: roleLabel(m.role) }) : roleLabel(m.role),
           avatar: m.pubkey,
           photo: m.photo,
           known: true,
@@ -156,7 +156,7 @@ export function useAssigneeOptions(kinds: AssigneeKind[] = ["agent", "human", "t
     // `teams` is derived from `teamData`; depending on it directly would
     // rebuild the list on every render. `ws` is read by its fields above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws.agents, ws.members, ws.nameOf, ws.me, kinds, exclude, teamData]);
+  }, [ws.agents, ws.members, ws.nameOf, ws.me, kinds, exclude, teamData, harnessLabels]);
 
   const index = useMemo(() => new Map(options.map((o) => [o.key, o])), [options]);
 
@@ -169,7 +169,8 @@ export function useAssigneeOptions(kinds: AssigneeKind[] = ["agent", "human", "t
     return {
       key,
       kind,
-      name: kindOf(key) ? `${KIND_LABEL[kind]} ${id.slice(-6)}` : tr("work-assignee-picker-not-valid-key", { key }),
+      // One name for a member that is gone, here and on a team's card.
+      name: kindOf(key) ? goneMemberName(kind, id) : tr("work-assignee-picker-not-valid-key", { key }),
       sub: tr("work-assignee-picker-not-workspace"),
       avatar: id,
       known: false,

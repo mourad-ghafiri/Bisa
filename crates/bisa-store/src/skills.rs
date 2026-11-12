@@ -140,7 +140,7 @@ impl Workspace {
                 tracing::warn!("skills/{name}: not a skill id, skipping");
                 continue;
             };
-            if let Some(skill) = crate::workspace::tolerated("skill", stem, self.get_skill(&id))? {
+            if let Some(skill) = self.tolerated_definition("skill", stem, self.get_skill(&id))? {
                 out.push(skill);
             }
         }
@@ -162,15 +162,26 @@ impl Workspace {
 
     /// Delete a skill, and refuse while any agent still carries it.
     pub fn remove_skill(&self, id: &SkillId) -> Result<(), StoreError> {
+        // Under the roster's writer: an agent taking the skill and the skill
+        // going are one after the other, never a skill gone that an agent
+        // was just given.
+        let _one_writer = self.roster_writer();
         self.get_skill(id)?;
         self.refuse_if_used(crate::usage::UsageKind::Skill, id.as_str())?;
-        let path = self.paths.skill_file(id);
-        std::fs::remove_file(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        {
+            let idx = self.idx();
+            idx.delete_skill(id.as_str())?;
+            idx.clear_tags(TagEntity::Skill, id.as_str())?;
+        }
         self.snapshots
             .delete_snapshot(Paths::NS_SKILLS, KIND_SKILL, id.as_str())?;
-        let idx = self.idx();
-        idx.delete_skill(id.as_str())?;
-        idx.clear_tags(TagEntity::Skill, id.as_str())
+        let path = self.paths.skill_file(id);
+        std::fs::remove_file(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        self.emit_store_event(StoreEvent::DefinitionRemoved {
+            kind: KIND_SKILL,
+            d: id.to_string(),
+        });
+        Ok(())
     }
 
     /// Resolve `agent`'s skill reference list into launch payloads. A

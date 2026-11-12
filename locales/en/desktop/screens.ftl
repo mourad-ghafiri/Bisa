@@ -65,7 +65,7 @@ screens-channels-everyone-workspace-can-read = Everyone in the workspace can rea
 screens-channels-guest-reaches-only-when-listed = A guest reaches this channel only when listed here; an admin or a member reaches every standing channel.
 screens-channels-here = { $a } are here
 screens-channels-how-looks-why = how it looks and why
-screens-channels-install-one-from-catalog-settings-channel = Install one from the Catalog in Settings. A channel with no roster still works — a message that addresses nobody reaches the core agent.
+screens-channels-install-one-from-catalog-settings-channel = Install one from the Catalog in Settings. A channel with no roster still works — a message that addresses nobody reaches the General Agent.
 screens-channels-latest-line = { $author }: { $snippet }
 screens-channels-listed = { $length } listed.
 screens-channels-menu = Menu for #{ $channel }
@@ -572,7 +572,7 @@ screens-workbench-projects-could-not-read = Your projects could not be read, so 
 screens-roster-team-named = team { $team }
 
 ## An agent's skills when the library holds none (`views/Agents.tsx`).
-screens-agents-skill-library-empty = { $rule } Nothing is in the library yet — write the first one on the Skills tab, or install one from the Catalog.
+screens-agents-skill-library-empty = { $rule } Nothing is in the library yet — write the first one under Settings › Capabilities › Skills, or install one from the Catalog.
 
 ## A team member's kind, on its row (`views/Teams.tsx`).
 screens-teams-kind-agent = agent
@@ -596,3 +596,27 @@ screens-roster-stood-down-takes-no-work = stood down — takes no work
 
 ## A hosted channel whose host's people could not be read (`views/Hosted.tsx`).
 screens-hosted-people-not-read = people not read
+screens-roster-agent-disabled-line = disabled — takes no work · { $line }
+screens-roster-gone-agent = Agent { $tail }
+screens-roster-gone-person = Person { $tail }
+screens-roster-gone-team = Team { $tail }
+screens-agents-aborting = Aborting…
+screens-agents-abort-which = { $who } — { $what }
+screens-teams-remove-named = Remove { $name }
+screens-roster-disable = Disable
+screens-roster-disabling = Disabling…
+screens-roster-enable = Enable
+screens-roster-enabling = Enabling…
+screens-roster-stand-down = Stand down
+screens-roster-standing-down = Standing down…
+screens-roster-bring-back = Bring back
+screens-roster-bringing-back = Bringing back…
+screens-roster-agent-disabled-done = { $name } is disabled: it takes no work and answers nothing until it is enabled again.
+screens-roster-agent-enabled-done = { $name } is enabled again.
+screens-roster-team-stood-down-done = { $name } is stood down: it takes no work and is addressed by nothing until it is brought back.
+screens-roster-team-brought-back-done = { $name } is back: it takes work again.
+screens-roster-stood-down = stood down
+screens-agents-disabled-pane = Disabled — it takes no work and answers nothing. Its definition, its key and its memory are kept.
+screens-teams-stood-down-pane = Stood down — it takes no work and is addressed by nothing. Its roster is kept.
+screens-agents-detach-named = Detach { $name }
+screens-agents-abort-named = Abort { $who }

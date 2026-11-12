@@ -598,6 +598,10 @@ fn a_session_is_stopped_a_memory_is_read_back_and_a_commit_message_is_suggested(
     );
     let stopped = ws.json(&["sessions", "abort", &live]);
     assert_eq!(stopped["aborted"], live.as_str(), "{stopped}");
+    // What the abort ended, as the node answered it — never a bare
+    // *aborted* whatever happened.
+    assert_eq!(stopped["ended"]["sessions"], 1, "{stopped}");
+    assert_eq!(stopped["ended"]["still_live"], 0, "{stopped}");
     ws.until("the agent's process to have ended", || {
         (ws.recorded("ended").len() > ends_before).then_some(())
     });

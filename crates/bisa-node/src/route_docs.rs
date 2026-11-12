@@ -38,7 +38,7 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "GET",
         path: "/events",
         summary:
-            "Server-sent events: `{stream: \"engine\" | \"conversation\" | \"inbox\" | \"pulse\", payload}` frames — a `pulse` frame says one row of the activity feed as it lands (`{seq, at, concept, kind, source}`), or `{concept: null}` when the feed moved as no one row tells and every reader of `GET /pulse` reads again — and `{stream: \"system\", payload: {kind: \"lagged\", dropped}}` when this client read too slowly and missed events: re-read what you show.",
+            "Server-sent events: `{stream: \"engine\" | \"conversation\" | \"inbox\" | \"pulse\", payload}` frames — a `pulse` frame says one row of the activity feed as it lands (`{seq, at, concept, kind, source}`), or `{concept: null}` when the feed moved as no one row tells and every reader of `GET /pulse` reads again; a `conversation` frame is a message (`{scope, kind, event_id, author, snippet, unread_count, latest}`) or a definition's record written (`{scope, kind, snapshot: true}` — `scope` its id, `kind` its wire kind), with `removed: true` when an agent, a team or a skill was removed — and `{stream: \"system\", payload: {kind: \"lagged\", dropped}}` when this client read too slowly and missed events: re-read what you show.",
     },
     RouteDoc {
         method: "GET",

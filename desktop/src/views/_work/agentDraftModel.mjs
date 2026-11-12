@@ -107,34 +107,91 @@ export function draftOf(agent) {
   };
 }
 
+/** One value as the wire would carry it — what two drafts are compared by. */
+const said = (value) => JSON.stringify(value ?? null);
+
+/** An agent's whole definition as a PATCH names it, field by field. */
+const patchFields = (d) => ({
+  name: d.name,
+  photo: d.photo,
+  description: d.description || null,
+  system_prompt: d.system_prompt,
+  harness: d.harness,
+  models: d.plan,
+  decision_making: d.decision_making,
+  respond: d.respond,
+  skills: d.skills,
+  mcps: d.mcps,
+  tags: d.tags,
+});
+
+/**
+ * Whether the draft differs from what the dialog opened on — by what it
+ * would write, so a field typed and typed back is no change, and a list
+ * re-picked in the same order is none either.
+ * @param {object | null | undefined} draft @param {object | null | undefined} seeded the draft as the dialog opened
+ */
+export function dirty(draft, seeded) {
+  return said(draft) !== said(seeded);
+}
+
+/**
+ * What a dialog does when asked to close — by Escape, a click outside, its
+ * ✕ or its Cancel, all one door:
+ *
+ * - `stay` while a save is on its way: the answer is coming, and a dialog
+ *   closed under it would report a save nobody saw land;
+ * - `ask` when there are edits: a long prompt is not dropped by a stray key;
+ * - `close` otherwise.
+ * @param {{dirty: boolean, busy: boolean}} standing
+ * @returns {"stay" | "ask" | "close"}
+ */
+export function mayClose({ dirty: edited, busy }) {
+  if (busy) return "stay";
+  return edited ? "ask" : "close";
+}
+
+/**
+ * The plan's models the chosen harness does not list — kept from the
+ * harness the agent ran on before, or typed by hand. They stay in the plan
+ * (a harness may run a model it does not advertise) and are marked, so a
+ * change of harness never leaves another harness's models in the plan
+ * unsaid. Nothing is marked until this harness has answered with a list:
+ * unknown is not *none*.
+ * @param {{models?: readonly {model: string}[]} | null | undefined} plan
+ * @param {{models?: readonly {id: string}[]} | null | undefined} answered what this harness answered (`answeredBy`), or `null`
+ * @returns {string[]}
+ */
+export function foreignModels(plan, answered) {
+  const listed = answered?.models ?? [];
+  if (listed.length === 0) return [];
+  const ids = new Set(listed.map((m) => m.id));
+  return (plan?.models ?? []).map((m) => m.model).filter((id) => !ids.has(id));
+}
+
 /**
  * What a save sends: a patch of the agent — a core agent's three fields, or
- * the whole definition — or the creation of a new one.
+ * the fields of its definition **that the editor changed** — or the creation
+ * of a new one.
+ *
+ * `seeded` is the draft as the dialog opened. With it, a patch names only
+ * what differs: the node changes the fields a body names on the record as
+ * it stands, so an editor left open while a skill was attached elsewhere
+ * saves its rename and leaves the skill. Without it — nothing to compare
+ * with — the whole definition is named.
  * @param {ReturnType<typeof emptyDraft>} d the draft
  * @param {{id: string} | null} agent the agent edited; `null` for a new one
  * @param {boolean} core whether it is a core agent
+ * @param {ReturnType<typeof emptyDraft> | null} [seeded] the draft as the dialog opened
  * @returns {{kind: "patch", id: string, body: object} | {kind: "create", body: object}}
  */
-export function saveOf(d, agent, core) {
+export function saveOf(d, agent, core, seeded = null) {
   if (agent && core) return { kind: "patch", id: agent.id, body: Object.fromEntries(CORE_FIELDS.map((field) => [field, CORE_VALUE[field](d)])) };
   if (agent) {
-    return {
-      kind: "patch",
-      id: agent.id,
-      body: {
-        name: d.name,
-        photo: d.photo,
-        description: d.description || null,
-        system_prompt: d.system_prompt,
-        harness: d.harness,
-        models: d.plan,
-        decision_making: d.decision_making,
-        respond: d.respond,
-        skills: d.skills,
-        mcps: d.mcps,
-        tags: d.tags,
-      },
-    };
+    const now = patchFields(d);
+    if (!seeded) return { kind: "patch", id: agent.id, body: now };
+    const before = patchFields(seeded);
+    return { kind: "patch", id: agent.id, body: Object.fromEntries(Object.entries(now).filter(([field, value]) => said(value) !== said(before[field]))) };
   }
   return {
     kind: "create",

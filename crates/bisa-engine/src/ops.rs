@@ -107,11 +107,16 @@ impl HomeStatus {
 /// attestation tag.
 pub type Signer = (nostr::key::Keys, Option<nostr::event::Tag>);
 
-/// Resolve the signing identity for a session: the Agent's own attested keys
-/// when the work runs under an Agent definition, the owner otherwise. An
-/// unresolvable agent falls back to owner signing (logged) rather than
-/// blocking the write.
-pub(crate) fn signer_for(ws: &Workspace, agent: Option<&str>) -> Signer {
+/// The signing identity for **the platform's own facts** about a piece of
+/// work — a gate's question, a guided wake's note, a script's note, a
+/// routing line: the agent's attested keys when they answer, the owner's
+/// otherwise (logged). These are the platform speaking, and a fact that
+/// cannot be attributed to the agent is still the owner's node saying it.
+///
+/// What an agent itself *did* — its progress, its notes, its result, the
+/// session it runs under — goes through [`agent_signer`], which never falls
+/// back.
+pub(crate) fn signer_or_owner(ws: &Workspace, agent: Option<&str>) -> Signer {
     if let Some(agent) = agent {
         match AgentId::new(agent)
             .map_err(EngineError::from)
@@ -124,6 +129,29 @@ pub(crate) fn signer_for(ws: &Workspace, agent: Option<&str>) -> Signer {
         }
     }
     (ws.owner_keys().clone(), None)
+}
+
+/// The signing identity for **what an agent does**: its own attested keys,
+/// or a refusal in words that names it. Work with no agent is the owner's.
+///
+/// **An agent's work is signed by the agent or by nobody.** An agent whose
+/// key or record cannot be read used to have its progress and its result
+/// signed by the owner, who had done none of it; the step now fails, and the
+/// tool call is refused, until the key answers again.
+pub(crate) fn agent_signer(ws: &Workspace, agent: Option<&str>) -> Result<Signer, EngineError> {
+    let Some(agent) = agent else {
+        return Ok((ws.owner_keys().clone(), None));
+    };
+    AgentId::new(agent)
+        .map_err(EngineError::from)
+        .and_then(|id| Ok(ws.signer_for(&id)?))
+        .map_err(|e| {
+            EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-agent-cannot-sign",
+                agent = agent.to_string(),
+                reason = e.to_string()
+            ))
+        })
 }
 
 /// Forget a goal: its journal, snapshots, runs, work and what it listened
@@ -190,7 +218,7 @@ pub fn add_note(
     text: String,
     agent: Option<&str>,
 ) -> Result<(), EngineError> {
-    let (signer, attestation) = signer_for(&inner.ws, agent);
+    let (signer, attestation) = signer_or_owner(&inner.ws, agent);
     inner.ws.append_journal(
         &home.into(),
         JournalPayload::Note { text },
@@ -1437,7 +1465,7 @@ pub fn journal_question(
     text: &str,
     expects: AskKind,
 ) {
-    let (signer, attestation) = signer_for(&inner.ws, None);
+    let (signer, attestation) = signer_or_owner(&inner.ws, None);
     crate::warn_on_err(
         inner.ws.append_journal(
             &home,
@@ -2660,29 +2688,24 @@ pub(crate) fn close_record_as(
 /// to a ghost is a typo that would otherwise fail silently at routing time —
 /// the item would simply never find an agent, and nothing would say why.
 pub fn check_assignees(inner: &Inner, assignees: &[Assignee]) -> Result<(), EngineError> {
-    for a in assignees {
-        match a {
-            Assignee::Agent(id) => {
-                let id = AgentId::new(id)?;
-                inner.ws.get_agent(&id).map_err(|_| {
-                    EngineError::Invalid(bisa_core::text!(
-                        "error-engine-invalid-agent-not-found",
-                        id = id.to_string()
-                    ))
-                })?;
+    use bisa_store::AssigneeStanding;
+    for who in assignees {
+        // The store's one check: a record that is there and cannot be read
+        // is its error, by its file — never *not found*.
+        match inner.ws.check_assignee(who)? {
+            AssigneeStanding::There => {}
+            AssigneeStanding::NoSuchAgent(id) => {
+                return Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-agent-not-found",
+                    id = id.to_string()
+                )))
             }
-            Assignee::Team(id) => {
-                let id = bisa_core::TeamId::new(id)?;
-                inner.ws.get_team(&id).map_err(|_| {
-                    EngineError::Invalid(bisa_core::text!(
-                        "error-engine-invalid-team-not-found",
-                        id = id.to_string()
-                    ))
-                })?;
+            AssigneeStanding::NoSuchTeam(id) => {
+                return Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-team-not-found",
+                    id = id.to_string()
+                )))
             }
-            // A human is a bare pubkey: valid whether or not that person has
-            // joined this workspace yet.
-            Assignee::Human(_) => {}
         }
     }
     Ok(())
@@ -3762,7 +3785,7 @@ pub(crate) fn outcome_of(
 /// every other unattributed write. Best effort: a note that cannot be written
 /// is logged, never a reason to fail the work.
 pub(crate) fn journal_note_as(inner: &Inner, agent: Option<&str>, home: Home, text: String) {
-    let (signer, attestation) = signer_for(&inner.ws, agent);
+    let (signer, attestation) = signer_or_owner(&inner.ws, agent);
     // LCOV_EXCL_START journaling a note fails only unwritable (disk-only)
     if let Err(e) =
         inner

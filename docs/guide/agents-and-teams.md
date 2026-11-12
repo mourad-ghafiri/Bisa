@@ -72,8 +72,9 @@ excluded from the work-routing pool, because they guide and design rather than i
 step whose own `assignee` names one still reaches it. Neither blocks: a guided wake takes no
 scheduler slot.
 
-A human wakes either of them; either may wake one other agent, the other of the two included;
-nobody wakes itself — so a chain stops at two hops.
+A human wakes either of them. What the General Agent posts wakes each agent it names, once — the
+Workflow Agent among them; the Workflow Agent hands off to nobody, and no other agent's message
+wakes anybody. Nobody wakes itself — so a chain stops at two hops.
 
 Their tool sets differ. Both get `workspace_overview`, `list_staff` and `list_catalog` on top of the
 common set, which holds `list_connectors` for every agent.
@@ -102,7 +103,7 @@ goal's adoption may arm on its own ([Events and gateways](events.md#listening)).
 | respond | `owner_only` (the default) or `members` |
 | origin | `local`, `catalog { slug }`, or `core` — recorded at creation, never accepted from a caller |
 | pubkey | its own keypair, minted at creation and attested by you |
-| enabled | a disabled agent takes no work and leaves the addressing directory |
+| enabled | a disabled agent takes no work and leaves the addressing directory — **Disable** and **Enable** in its card's menu and its pane on the Agents screen, or `bisa agent edit <id> --enabled false`; a core agent has neither |
 | photo | a picture this machine holds, scaled to a small square in the editor, drawn wherever the agent is named — *Remove* clears it |
 
 Its work is signed as itself, so a collaborator's node can verify which agent did what.
@@ -409,7 +410,8 @@ A team is a named set of members, each a human (pubkey) or an agent (id). **A te
 another team**, so one level is the whole model. A team can be **disabled**: a disabled team takes
 no work, a message or a workflow's `notify` that names it reaches nobody, and the change is
 announced as a membership event in every channel whose roster names it. It keeps its members and
-comes back as it was.
+comes back as it was — **Stand down** and **Bring back** in its card's menu and its pane on the
+Teams screen; its card and every picker say *stood down* meanwhile.
 A team takes a **photo** in its dialog, as an agent does in its editor — the same picker, the same
 small square — and its card and every picker that names it draw it.
 

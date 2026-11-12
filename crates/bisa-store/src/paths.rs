@@ -624,6 +624,12 @@ impl Paths {
     /// is why no project may take that slug.
     pub const RESERVED_PROJECT_SLUGS: &'static [&'static str] = &["state"];
 
+    /// The agents' namespace keeps its snapshots in `agents/state/`, and an
+    /// agent keeps a folder of its own at `agents/<id>/` — its scratch, its
+    /// recall. No agent may take the id whose folder is every agent's
+    /// snapshots: removing that agent would remove them all.
+    pub const RESERVED_AGENT_IDS: &'static [&'static str] = &["state"];
+
     // ------------------------------------------------------------------
     // Sub-views
     // ------------------------------------------------------------------
@@ -902,6 +908,11 @@ impl AgentPaths {
 
     pub fn recall_index(&self) -> PathBuf {
         self.dir.join("recall_index.json")
+    }
+
+    /// The agent's Recall namespace on disk ([`Paths::ns_recall`]).
+    pub fn recall(&self) -> PathBuf {
+        self.dir.join("recall")
     }
 }
 

@@ -8,9 +8,11 @@
 //! [`Workspace::usage_of`] is readable on its own, so "why can I not delete
 //! this" has an answer before the delete is attempted.
 //!
-//! **Nothing here reaches for the engine.** A live session exists *because* a
-//! work item is unsettled with `spec.agent` set, so the durable check covers
-//! "this agent is working on something".
+//! **Nothing here reaches for the engine.** An unsettled work item with
+//! `spec.agent` set is a holder, and the durable check finds it. A turn an
+//! agent runs in a conversation is held by nothing durable: the engine ends
+//! those itself before it removes the agent (`directory::remove_agent`), as
+//! it does a channel's before the channel goes.
 
 use crate::error::StoreError;
 use crate::governance::GatePolicy;
@@ -381,43 +383,12 @@ impl Workspace {
             UsageKind::Agent => {
                 let aid = AgentId::new(id)?;
                 let def = self.get_agent(&aid)?;
-                let who = Assignee::Agent(id.to_string());
-                for t in self.list_teams()? {
-                    if t.members.iter().any(|m| m.as_agent() == Some(id)) {
-                        refs.push(Reference::new(ReferenceKind::Team, t.id.as_str(), &t.name));
-                    }
-                }
-                let channels = self.idx().channels_rostering("agent", id)?;
-                for c in channels {
-                    let name = bisa_core::ChannelId::new(&c)
-                        .ok()
-                        .and_then(|cid| self.get_channel(&cid).ok())
-                        .map(|ch| ch.name)
-                        .unwrap_or_else(|| c.clone());
-                    refs.push(Reference::new(ReferenceKind::Channel, &c, name));
-                }
-                self.push_assignments(&mut refs, &who)?;
-                self.push_work_items(&mut refs, &who)?;
-                self.push_workflows(&mut refs, &who)?;
-                self.push_gate_policies(&mut refs, def.pubkey.as_hex())?;
+                self.push_agent_holders(&mut refs, id, Some(def.pubkey.as_hex()))?;
             }
             UsageKind::Team => {
                 let tid = bisa_core::TeamId::new(id)?;
                 self.get_team(&tid)?;
-                let who = Assignee::Team(id.to_string());
-                let channels = self.idx().channels_rostering("team", id)?;
-                for c in channels {
-                    let name = bisa_core::ChannelId::new(&c)
-                        .ok()
-                        .and_then(|cid| self.get_channel(&cid).ok())
-                        .map(|ch| ch.name)
-                        .unwrap_or_else(|| c.clone());
-                    refs.push(Reference::new(ReferenceKind::Channel, &c, name));
-                }
-                self.push_assignments(&mut refs, &who)?;
-                self.push_work_items(&mut refs, &who)?;
-                self.push_workflows(&mut refs, &who)?;
-                self.push_gate_policies(&mut refs, &format!("team:{id}"))?;
+                self.push_team_holders(&mut refs, id)?;
             }
             UsageKind::Connector => {
                 let cid = bisa_core::ConnectorId::new(id)?;
@@ -578,6 +549,79 @@ impl Workspace {
     /// The refusal a `remove_*` returns, or `Ok(())` when nothing points here.
     pub(crate) fn refuse_if_used(&self, kind: UsageKind, id: &str) -> Result<(), StoreError> {
         let usage = self.usage_of(kind, id)?;
+        self.refuse_usage(kind, id, usage)
+    }
+
+    /// What points at an agent, by its id — and, when its key is known, the
+    /// gate policies that name the key. The record itself is not read: this
+    /// is also what a record nobody can read is asked.
+    fn push_agent_holders(
+        &self,
+        refs: &mut Vec<Reference>,
+        id: &str,
+        pubkey: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let who = Assignee::Agent(id.to_string());
+        for t in self.list_teams()? {
+            if t.members.iter().any(|m| m.as_agent() == Some(id)) {
+                refs.push(Reference::new(ReferenceKind::Team, t.id.as_str(), &t.name));
+            }
+        }
+        self.push_rostering_channels(refs, "agent", id)?;
+        self.push_assignments(refs, &who)?;
+        self.push_work_items(refs, &who)?;
+        self.push_workflows(refs, &who)?;
+        if let Some(pubkey) = pubkey {
+            self.push_gate_policies(refs, pubkey)?;
+        }
+        Ok(())
+    }
+
+    /// What points at a team, by its id; the record itself is not read.
+    fn push_team_holders(&self, refs: &mut Vec<Reference>, id: &str) -> Result<(), StoreError> {
+        let who = Assignee::Team(id.to_string());
+        self.push_rostering_channels(refs, "team", id)?;
+        self.push_assignments(refs, &who)?;
+        self.push_work_items(refs, &who)?;
+        self.push_workflows(refs, &who)?;
+        self.push_gate_policies(refs, &format!("team:{id}"))
+    }
+
+    fn push_rostering_channels(
+        &self,
+        refs: &mut Vec<Reference>,
+        role: &str,
+        id: &str,
+    ) -> Result<(), StoreError> {
+        let channels = self.idx().channels_rostering(role, id)?;
+        for c in channels {
+            let name = bisa_core::ChannelId::new(&c)
+                .ok()
+                .and_then(|cid| self.get_channel(&cid).ok())
+                .map(|ch| ch.name)
+                .unwrap_or_else(|| c.clone());
+            refs.push(Reference::new(ReferenceKind::Channel, &c, name));
+        }
+        Ok(())
+    }
+
+    /// Refuse the removal of a record nobody can read while something still
+    /// points at its id. `pubkey` is the key the index held for an agent.
+    pub(crate) fn refuse_if_id_used(
+        &self,
+        kind: UsageKind,
+        id: &str,
+        pubkey: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let mut refs = Vec::new();
+        match kind {
+            UsageKind::Team => self.push_team_holders(&mut refs, id)?,
+            _ => self.push_agent_holders(&mut refs, id, pubkey)?,
+        }
+        self.refuse_usage(kind, id, Usage(refs))
+    }
+
+    fn refuse_usage(&self, kind: UsageKind, id: &str, usage: Usage) -> Result<(), StoreError> {
         let Some(nearest) = usage.as_slice().first() else {
             return Ok(());
         };

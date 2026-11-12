@@ -47,18 +47,57 @@ pub fn set_team_enabled(
 /// Replace an agent's record, and announce what the edit did to its
 /// enablement. One write: an edit the store refuses has stood nobody down.
 pub fn update_agent(inner: &Arc<Inner>, agent: Agent) -> Result<Agent, EngineError> {
-    let was = inner.ws.get_agent(&agent.id)?.enabled;
-    let agent = inner.ws.update_agent(agent)?;
-    announce(inner, Member::Agent(agent.id.clone()), was, agent.enabled);
-    Ok(agent)
+    let id = agent.id.clone();
+    edit_agent(inner, &id, |current| {
+        *current = agent;
+        Ok(())
+    })
 }
 
 /// The same for a team.
 pub fn update_team(inner: &Arc<Inner>, team: Team) -> Result<Team, EngineError> {
-    let was = inner.ws.get_team(&team.id)?.enabled;
-    let team = inner.ws.update_team(team)?;
-    announce(inner, Member::Team(team.id.clone()), was, team.enabled);
-    Ok(team)
+    let id = team.id.clone();
+    edit_team(inner, &id, |current| {
+        *current = team;
+        Ok(())
+    })
+}
+
+/// Edit an agent's record on the record as it stands, under the roster's
+/// one writer, and announce the flip — if the edit made one — from the
+/// record the store answered before and after. Never from a read of its
+/// own: between a read here and the write there another edit could flip
+/// the flag, and the room would be told of a change that was not this one,
+/// or of none.
+pub(crate) fn edit_agent(
+    inner: &Arc<Inner>,
+    id: &AgentId,
+    edit: impl FnOnce(&mut Agent) -> Result<(), bisa_store::StoreError>,
+) -> Result<Agent, EngineError> {
+    let (before, after) = inner.ws.update_agent_with(id, edit)?;
+    announce(
+        inner,
+        Member::Agent(id.clone()),
+        before.enabled,
+        after.enabled,
+    );
+    Ok(after)
+}
+
+/// The same for a team.
+pub(crate) fn edit_team(
+    inner: &Arc<Inner>,
+    id: &TeamId,
+    edit: impl FnOnce(&mut Team) -> Result<(), bisa_store::StoreError>,
+) -> Result<Team, EngineError> {
+    let (before, after) = inner.ws.update_team_with(id, edit)?;
+    announce(
+        inner,
+        Member::Team(id.clone()),
+        before.enabled,
+        after.enabled,
+    );
+    Ok(after)
 }
 
 fn announce(inner: &Arc<Inner>, member: Member, was: bool, now: bool) {

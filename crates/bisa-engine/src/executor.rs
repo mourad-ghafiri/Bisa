@@ -870,6 +870,17 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         return;
     }
     let env = BTreeMap::from([("TMPDIR".to_string(), tmp.display().to_string())]);
+    // Signing as the item's agent when one is set, the owner otherwise —
+    // asked before a checkout is opened or a permit held: an agent whose key
+    // does not answer runs nothing, and nothing it would have done is signed
+    // by the owner in its place.
+    let (signer, attestation) = match ops::agent_signer(&inner.ws, spec.agent.as_deref()) {
+        Ok(signer) => signer,
+        Err(e) => {
+            spec.state = settle_failed(&inner, &spec, e.to_string()).await;
+            return;
+        }
+    };
     let placement = match unless_stopped(&mark, place(&inner, &mut spec)).await {
         None => {
             // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
@@ -928,9 +939,6 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         }
     };
 
-    // Signing as the item's Agent when one is set (per-agent attribution;
-    // owner otherwise).
-    let (signer, attestation) = ops::signer_for(&inner.ws, spec.agent.as_deref());
     let plan = model_plan_for(&inner, &spec);
     // The setting is read for the project the work stands in.
     let effort_setting = crate::effort::setting(

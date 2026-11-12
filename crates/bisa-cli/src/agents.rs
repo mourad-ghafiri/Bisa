@@ -147,8 +147,9 @@ pub enum AgentCmd {
     /// unfinished work items, workflows, gate policies
     Usage { id: String },
     /// Delete an agent definition. Refused while anything still points at it
-    /// (`bisa agent usage <id>`), and `general-agent` is refused
-    /// outright: it is the one agent every workspace can always reach.
+    /// (`bisa agent usage <id>`), and `general-agent` and `workflow-agent`
+    /// are refused outright: they are the agents every workspace always has.
+    /// The turns it runs in conversations are ended first.
     #[command(alias = "remove")]
     Rm { id: String },
     /// The skills one agent carries, one reference at a time
@@ -230,9 +231,11 @@ pub enum TeamCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
-    /// List running/parked sessions (the runtime roster)
+    /// List the sessions the node drives (the live roster): workers,
+    /// conversation turns, guided wakes, terminals, asks
     List,
-    /// Terminate a session at once — `aborted` is terminal
+    /// Stop one session for good and say what that ended — `aborted` is
+    /// final
     Abort { id: String },
 }
 
@@ -394,7 +397,10 @@ fn render_plan(plan: &ModelPlan) -> String {
             }
             if !c.enabled {
                 // LCOV_EXCL_START: a plan's model switched off is the desktop's door; no verb here writes it
-                s.push_str(" (off)");
+                s.push_str(&format!(
+                    " {}",
+                    bisa_i18n::say(&bisa_core::text!("cli-agents-plan-model-off"))
+                ));
                 // LCOV_EXCL_STOP
             }
             if let Some(suited) = &c.suited_for {
@@ -436,9 +442,12 @@ fn prompt_text(
             "cli-agents-pass-prompt-prompt-file-not-both"
         )),
         (Some(p), None) => Ok(Some(p)),
-        (None, Some(f)) => Ok(Some(
-            std::fs::read_to_string(&f).with_context(|| format!("reading {}", f.display()))?,
-        )),
+        (None, Some(f)) => Ok(Some(std::fs::read_to_string(&f).with_context(|| {
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-agents-reading-prompt-file",
+                path = f.display().to_string()
+            ))
+        })?)),
         (None, None) => Ok(None),
     }
 }
@@ -525,24 +534,53 @@ fn new_agent_body(new: &NewAgent) -> serde_json::Value {
     })
 }
 
-/// An agent's record as edited, as `PATCH /agents/{id}` reads it: every
-/// field the command line can change, so what it left alone goes back as it
-/// was. The picture is no word of the command line's and is left out, which
-/// keeps it.
-fn edited_agent_body(def: &Agent) -> serde_json::Value {
-    json!({
-        "name": def.name,
-        "description": def.description,
-        "system_prompt": def.system_prompt,
-        "harness": def.harness,
-        "models": def.models,
-        "skills": def.skills,
-        "mcps": def.mcps,
-        "tags": def.tags,
-        "respond": def.respond,
-        "enabled": def.enabled,
-        "decision_making": def.decision_making,
-    })
+/// The words of one `bisa agent edit`, as `PATCH /agents/{id}` reads them:
+/// **only what the person named**. What the command left alone is left out,
+/// and the node keeps it as it stands there — the whole record sent back
+/// would carry every other field as this command read it a moment before,
+/// and undo what another window changed meanwhile (a disable, most of all).
+/// The picture is no word of the command line's and is never sent.
+#[derive(Default)]
+struct AgentWords {
+    name: bool,
+    description: bool,
+    prompt: bool,
+    harness: bool,
+    plan: bool,
+    skills: bool,
+    mcps: bool,
+    tags: bool,
+    respond: bool,
+    enabled: bool,
+    decision_making: bool,
+}
+
+impl AgentWords {
+    /// The body: each named word with the value the edit gave it on `def`.
+    fn body(&self, def: &Agent) -> serde_json::Value {
+        let mut body = serde_json::Map::new();
+        let mut say = |named: bool, key: &str, value: serde_json::Value| {
+            if named {
+                body.insert(key.to_string(), value);
+            }
+        };
+        say(self.name, "name", json!(def.name));
+        say(self.description, "description", json!(def.description));
+        say(self.prompt, "system_prompt", json!(def.system_prompt));
+        say(self.harness, "harness", json!(def.harness));
+        say(self.plan, "models", json!(def.models));
+        say(self.skills, "skills", json!(def.skills));
+        say(self.mcps, "mcps", json!(def.mcps));
+        say(self.tags, "tags", json!(def.tags));
+        say(self.respond, "respond", json!(def.respond));
+        say(self.enabled, "enabled", json!(def.enabled));
+        say(
+            self.decision_making,
+            "decision_making",
+            json!(def.decision_making),
+        );
+        serde_json::Value::Object(body)
+    }
 }
 
 /// A team's member as the node's bodies read one.
@@ -554,18 +592,19 @@ fn member_said(member: &Assignee) -> serde_json::Value {
     }
 }
 
-/// An agent's record as edited, written — by the node when one runs. With
-/// none, the engine of this one command writes an edit that stands the agent
-/// up or down, since that is said in every channel the agent is in; any
-/// other edit is the store's.
-async fn agent_written(ctx: &Ctx, def: Agent, stands: bool) -> Result<Agent> {
+/// An agent's record as edited, written — by the node when one runs, which
+/// is sent the words the person named and nothing else. With none, the
+/// engine of this one command writes an edit that stands the agent up or
+/// down, since that is said in every channel the agent is in; any other
+/// edit is the store's.
+async fn agent_written(ctx: &Ctx, def: Agent, words: &AgentWords) -> Result<Agent> {
     if let Some(node) = ctx.node_client().await {
         let answer = node
-            .patch(&format!("/agents/{}", def.id), edited_agent_body(&def))
+            .patch(&format!("/agents/{}", def.id), words.body(&def))
             .await?;
         return agent_said(&answer);
     }
-    if !stands {
+    if !words.enabled {
         return Ok(ctx.workspace()?.update_agent(def)?);
     }
     let (engine, _) = ctx.engine().await?;
@@ -574,17 +613,32 @@ async fn agent_written(ctx: &Ctx, def: Agent, stands: bool) -> Result<Agent> {
     Ok(written?)
 }
 
-/// A team's roster as edited, written: by the node when one runs.
-async fn roster_written(ctx: &Ctx, team: Team) -> Result<Team> {
+/// A team's roster changed and written: by the node when one runs — sent
+/// the roster alone, so the team's name and its switch stay as they stand
+/// there — and with none by the store, on the record as it stands under the
+/// roster's one writer.
+async fn roster_written(
+    ctx: &Ctx,
+    id: &TeamId,
+    change: impl Fn(&mut Vec<Assignee>),
+) -> Result<Team> {
+    let ws = ctx.workspace()?;
     match ctx.node_client().await {
         Some(node) => {
-            let members: Vec<serde_json::Value> = team.members.iter().map(member_said).collect();
+            let mut roster = ws.get_team(id)?.members;
+            change(&mut roster);
+            let members: Vec<serde_json::Value> = roster.iter().map(member_said).collect();
             let answer = node
-                .patch(&format!("/teams/{}", team.id), json!({"members": members}))
+                .patch(&format!("/teams/{id}"), json!({"members": members}))
                 .await?;
             team_said(&answer)
         }
-        None => Ok(ctx.workspace()?.update_team(team)?),
+        None => Ok(ws
+            .update_team_with(id, |team| {
+                change(&mut team.members);
+                Ok(())
+            })?
+            .1),
     }
 }
 
@@ -679,7 +733,9 @@ async fn agent_refs(ctx: &Ctx, out: &Out, cmd: RefCmd, skills: bool) -> Result<(
                 out.human(&format!(
                     "{:<34} {}",
                     id,
-                    name.unwrap_or_else(|| "(unresolved)".into())
+                    name.unwrap_or_else(|| bisa_i18n::say(&bisa_core::text!(
+                        "cli-agents-reference-unresolved"
+                    )))
                 ));
             }
             out.json_value(json!({"agent": a.id, field: ids}));
@@ -794,13 +850,28 @@ pub async fn agent(ctx: &Ctx, out: &Out, cmd: AgentCmd) -> Result<()> {
             // Every word is read before anything is written, and the record
             // is written once: an edit that is refused has stood nobody down.
             let mut def = ws.get_agent(&agent_id(&id)?)?;
+            let prompt = prompt_text(prompt, prompt_file)?;
+            // What the person named: a node is sent these words alone.
+            let words = AgentWords {
+                name: name.is_some(),
+                description: description.is_some(),
+                prompt: prompt.is_some(),
+                harness: harness.is_some(),
+                plan: !models.is_empty() || strategy.is_some() || effort.is_some(),
+                skills: !skills.is_empty(),
+                mcps: !mcps.is_empty(),
+                tags: tags.given(),
+                respond: respond.is_some(),
+                enabled: enabled.is_some(),
+                decision_making: decision_making.is_some(),
+            };
             if let Some(on) = enabled {
                 def.enabled = on;
             }
             if let Some(n) = name {
                 def.name = n;
             }
-            if let Some(p) = prompt_text(prompt, prompt_file)? {
+            if let Some(p) = prompt {
                 def.system_prompt = p;
             }
             if let Some(h) = harness {
@@ -828,7 +899,7 @@ pub async fn agent(ctx: &Ctx, out: &Out, cmd: AgentCmd) -> Result<()> {
             if let Some(on) = decision_making {
                 def.decision_making = on;
             }
-            let agent = agent_written(ctx, def, enabled.is_some()).await?;
+            let agent = agent_written(ctx, def, &words).await?;
             render_agent(out, &agent);
             out.json_value(json!({"agent": agent}));
         }
@@ -907,25 +978,34 @@ fn render_team(out: &Out, t: &Team) {
         Origin::Local => String::new(),
     };
     out.human(&format!(
-        "{}  {}{}{origin}\n  tags: {}",
+        "{}  {}{}{origin}\n{}",
         t.id,
         t.name,
         t.purpose
             .as_deref()
             .map(|p| format!(" — {p}"))
             .unwrap_or_default(),
-        crate::tags::label(&t.tags)
+        bisa_i18n::say(&bisa_core::text!(
+            "cli-agents-team-tags-line",
+            tags = crate::tags::label(&t.tags)
+        ))
     ));
     for m in &t.members {
-        match m {
-            Assignee::Human(pk) => out.human(&format!("  human  {pk}")),
-            Assignee::Agent(id) => out.human(&format!("  agent  {id}")),
+        let line = match m {
+            Assignee::Human(pk) => {
+                bisa_core::text!("cli-agents-team-member-human", who = pk.to_string())
+            }
+            Assignee::Agent(id) => {
+                bisa_core::text!("cli-agents-team-member-agent", who = id.to_string())
+            }
             // The store refuses a nested team; render it rather than panic if
             // a hand-edited truth file carries one.
             // LCOV_EXCL_START: a team inside a team is refused by the store; the arm renders a hand-edited file
-            Assignee::Team(id) => out.human(&format!("  team   {id}")),
-            // LCOV_EXCL_STOP
-        }
+            Assignee::Team(id) => {
+                bisa_core::text!("cli-agents-team-member-team", who = id.to_string())
+            } // LCOV_EXCL_STOP
+        };
+        out.human(&bisa_i18n::say(&line));
     }
 }
 
@@ -979,10 +1059,13 @@ pub async fn team(ctx: &Ctx, out: &Out, cmd: TeamCmd) -> Result<()> {
             }
             for t in &teams {
                 out.human(&format!(
-                    "{:<28} {:<20} {} member(s)  {}",
+                    "{:<28} {:<20} {}  {}",
                     t.id,
                     t.name,
-                    t.members.len(),
+                    bisa_i18n::say(&bisa_core::text!(
+                        "cli-agents-team-members-count",
+                        n = t.members.len().to_string()
+                    )),
                     crate::tags::label(&t.tags)
                 ));
             }
@@ -1020,19 +1103,21 @@ pub async fn team(ctx: &Ctx, out: &Out, cmd: TeamCmd) -> Result<()> {
         }
         TeamCmd::AddMember { id, human, agent } => {
             let member = one_member(human, agent)?;
-            let mut t = ws.get_team(&team_id(&id)?)?;
-            if !t.members.contains(&member) {
-                t.members.push(member);
-            }
-            let t = roster_written(ctx, t).await?;
+            let t = roster_written(ctx, &team_id(&id)?, |roster| {
+                if !roster.contains(&member) {
+                    roster.push(member.clone());
+                }
+            })
+            .await?;
             render_team(out, &t);
             out.json_value(json!({"team": t}));
         }
         TeamCmd::RemoveMember { id, human, agent } => {
             let member = one_member(human, agent)?;
-            let mut t = ws.get_team(&team_id(&id)?)?;
-            t.members.retain(|m| *m != member);
-            let t = roster_written(ctx, t).await?;
+            let t = roster_written(ctx, &team_id(&id)?, |roster| {
+                roster.retain(|m| *m != member);
+            })
+            .await?;
             render_team(out, &t);
             out.json_value(json!({"team": t}));
         }
@@ -1110,20 +1195,64 @@ pub async fn sessions(ctx: &Ctx, out: &Out, cmd: SessionCmd) -> Result<()> {
             out.json_value(json!({"sessions": rows}));
         }
         SessionCmd::Abort { id } => {
+            // Checked before it is a path: what is no session id is said so
+            // here, with or without a node, and never asked of one.
+            let Ok(run) = id.parse::<bisa_engine::LiveRunId>() else {
+                bail!(bisa_core::text!(
+                    "cli-agents-not-session-id",
+                    id = id.to_string()
+                ))
+            };
+            let id = run.to_string();
             let client = ctx.node_client().await.context(bisa_core::text!(
                 "cli-agents-aborting-needs-daemon-owns-session-start"
             ))?;
-            client
+            let answer = client
                 .post(&format!("/sessions/{id}/abort"), json!({}))
                 .await?;
-            out.say(&bisa_core::text!(
-                "cli-agents-session-aborted-terminal-cannot-revive",
-                id = id.to_string()
-            ));
-            out.json_value(json!({"aborted": id}));
+            for line in abort_lines(&id, &answer["ended"]) {
+                out.human(&line);
+            }
+            out.json_value(json!({"aborted": id, "ended": answer["ended"]}));
         }
     }
     Ok(())
+}
+
+/// The mark beside a memory nothing links to.
+fn orphan_mark(orphan: bool) -> String {
+    if !orphan {
+        return String::new();
+    }
+    format!(
+        "  {}",
+        bisa_i18n::say(&bisa_core::text!("cli-agents-recall-orphan"))
+    )
+}
+
+/// What an abort did, in lines: the session it aborted, then what it ended
+/// besides the row, as the node answered it — a harness that had to be
+/// terminated, a session that could not be ended: the lines `bisa stop` says
+/// for a goal's sessions.
+fn abort_lines(id: &str, ended: &serde_json::Value) -> Vec<String> {
+    let count = |key: &str| ended[key].as_u64().unwrap_or(0);
+    let mut lines = vec![bisa_i18n::say(&bisa_core::text!(
+        "cli-agents-session-aborted-terminal-cannot-revive",
+        id = id.to_string()
+    ))];
+    if count("terminated") > 0 {
+        lines.push(bisa_i18n::say(&bisa_core::text!(
+            "cli-run-goal-harnesses-terminated",
+            n = count("terminated").to_string()
+        )));
+    }
+    if count("still_live") > 0 {
+        lines.push(bisa_i18n::say(&bisa_core::text!(
+            "cli-run-goal-sessions-not-ended",
+            n = count("still_live").to_string()
+        )));
+    }
+    lines
 }
 
 pub fn recall(ctx: &Ctx, out: &Out, cmd: RecallCmd) -> Result<()> {
@@ -1135,7 +1264,7 @@ pub fn recall(ctx: &Ctx, out: &Out, cmd: RecallCmd) -> Result<()> {
                 out.say(&bisa_core::text!("cli-agents-agent-has-no-memories-yet"));
             }
             for r in &records {
-                let orphan = if r.orphan { "  (orphan)" } else { "" };
+                let orphan = orphan_mark(r.orphan);
                 out.human(&format!(
                     "{:<28} {}{orphan}",
                     r.slug,
@@ -1444,13 +1573,29 @@ mod tests {
         .expect("an agent's record")
     }
 
+    fn every_word() -> AgentWords {
+        AgentWords {
+            name: true,
+            description: true,
+            prompt: true,
+            harness: true,
+            plan: true,
+            skills: true,
+            mcps: true,
+            tags: true,
+            respond: true,
+            enabled: true,
+            decision_making: true,
+        }
+    }
+
     /// What the command line sends a node is a body the node reads: every
     /// key one it knows, every word in its vocabulary.
     #[test]
     fn what_is_sent_to_the_node_is_a_body_the_node_reads() {
         let agent = an_agent();
         let edit: bisa_node::dto::PatchAgentBody =
-            serde_json::from_value(edited_agent_body(&agent)).expect("the edit fits");
+            serde_json::from_value(every_word().body(&agent)).expect("the edit fits");
         assert_eq!(edit.name.as_deref(), Some("Scout"));
         assert_eq!(edit.description, Some(Some("looks ahead".to_string())));
         assert_eq!(edit.system_prompt.as_deref(), Some("You look a site over."));
@@ -1466,28 +1611,52 @@ mod tests {
             edit.photo.is_none(),
             "the picture is no word of the command line's"
         );
+    }
 
-        let new = NewAgent {
-            name: agent.name.clone(),
-            photo: None,
-            description: None,
-            system_prompt: agent.system_prompt.clone(),
-            harness: agent.harness.clone(),
-            models: agent.models.clone(),
-            skills: agent.skills.clone(),
-            mcps: agent.mcps.clone(),
-            tags: agent.tags.clone(),
-            respond: RespondPolicy::OwnerOnly,
-            decision_making: false,
+    /// A node is sent the words the person named and nothing else: a rename
+    /// carries no switch, no prompt and no plan — so it cannot write back a
+    /// field as this command read it, over what another window changed
+    /// since. An edit that names nothing sends nothing.
+    #[test]
+    fn only_what_was_named_is_sent() {
+        let agent = an_agent();
+        let rename = AgentWords {
+            name: true,
+            ..Default::default()
         };
-        let made: bisa_node::dto::NewAgentBody =
-            serde_json::from_value(new_agent_body(&new)).expect("the new agent fits");
-        assert_eq!(made.name, "Scout");
-        assert_eq!(made.description, None);
-        assert_eq!(made.respond.as_deref(), Some("owner_only"));
-        assert_eq!(made.models.as_ref(), Some(&agent.models));
-        assert_eq!(made.skills, vec!["survey".to_string()]);
-        assert!(!made.decision_making);
+        assert_eq!(rename.body(&agent), json!({"name": "Scout"}));
+        let stand_down = AgentWords {
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(stand_down.body(&agent), json!({"enabled": false}));
+        assert_eq!(AgentWords::default().body(&agent), json!({}));
+        let all = every_word().body(&agent);
+        assert_eq!(all.as_object().unwrap().len(), 11);
+    }
+
+    /// What an abort ended besides the row is said, as a stop's is: a
+    /// harness that had to be terminated, a session that would not end. An
+    /// abort that ended cleanly adds nothing.
+    #[test]
+    fn an_abort_says_what_it_could_not_end_cleanly() {
+        let clean = abort_lines(
+            "S1",
+            &json!({"sessions": 1, "terminated": 0, "still_live": 0}),
+        );
+        assert_eq!(clean.len(), 1, "{clean:?}");
+        assert!(clean[0].contains("S1") && clean[0].contains("aborted"));
+        assert_eq!(abort_lines("S1", &serde_json::Value::Null).len(), 1);
+        let lines = abort_lines(
+            "S1",
+            &json!({"sessions": 2, "terminated": 1, "still_live": 1}),
+        );
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[1].contains("terminated"), "{lines:?}");
+        assert!(lines[2].contains("could not be ended"), "{lines:?}");
+        // A memory nothing links to is marked, and one that is linked is not.
+        assert_eq!(orphan_mark(true), "  (orphan)");
+        assert_eq!(orphan_mark(false), "");
     }
 
     #[test]

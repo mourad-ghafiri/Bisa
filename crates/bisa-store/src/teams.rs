@@ -39,6 +39,15 @@ fn with_the_core(mut members: Vec<Assignee>) -> Vec<Assignee> {
     members
 }
 
+/// What [`Workspace::check_assignee`] found behind a name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssigneeStanding {
+    /// The record is there (or the assignee is a person, who needs none).
+    There,
+    NoSuchAgent(AgentId),
+    NoSuchTeam(TeamId),
+}
+
 impl Workspace {
     fn write_team(&self, def: &Team) -> Result<(), StoreError> {
         def.validate()?;
@@ -96,11 +105,27 @@ impl Workspace {
         members: Vec<Assignee>,
         tags: Tags,
     ) -> Result<Team, StoreError> {
+        // Minted and taken under the one writer, as an agent's id is.
+        let _one_writer = self.roster_writer();
         let id = self.mint_team_id(name)?;
-        self.create_team_with_id(&id, name, purpose, members, tags, Origin::Local)
+        self.create_team_locked(&id, name, purpose, members, tags, Origin::Local)
     }
 
     pub(crate) fn create_team_with_id(
+        &self,
+        id: &TeamId,
+        name: &str,
+        purpose: Option<&str>,
+        members: Vec<Assignee>,
+        tags: Tags,
+        origin: Origin,
+    ) -> Result<Team, StoreError> {
+        let _one_writer = self.roster_writer();
+        self.create_team_locked(id, name, purpose, members, tags, origin)
+    }
+
+    /// [`Self::create_team_with_id`] under the writer its caller holds.
+    fn create_team_locked(
         &self,
         id: &TeamId,
         name: &str,
@@ -131,7 +156,31 @@ impl Workspace {
     }
 
     pub fn update_team(&self, def: Team) -> Result<Team, StoreError> {
+        let _one_writer = self.roster_writer();
         let stored = self.get_team(&def.id)?;
+        self.update_team_locked(stored, def)
+    }
+
+    /// Edit a team's record under the one writer, as
+    /// [`Workspace::update_agent_with`] edits an agent's: `edit` sees the
+    /// team as it stands, and the record before and after are answered —
+    /// two edits at once, one of the roster and one of the name, both stand.
+    pub fn update_team_with(
+        &self,
+        id: &TeamId,
+        edit: impl FnOnce(&mut Team) -> Result<(), StoreError>,
+    ) -> Result<(Team, Team), StoreError> {
+        let _one_writer = self.roster_writer();
+        let before = self.get_team(id)?;
+        let mut next = before.clone();
+        edit(&mut next)?;
+        let after = self.update_team_locked(before.clone(), next)?;
+        Ok((before, after))
+    }
+
+    /// The write behind [`Self::update_team`] and [`Self::update_team_with`],
+    /// under the writer the caller holds.
+    fn update_team_locked(&self, stored: Team, def: Team) -> Result<Team, StoreError> {
         let def = Team {
             members: self.vetted_members(def.members)?,
             origin: stored.origin,
@@ -145,11 +194,11 @@ impl Workspace {
     /// Flip enablement. Returns the team and whether it was enabled
     /// before, so the caller can derive membership events.
     pub fn set_team_enabled(&self, id: &TeamId, enabled: bool) -> Result<(Team, bool), StoreError> {
-        let mut def = self.get_team(id)?;
-        let was = def.enabled;
-        def.enabled = enabled;
-        let def = self.update_team(def)?;
-        Ok((def, was))
+        let (before, after) = self.update_team_with(id, |team| {
+            team.enabled = enabled;
+            Ok(())
+        })?;
+        Ok((after, before.enabled))
     }
 
     /// The membership as it will be stored: normalised by the core, and every
@@ -157,20 +206,13 @@ impl Workspace {
     fn vetted_members(&self, members: Vec<Assignee>) -> Result<Vec<Assignee>, StoreError> {
         let members = Team::normalise_members(members)?;
         for m in &members {
-            if let Assignee::Agent(id) = m {
-                let id = AgentId::new(id)?;
-                // An agent that is not there is the caller's to fix; one
-                // whose record cannot be read is said as that, by its file.
-                match self.get_agent(&id) {
-                    Ok(_) => {}
-                    Err(StoreError::DefinitionNotFound { .. }) => {
-                        return Err(StoreError::Invalid(bisa_core::text!(
-                            "error-store-invalid-team-references-unknown-agent",
-                            id = id.to_string()
-                        )))
-                    }
-                    Err(e) => return Err(e),
-                }
+            // An agent that is not there is the caller's to fix; one whose
+            // record cannot be read is said as that, by its file.
+            if let AssigneeStanding::NoSuchAgent(id) = self.check_assignee(m)? {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-team-references-unknown-agent",
+                    id = id.to_string()
+                )));
             }
         }
         Ok(members)
@@ -178,15 +220,32 @@ impl Workspace {
 
     /// Delete a team, and refuse while anything still names it.
     pub fn remove_team(&self, id: &TeamId) -> Result<(), StoreError> {
-        self.get_team(id)?;
-        self.refuse_if_used(crate::usage::UsageKind::Team, id.as_str())?;
-        let path = self.paths.team_file(id);
-        std::fs::remove_file(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        let _one_writer = self.roster_writer();
+        match self.get_team(id) {
+            Ok(_) => self.refuse_if_used(crate::usage::UsageKind::Team, id.as_str())?,
+            // A record nobody can read is removed by its id, once nothing
+            // points at the id.
+            Err(StoreError::Unreadable { .. }) => {
+                self.refuse_if_id_used(crate::usage::UsageKind::Team, id.as_str(), None)?
+            }
+            Err(e) => return Err(e),
+        }
+        // What others read first, the record last: stopped before it, the
+        // team is whole on disk and the removal is asked again.
+        {
+            let idx = self.idx();
+            idx.delete_team(id.as_str())?;
+            idx.clear_tags(TagEntity::Team, id.as_str())?;
+        }
         self.snapshots
             .delete_snapshot(Paths::NS_TEAMS, KIND_TEAM, id.as_str())?;
-        let idx = self.idx();
-        idx.delete_team(id.as_str())?;
-        idx.clear_tags(TagEntity::Team, id.as_str())
+        let path = self.paths.team_file(id);
+        std::fs::remove_file(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        self.emit_store_event(StoreEvent::DefinitionRemoved {
+            kind: KIND_TEAM,
+            d: id.to_string(),
+        });
+        Ok(())
     }
 
     pub fn get_team(&self, id: &TeamId) -> Result<Team, StoreError> {
@@ -221,7 +280,7 @@ impl Workspace {
                 tracing::warn!("teams/{name}: not a team id, skipping");
                 continue;
             };
-            if let Some(team) = crate::workspace::tolerated("team", stem, self.get_team(&id))? {
+            if let Some(team) = self.tolerated_definition("team", stem, self.get_team(&id))? {
                 out.push(team);
             }
         }
@@ -260,6 +319,50 @@ impl Workspace {
         Ok(with_the_core(team.members))
     }
 
+    /// Whether what an assignee names is there — **the one existence check**
+    /// behind every door that takes an assignee: a team's members, a
+    /// channel's roster, a goal's, a project's and a work item's assignees.
+    ///
+    /// The answer is typed so each door keeps its own sentence for a name
+    /// that is not there. A record that is there and cannot be read is an
+    /// error, by its file, and never an answer: no door may call it unknown.
+    pub fn check_assignee(&self, who: &Assignee) -> Result<AssigneeStanding, StoreError> {
+        let missing = |read: Result<(), StoreError>, standing| match read {
+            Ok(()) => Ok(AssigneeStanding::There),
+            Err(StoreError::DefinitionNotFound { .. }) => Ok(standing),
+            Err(e) => Err(e),
+        };
+        match who {
+            Assignee::Agent(id) => {
+                let id = AgentId::new(id)?;
+                let read = self.get_agent(&id).map(drop);
+                missing(read, AssigneeStanding::NoSuchAgent(id))
+            }
+            Assignee::Team(id) => {
+                let id = TeamId::new(id)?;
+                let read = self.get_team(&id).map(drop);
+                missing(read, AssigneeStanding::NoSuchTeam(id))
+            }
+            // A human is a bare pubkey: valid whether or not that person has
+            // joined this workspace yet.
+            Assignee::Human(_) => Ok(AssigneeStanding::There),
+        }
+    }
+
+    /// The check for the doors that answer a missing name as *no such
+    /// definition* — a goal's and a project's assignees.
+    pub(crate) fn require_assignees(&self, assignees: &[Assignee]) -> Result<(), StoreError> {
+        for who in assignees {
+            let (kind, id) = match self.check_assignee(who)? {
+                AssigneeStanding::There => continue,
+                AssigneeStanding::NoSuchAgent(id) => ("agent", id.to_string()),
+                AssigneeStanding::NoSuchTeam(id) => ("team", id.to_string()),
+            };
+            return Err(StoreError::DefinitionNotFound { kind, id });
+        }
+        Ok(())
+    }
+
     /// Set (or clear, with an empty list) who carries a goal. Every named
     /// agent and team must exist.
     pub fn set_goal_assignees(
@@ -267,21 +370,7 @@ impl Workspace {
         goal: GoalId,
         assignees: Vec<Assignee>,
     ) -> Result<Goal, StoreError> {
-        for a in &assignees {
-            match a {
-                Assignee::Team(id) => {
-                    let id = TeamId::new(id)?;
-                    self.get_team(&id)?;
-                }
-                Assignee::Agent(id) => {
-                    let id = AgentId::new(id)?;
-                    self.get_agent(&id)?;
-                }
-                // A human is a bare pubkey: valid whether or not that person
-                // has joined this workspace yet.
-                Assignee::Human(_) => {}
-            }
-        }
+        self.require_assignees(&assignees)?;
         self.update_goal_with(goal, |current| {
             current.assignees = assignees;
             Ok(())
@@ -300,7 +389,7 @@ impl Workspace {
 
     pub(crate) fn reindex_teams(&self) -> Result<(), StoreError> {
         for def in self.list_teams()? {
-            self.index_team(&def)?;
+            self.tolerated_index("team", def.id.as_str(), self.index_team(&def))?;
         }
         Ok(())
     }
@@ -317,6 +406,78 @@ mod tests {
         let ws =
             Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
         (dir, ws)
+    }
+
+    /// Twelve members added to one team at once are all on it: each edit is
+    /// made on the record as it stands, under the roster's one writer. Read
+    /// outside it, changed and written back whole, the later write took the
+    /// earlier one's member with it. The answer names the record before and
+    /// after, and an edit that refuses writes nothing.
+    #[test]
+    fn two_edits_of_one_team_both_stand() {
+        let (_d, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        let team = ws
+            .create_team("Crew", None, vec![], Tags::default())
+            .unwrap()
+            .id;
+        let agents: Vec<AgentId> = (0..12)
+            .map(|n| {
+                ws.add_agent(crate::agents::NewAgent {
+                    name: format!("Hand {n}"),
+                    harness: "mock".into(),
+                    system_prompt: "lend a hand".into(),
+                    ..Default::default()
+                })
+                .unwrap()
+                .id
+            })
+            .collect();
+        let start = std::sync::Arc::new(std::sync::Barrier::new(agents.len()));
+        let writers: Vec<_> = agents
+            .iter()
+            .cloned()
+            .map(|agent| {
+                let (ws, team, start) = (ws.clone(), team.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    ws.update_team_with(&team, |t| {
+                        t.members.push(Assignee::Agent(agent.to_string()));
+                        Ok(())
+                    })
+                    .unwrap();
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let mut on_it = ws.team_agents(&team).unwrap();
+        on_it.sort();
+        let mut wanted = agents.clone();
+        wanted.sort();
+        assert_eq!(on_it, wanted, "every member is on the record");
+
+        let (before, after) = ws
+            .update_team_with(&team, |t| {
+                t.name = "Deck crew".into();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            (before.name.as_str(), after.name.as_str()),
+            ("Crew", "Deck crew")
+        );
+        assert_eq!(after.members.len(), 12, "a rename keeps the roster");
+        let refused = ws.update_team_with(&team, |t| {
+            t.name = "Lost".into();
+            Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-team-references-unknown-agent",
+                id = "nobody".to_string()
+            )))
+        });
+        assert!(refused.is_err());
+        assert_eq!(ws.get_team(&team).unwrap().name, "Deck crew");
     }
 
     /// A name taken twice gets a suffix; an id taken is refused; the folder

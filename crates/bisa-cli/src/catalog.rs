@@ -292,14 +292,33 @@ pub async fn catalog(ctx: &Ctx, out: &Out, cmd: CatalogCmd) -> Result<()> {
                     .map(|(slug, id)| format!("{slug} ({id})"))
                     .collect();
                 for (label, ids) in [
-                    ("skills   ", &installed.skills),
-                    ("agents   ", &installed.agents),
-                    ("teams    ", &installed.teams),
-                    ("channels ", &installed.channels),
-                    ("workflows", &workflows),
+                    (
+                        bisa_core::text!("cli-catalog-installed-skills"),
+                        &installed.skills,
+                    ),
+                    (
+                        bisa_core::text!("cli-catalog-installed-agents"),
+                        &installed.agents,
+                    ),
+                    (
+                        bisa_core::text!("cli-catalog-installed-teams"),
+                        &installed.teams,
+                    ),
+                    (
+                        bisa_core::text!("cli-catalog-installed-channels"),
+                        &installed.channels,
+                    ),
+                    (
+                        bisa_core::text!("cli-catalog-installed-workflows"),
+                        &workflows,
+                    ),
                 ] {
                     if !ids.is_empty() {
-                        out.human(&format!("  {label}  {}", ids.join(", ")));
+                        out.human(&format!(
+                            "  {:<9}  {}",
+                            bisa_i18n::say(&label),
+                            ids.join(", ")
+                        ));
                     }
                 }
             }

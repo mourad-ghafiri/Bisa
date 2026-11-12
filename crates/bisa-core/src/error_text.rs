@@ -62,6 +62,9 @@ impl Localize for crate::agent::AgentError {
             crate::agent::AgentError::EmptyHarness => {
                 crate::text!("error-core-agent-empty-harness")
             }
+            crate::agent::AgentError::EmptyPrompt => {
+                crate::text!("error-core-agent-empty-prompt")
+            }
             crate::agent::AgentError::CoreIdReserved => {
                 crate::text!("error-core-agent-core-id-reserved")
             }
@@ -956,6 +959,7 @@ mod tests {
             },
             AgentError::EmptyName,
             AgentError::EmptyHarness,
+            AgentError::EmptyPrompt,
             AgentError::CoreIdReserved,
             AgentError::DecisionMakingAgentIdReserved,
             AgentError::CoreCannotBeDisabled,

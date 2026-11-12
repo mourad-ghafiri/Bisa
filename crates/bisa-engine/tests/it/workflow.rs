@@ -772,6 +772,7 @@ async fn a_notify_step_with_mentions_wakes_the_agent_and_without_them_wakes_nobo
         .add_agent(bisa_store::NewAgent {
             name: "Assayer".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();
@@ -879,6 +880,7 @@ async fn a_notify_step_speaks_as_the_agent_it_names() {
         .add_agent(bisa_store::NewAgent {
             name: "Herald".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

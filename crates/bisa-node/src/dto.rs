@@ -2116,7 +2116,9 @@ pub struct TeamBody {
     #[serde(default)]
     pub photo: Option<bisa_core::AttachmentRef>,
     /// Members: `{"human": "<pubkey>"}` or `{"agent": "<agent-id>"}`. A team
-    /// inside a team is refused — list that team's members directly.
+    /// inside a team is refused — list that team's members directly. Left
+    /// out, the team is made with nobody and staffed after.
+    #[serde(default)]
     pub members: Vec<serde_json::Value>,
     #[serde(default)]
     pub tags: Vec<String>,

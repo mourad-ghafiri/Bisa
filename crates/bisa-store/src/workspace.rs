@@ -204,6 +204,11 @@ pub enum StoreEvent {
         event: nostr::event::Event,
         audience: EventAudience,
     },
+    /// A definition this node held was removed here: its record, its
+    /// snapshot and its index row are gone. `kind` is the wire kind its
+    /// snapshot had, `d` its id. Said once, when the record is past return;
+    /// a removal that was refused says nothing.
+    DefinitionRemoved { kind: u16, d: String },
 }
 
 /// What moved for a person, for [`StoreEvent::PeopleChanged`].
@@ -266,6 +271,14 @@ pub struct Workspace {
     /// the other, and the second's snapshot would be refused as stale
     /// behind a record file already rewritten. Held across the three steps.
     pub(crate) addons_writes: Mutex<()>,
+    /// The roster's one writer: an agent's or a team's record is read,
+    /// judged and written — made, edited, switched, given a skill, removed —
+    /// under it. One lock for both, since a team's edit reads the agents it
+    /// names and an agent's removal reads the teams that name it: two edits
+    /// at once each wrote the record as it stood before the other, and the
+    /// later write took the earlier one's change with it. Outermost — never
+    /// taken while the index or the run writer is held; readers take none.
+    pub(crate) roster_writes: Mutex<()>,
     /// What the runtime around this store can launch — the harness ids,
     /// which of them take an effort and, per harness, the models it lists.
     /// The engine fills it at boot and again when a model list is refreshed;
@@ -382,6 +395,7 @@ impl Workspace {
             notes_writes: Mutex::new(()),
             drawings_writes: Mutex::new(()),
             addons_writes: Mutex::new(()),
+            roster_writes: Mutex::new(()),
             known_runtime: RwLock::new(KnownRuntime::default()),
             paths,
             identity,
@@ -443,6 +457,17 @@ impl Workspace {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    /// The roster's one writer ([`Self::roster_writes`]), held for the read,
+    /// the judgement and the write of one agent's or one team's record.
+    pub(crate) fn roster_writer(&self) -> MutexGuard<'_, ()> {
+        self.roster_writes.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "the roster's write lock was poisoned; continuing with the records as they stand"
+            );
+            poisoned.into_inner()
+        })
     }
 
     /// Subscribe to locally-authored writes. Lagging receivers miss events.
@@ -2526,6 +2551,38 @@ impl Workspace {
                         path = path,
                         what = what.to_string(),
                         reason = reason
+                    ),
+                    None,
+                ));
+                Ok(None)
+            }
+            other => tolerated(what, id, other),
+        }
+    }
+
+    /// [`tolerated`] for the roster's lists — agents, teams, skills — which
+    /// every dispatch, picker and rebuild reads: there, a record the disk
+    /// will not give (its permissions, a failing read) costs that one row
+    /// too, named once in [`Self::problems`], and never the list. Asked for
+    /// by its id the record is still the error it is; the shared rule is not
+    /// widened for the lists that are not the roster's.
+    pub(crate) fn tolerated_definition<T>(
+        &self,
+        what: &'static str,
+        id: &str,
+        read: Result<T, StoreError>,
+    ) -> Result<Option<T>, StoreError> {
+        match read {
+            Err(StoreError::Io { path, source }) => {
+                tracing::error!(target: "bisa_store", what, id, "skipping a {what} the disk will not give: {path}: {source}");
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::RebuildSkipped,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-rebuild-skipped",
+                        path = path,
+                        what = what.to_string(),
+                        reason = source.to_string()
                     ),
                     None,
                 ));

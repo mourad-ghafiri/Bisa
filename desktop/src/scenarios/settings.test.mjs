@@ -201,7 +201,7 @@ test("the MCP panel keeps its shape: a switch for enabled, a three-way transport
   assert.equal((panel.match(/<PairEditor/g) ?? []).length, 2, "one editor for the environment and for the headers");
   assert.ok(panel.includes("api.probeMcp({ transport: toTransport(d) })"), "Test connection dials the draft as typed");
   assert.ok(panel.includes("api.probeMcpById(id)") && panel.includes("Check all"), "a row checks itself, the panel checks every row");
-  assert.ok(panel.includes('e.payload.type === "mcp_probed"'), "a probe anywhere refreshes the rows");
+  assert.ok(panel.includes("if (mcpMoved(e.payload)) reread();"), "a probe anywhere refreshes the rows");
   assert.ok(panel.includes("<SecretInput") && panel.includes("stored={isMasked(p.v)}"), "a value is the kit's secret field; the node's mask is its stored state, with nothing to show back");
   assert.ok(!panel.includes('type="password"'), "no bare password box beside the kit's field");
   const refs = readFileSync(new URL("../views/_work/LibraryRefs.tsx", import.meta.url), "utf8");

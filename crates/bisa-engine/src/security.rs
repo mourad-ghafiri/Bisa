@@ -1406,7 +1406,7 @@ fn record(
         None => EngineEvent::global(payload),
     });
     if let Some(home) = judge.home {
-        let (signer, attestation) = crate::ops::signer_for(&inner.ws, None);
+        let (signer, attestation) = crate::ops::signer_or_owner(&inner.ws, None);
         crate::warn_on_err(
             inner.ws.append_journal(
                 &home,

@@ -48,4 +48,13 @@ export declare function startingHarness(harnesses: readonly { id: string; instal
 export declare function harnessChoices(harnesses: readonly { id: string; label: string; installed?: boolean }[] | null | undefined, current: string | null | undefined): { id: string; label: string; installed: boolean }[];
 export declare function maySaveAgent(d: Pick<AgentDraft, "name" | "system_prompt" | "harness">, busy: boolean): boolean;
 export declare function draftOf(agent: AgentDef): AgentDraft;
-export declare function saveOf(d: AgentDraft, agent: Pick<AgentDef, "id"> | null, core: boolean): AgentSave;
+export declare function saveOf(d: AgentDraft, agent: Pick<AgentDef, "id"> | null, core: boolean, seeded?: AgentDraft | null): AgentSave;
+/** Whether a draft differs from what its dialog opened on, by what it would write. */
+export declare function dirty(draft: unknown, seeded: unknown): boolean;
+/** What a dialog does when asked to close: stay while saving, ask over edits, close otherwise. */
+export declare function mayClose(standing: { dirty: boolean; busy: boolean }): "stay" | "ask" | "close";
+/** The plan's models the chosen harness does not list; none until it has answered with a list. */
+export declare function foreignModels(
+  plan: { models?: readonly { model: string }[] } | null | undefined,
+  answered: { models?: readonly { id: string }[] } | null | undefined,
+): string[];

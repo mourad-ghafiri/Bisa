@@ -786,11 +786,11 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **hex** 0.4.3 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2013-2014 The Rust Project Developers.; Copyright (c) 2015-2020 The rust-hex Developers
-- **hickory-net** 0.26.1 — MIT OR Apache-2.0 — taken as MIT
+- **hickory-net** 0.26.3 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.
 - **hickory-proto** 0.26.3 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.
-- **hickory-resolver** 0.26.1 — MIT OR Apache-2.0 — taken as MIT
+- **hickory-resolver** 0.26.3 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2015 The Hickory DNS Developers; Copyright (c) 2017 Google LLC.
 - **hkdf** 0.12.4 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2015-2018 Vlad Filippov; Copyright (c) 2018-2021 RustCrypto Developers

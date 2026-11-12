@@ -717,7 +717,7 @@ pub(crate) fn open_step_gate(
         question.clone(),
         expects.clone(),
     );
-    let (signer, attestation) = ops::signer_for(&inner.ws, Some(AgentId::WORKFLOW));
+    let (signer, attestation) = ops::signer_or_owner(&inner.ws, Some(AgentId::WORKFLOW));
     warn_on_err(
         inner.ws.append_journal(
             &run.home(),

@@ -1038,7 +1038,10 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             let Some(spec) = executor::find_work_item(inner, work_item) else {
                 return err("unknown work item");
             };
-            let (signer, attestation) = ops::signer_for(&inner.ws, spec.agent.as_deref());
+            let (signer, attestation) = match ops::agent_signer(&inner.ws, spec.agent.as_deref()) {
+                Ok(signer) => signer,
+                Err(e) => return err(e.to_string()),
+            };
             match inner.ws.append_journal(
                 &spec.home,
                 JournalPayload::Progress {
@@ -1442,7 +1445,10 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 }
             }
             let (signer, attestation) =
-                ops::signer_for(&inner.ws, spec.and_then(|s| s.agent).as_deref());
+                match ops::agent_signer(&inner.ws, spec.and_then(|s| s.agent).as_deref()) {
+                    Ok(signer) => signer,
+                    Err(e) => return err(e.to_string()),
+                };
             match inner.ws.append_journal(
                 &home,
                 JournalPayload::Note { text },
@@ -4322,7 +4328,10 @@ async fn result_submit(
         }
     }
 
-    let (signer, attestation) = ops::signer_for(&inner.ws, spec.agent.as_deref());
+    let (signer, attestation) = match ops::agent_signer(&inner.ws, spec.agent.as_deref()) {
+        Ok(signer) => signer,
+        Err(e) => return err(e.to_string()),
+    };
     let event_id = match inner.ws.append_journal(
         &spec.home,
         JournalPayload::Result {

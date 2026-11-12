@@ -1618,6 +1618,7 @@ async fn an_assigned_agent_signs_its_claim() {
         .add_agent(bisa_store::NewAgent {
             name: "Builder".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

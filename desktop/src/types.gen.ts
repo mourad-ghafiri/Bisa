@@ -10952,9 +10952,10 @@ export interface TeamBody {
   photo?: AttachmentRef | null;
   /**
    * Members: `{"human": "<pubkey>"}` or `{"agent": "<agent-id>"}`. A team
-   * inside a team is refused — list that team's members directly.
+   * inside a team is refused — list that team's members directly. Left
+   * out, the team is made with nobody and staffed after.
    */
-  members: unknown[];
+  members?: unknown[];
   tags?: string[];
 }
 /**

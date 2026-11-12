@@ -27,7 +27,9 @@
  * decision, and it belongs to whoever owns the machine.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { mcpRegistry } from "../_work/LibraryRefs";
+import { mcpMoved } from "../rosterModel.mjs";
 import { ApiError, api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import type { McpServerView, McpProbeReport } from "../../types";
@@ -487,7 +489,15 @@ function McpCard({ server, onEdit, reload, checking, onCheck }: { server: McpSer
 
 export function McpPanel() {
   const toast = useToast();
-  const { data, error, loading, reload } = useAsync((s) => api.mcps(undefined, s), []);
+  const read = useAsync((s) => api.mcps(undefined, s), []);
+  const { data, error, loading } = read;
+  // Every write of this panel ends in a re-read: the same moment tells every
+  // other open registry of this window — the Agents screen's, the editor's.
+  const reread = read.reload;
+  const reload = useCallback(() => {
+    reread();
+    mcpRegistry.changed();
+  }, [reread]);
   const [filter, setFilter] = useState<TagFilterState>(NO_TAG_FILTER);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<McpServerView | null>(null);
@@ -495,7 +505,7 @@ export function McpPanel() {
 
   // A probe finished anywhere — the CLI, another window — the rows read it.
   useEngineEvents((e) => {
-    if (e.payload.type === "mcp_probed") reload();
+    if (mcpMoved(e.payload)) reread();
   });
 
   const rows = data?.mcp ?? [];

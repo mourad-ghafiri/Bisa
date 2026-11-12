@@ -17,7 +17,7 @@
  * read differently from the other two origins.
  */
 
-import { CORE_AGENT_IDS, catalogSlug, type AgentOrigin } from "../../types";
+import { catalogSlug, type AgentOrigin } from "../../types";
 import { Chip } from "../../ui";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -35,7 +35,7 @@ export const CORE_AGENT_LOCKED =
  * no control, so nothing is rendered disabled; this sentence stands in for
  * both.
  */
-export const CORE_AGENT_PERMANENT = t("work-origin-core-agents-permanent", { agents: CORE_AGENT_IDS.join(" and ") });
+export const CORE_AGENT_PERMANENT = t("work-origin-core-agents-permanent");
 
 /**
  * One chip for the three origins.

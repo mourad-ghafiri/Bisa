@@ -541,3 +541,56 @@ async fn every_outcome_has_its_state_a_stranger_moves_nothing_and_waiting_tabs_a
     assert_eq!(waiting, [newer, older], "newest wait first");
     engine.shutdown().await;
 }
+
+/// A session whose harness itself says *aborted* — nobody pressed stop — is
+/// folded to an aborted row before its driver settles it. The row still
+/// leaves after the retention window: it used to stay on the roster for
+/// good, because only a stop started the clock an aborted row leaves by.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_aborted_row_folded_first_still_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let scripted = MockAdapter {
+        script: Some(vec![
+            SessionEvent::Lifecycle(LifecycleEvent::Started),
+            SessionEvent::Progress(ProgressEvent::TurnStarted),
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                is_terminal: true,
+            }),
+        ]),
+        ..Default::default()
+    };
+    let engine = engine_retaining_briefly(&dir, vec![scripted]);
+    let mut rx = engine.events();
+    run_on(
+        &engine,
+        "cut short",
+        new_workflow("cut short", vec![agent_step("run", "mock")]),
+    );
+    let mut seen = Vec::new();
+    let gone = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    let gone = matches!(ev.payload, EnginePayload::SessionGone { .. });
+                    seen.push(ev);
+                    if gone {
+                        return true;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => return false,
+            }
+        }
+    })
+    .await;
+    let words = state_words(&seen);
+    assert!(words.contains(&"aborted".into()), "{words:?}");
+    assert_eq!(
+        gone.ok(),
+        Some(true),
+        "an aborted row leaves the roster: {words:?}"
+    );
+    assert!(engine.inner().presence.snapshot().is_empty());
+    engine.shutdown().await;
+}

@@ -1744,6 +1744,7 @@ async fn a_message_starts_the_start_that_names_who_said_it() {
         .add_agent(bisa_store::NewAgent {
             name: "Herald".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

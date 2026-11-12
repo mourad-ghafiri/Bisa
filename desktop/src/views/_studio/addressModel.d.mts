@@ -69,3 +69,9 @@ export declare function addressChips<T extends AddressableAgent>(
   candidates: readonly T[] | null | undefined,
 ): AddressChip<T>[];
 export declare function storedAddressKey(scope: string): string;
+/** The remembered addressees that are still agents that can answer; nothing is dropped before the roster is read. */
+export declare function answerableAddressed(
+  pubkeys: readonly string[] | null | undefined,
+  agents: readonly { pubkey: string; enabled?: boolean }[] | null | undefined,
+  ready: boolean,
+): string[];

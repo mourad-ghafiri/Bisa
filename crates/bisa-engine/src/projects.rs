@@ -1779,7 +1779,7 @@ pub(crate) fn journal_fact(
     object: &str,
     outcome: Option<&str>,
 ) {
-    let (signer, attestation) = crate::ops::signer_for(&inner.ws, agent);
+    let (signer, attestation) = crate::ops::signer_or_owner(&inner.ws, agent);
     let payload = match work_item {
         Some(work_item) => JournalPayload::Progress {
             work_item,

@@ -118,10 +118,10 @@ pub async fn workers(inner: &Inner, spec: &WorkItemSpec) -> Vec<String> {
             continue;
             // LCOV_EXCL_STOP
         };
+        // An agent that is named and whose record cannot be read — a file
+        // cut short — takes no work; the others named beside it do.
         let Ok(def) = inner.ws.get_agent(&agent_id) else {
-            // LCOV_EXCL_START: an agent a team or a goal names cannot be removed while named (refuse_if_used); the arm keeps the loop total
             continue;
-            // LCOV_EXCL_STOP
         };
         if !def.enabled {
             continue;

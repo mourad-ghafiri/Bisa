@@ -3045,6 +3045,30 @@ impl Index {
         })
     }
 
+    /// The key the index holds for an agent — what is left to go by when its
+    /// record cannot be read.
+    pub fn agent_pubkey(&self, id: &str) -> Result<Option<String>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT pubkey FROM agents WHERE id = ?1")?;
+        Ok(stmt
+            .query_row(params![id], |r| r.get::<_, String>(0))
+            .optional()?)
+    }
+
+    /// The agent a key belongs to and whether its row is enabled — this
+    /// node's own, or one another node of this workspace told of.
+    pub fn agent_row_for_pubkey(&self, pubkey: &str) -> Result<Option<(String, bool)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT id, enabled FROM agents WHERE pubkey = ?1")?;
+        Ok(stmt
+            .query_row(params![pubkey], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0))
+            })
+            .optional()?)
+    }
+
     /// The agent an event's author pubkey belongs to, when it is an agent's.
     pub fn agent_id_for_pubkey(&self, pubkey: &str) -> Result<Option<String>, StoreError> {
         let mut stmt = self

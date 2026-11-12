@@ -219,6 +219,13 @@ fn the_roster_and_its_library_are_written_by_the_node_that_runs() {
     assert_eq!(told(&ws), room + 1, "said once, where it happened");
     ws.json(&["agent", "edit", &scout, "--enabled", "false"]);
     assert_eq!(told(&ws), room + 1, "the same word again is no news");
+    // An edit of another word beside the stand-down keeps it: the command
+    // sends the node the words it was given, never the switch as it read it.
+    let reworded = ws.json(&["agent", "edit", &scout, "--description", "looks further"]);
+    assert_eq!(reworded["agent"]["enabled"], false, "{reworded}");
+    assert_eq!(reworded["agent"]["description"], "looks further");
+    assert_eq!(reworded["agent"]["name"], "Scout the First");
+    assert_eq!(told(&ws), room + 1, "a description is no news to the room");
     ws.json(&["agent", "edit", &scout, "--enabled", "true"]);
     assert_eq!(told(&ws), room + 2, "and back");
 

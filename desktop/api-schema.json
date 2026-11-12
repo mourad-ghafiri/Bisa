@@ -25894,7 +25894,8 @@
         "members": {
           "type": "array",
           "items": true,
-          "description": "Members: `{\"human\": \"<pubkey>\"}` or `{\"agent\": \"<agent-id>\"}`. A team\ninside a team is refused — list that team's members directly."
+          "description": "Members: `{\"human\": \"<pubkey>\"}` or `{\"agent\": \"<agent-id>\"}`. A team\ninside a team is refused — list that team's members directly. Left\nout, the team is made with nobody and staffed after.",
+          "default": []
         },
         "tags": {
           "type": "array",
@@ -25905,8 +25906,7 @@
         }
       },
       "required": [
-        "name",
-        "members"
+        "name"
       ]
     },
     "PersonBody": {

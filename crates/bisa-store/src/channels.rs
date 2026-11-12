@@ -13,6 +13,7 @@
 use crate::error::StoreError;
 use crate::paths::Paths;
 use crate::problems::{ProblemKind, WorkspaceProblem};
+use crate::teams::AssigneeStanding;
 use crate::workspace::{mint_ulid, now_secs, EventAudience, StoreEvent, Workspace};
 use bisa_core::kind::KIND_CHANNEL;
 use bisa_core::tags::TagEntity;
@@ -110,24 +111,26 @@ impl Workspace {
                     if a.is_core_id() {
                         continue;
                     }
-                    self.get_agent(&a).map_err(|_| {
-                        StoreError::Invalid(bisa_core::text!(
+                    let named = bisa_core::Assignee::Agent(a.to_string());
+                    if self.check_assignee(&named)? != AssigneeStanding::There {
+                        return Err(StoreError::Invalid(bisa_core::text!(
                             "error-store-invalid-channel-roster-names-unknown-agent",
                             a = a.to_string()
-                        ))
-                    })?;
+                        )));
+                    }
                     if !out_agents.contains(&a) {
                         out_agents.push(a);
                     }
                 }
                 let mut out_teams: Vec<TeamId> = Vec::with_capacity(teams.len());
                 for t in teams {
-                    self.get_team(&t).map_err(|_| {
-                        StoreError::Invalid(bisa_core::text!(
+                    let named = bisa_core::Assignee::Team(t.to_string());
+                    if self.check_assignee(&named)? != AssigneeStanding::There {
+                        return Err(StoreError::Invalid(bisa_core::text!(
                             "error-store-invalid-channel-roster-names-unknown-team",
                             t = t.to_string()
-                        ))
-                    })?;
+                        )));
+                    }
                     if !out_teams.contains(&t) {
                         out_teams.push(t);
                     }

@@ -132,6 +132,8 @@ impl Workspace {
 
     /// Remove a server, and refuse while any agent still carries it.
     pub fn remove_mcp(&self, id: &McpId) -> Result<(), StoreError> {
+        // Under the roster's writer, as a skill's removal is.
+        let _one_writer = self.roster_writer();
         self.get_mcp(id)?;
         self.refuse_if_used(crate::usage::UsageKind::Mcp, id.as_str())?;
         let path = self.paths.mcp_file(id);

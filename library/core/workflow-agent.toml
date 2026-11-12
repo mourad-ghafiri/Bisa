@@ -1,5 +1,6 @@
 # The platform's workflow designer. Ensured at workspace open, never removed,
-# never disabled. Only `harness` and the model plan below may be edited.
+# never disabled. Only `harness`, the model plan below and the
+# decision-making switch may be edited.
 #
 # It carries no tags on purpose, for the same reason the General Agent does
 # not: a filter that can hide the agent that shapes every goal is a filter

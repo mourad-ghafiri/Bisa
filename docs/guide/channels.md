@@ -40,6 +40,10 @@ bisa msgs <scope>                                    # read (marks read)
 bisa read <scope> / bisa unread <scope>
 ```
 
+A mention by key names somebody who is here: the owner, a member, or an agent that is enabled. A
+disabled agent's key is refused as its id is, and a key that is nobody's is refused rather than
+addressed to no one.
+
 An edit replaces the half of the roster it names — the agents, the teams, the people — and keeps
 the halves it does not; a topic alone changes nothing else. While a node runs, what these verbs
 write goes through it, so every open window follows; with none, into the record.
@@ -85,7 +89,7 @@ channel never needs it. A workflow's `notify` step *announces* rather than asks 
 names, or the Workflow Agent, never as you — and wakes only the agents it mentions — none, by
 default: every post records which it is, so a chatty webhook cannot
 summon a harness session. The loop guard is bounded by shape: only a message from the General Agent
-or the Workflow Agent may wake another agent — the other of the two included — and never itself.
+wakes another agent — each one it names, once — and never itself; the Workflow Agent's wakes nobody.
 
 ## Messages
 

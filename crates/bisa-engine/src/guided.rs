@@ -269,7 +269,7 @@ pub(crate) fn record(inner: &Arc<Inner>, goal: GoalId, t: Transition) {
             .map(|said| inner.security.redact_said(said, "guided_say")),
         ..t
     };
-    let (signer, attestation) = ops::signer_for(&inner.ws, Some(AgentId::WORKFLOW));
+    let (signer, attestation) = ops::signer_or_owner(&inner.ws, Some(AgentId::WORKFLOW));
     warn_on_err(
         inner.ws.append_journal(
             &Home::Goal { goal },
@@ -1503,7 +1503,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     // The Workflow Agent signs its own wake, carrying the owner attestation, in
     // exactly the way `run_work_item` signs a work item. Signing as the owner
     // here is what made a guided note read as something the human wrote.
-    let (signer, attestation) = ops::signer_for(&inner.ws, Some(AgentId::WORKFLOW));
+    let (signer, attestation) = ops::signer_or_owner(&inner.ws, Some(AgentId::WORKFLOW));
     let mut pending_walls: Vec<executor::ModelWall> = Vec::new();
 
     // A guided wake walks the plan exactly the way a work item does. It has no

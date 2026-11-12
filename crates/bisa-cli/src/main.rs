@@ -350,7 +350,8 @@ enum Command {
         #[arg(long)]
         agent: Option<String>,
     },
-    /// The catalog: agents, skills, teams and channels you can install
+    /// The catalog: agents, skills, teams, channels, connectors, workflows
+    /// and addons you can install
     Catalog {
         #[command(subcommand)]
         command: catalog::CatalogCmd,

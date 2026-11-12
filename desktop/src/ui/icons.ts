@@ -170,6 +170,7 @@ import {
   Package,
   Pin,
   Paperclip,
+  Pause,
   Play,
   Plus,
   Puzzle,
@@ -512,6 +513,8 @@ export const ICON = {
   page: Globe,
   /** The project's run command — the Terminal menu's *Run* item (ide/18). */
   play: Play,
+  /** An agent disabled, a team stood down: taken out of the work, everything of it kept — `play` brings it back. */
+  pause: Pause,
   /** A screenshot of a browser tab (ide/18). */
   camera: Camera,
   sheet: Table2,

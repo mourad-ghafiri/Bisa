@@ -283,7 +283,7 @@ test("the wiring: the editor, the step form and the rows read the one model", ()
   assert.ok(picker.includes("useResolvedSettings(project)") && !picker.includes("localStorage"), "the setting is read through the settings store; nothing of it is kept here");
 
   const agentEditor = src("../views/_work/AgentEditor.tsx");
-  assert.ok(agentEditor.includes("draftOf(agent)") && agentEditor.includes("saveOf(d, agent, core)"), "the editor's draft and its save are the draft model's");
+  assert.ok(agentEditor.includes("draftOf(agent)") && agentEditor.includes("saveOf(d, agent, core, seeded.current)"), "the editor's draft and its save are the draft model's");
   const opened = draftOf({ id: "scout", name: "Scout", system_prompt: "…", harness: "claude-code", models: { strategy: "fallback", models: [{ model: OPUS }], effort: "xhigh" }, respond: "owner_only", skills: [], mcps: [], tags: [] });
   assert.equal(opened.plan.effort, "xhigh", "an agent opened for editing keeps its plan's effort");
   assert.deepEqual(saveOf({ ...emptyDraft("claude-code"), name: "Scout", plan: { strategy: "fallback", models: [], effort: "auto" } }, null, false).body.models, { strategy: "fallback", models: [], effort: "auto" }, "a new agent's plan is sent when it names an effort alone");

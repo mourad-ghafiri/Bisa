@@ -250,10 +250,43 @@ impl Workspace {
         )))
     }
 
+    /// Whether a mention by key names somebody: the owner, a member, or an
+    /// enabled agent. A key gets the check an id gets — a disabled agent's is
+    /// refused in the same words — and a key that is nobody's here is refused
+    /// rather than tagged: a `p` tag nothing answers makes the message
+    /// *addressed*, which stops the room answering instead.
+    fn check_key_is_addressable(&self, key: &PrincipalId, token: &str) -> Result<(), StoreError> {
+        if *key == self.owner_principal() || self.is_member(key)? {
+            return Ok(());
+        }
+        let row = self.idx().agent_row_for_pubkey(key.as_hex())?;
+        let Some((id, row_enabled)) = row else {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-cannot-address-key-nobody-here",
+                token = format!("{token:?}")
+            )));
+        };
+        // This node's own record is the truth of its enablement; an agent
+        // another node of this workspace told of has only its row.
+        let own = AgentId::new(&id).ok().map(|id| self.get_agent(&id));
+        let enabled = match own {
+            Some(Ok(def)) => def.enabled,
+            Some(Err(StoreError::DefinitionNotFound { .. })) | None => row_enabled,
+            Some(Err(e)) => return Err(e),
+        };
+        if enabled {
+            return Ok(());
+        }
+        Err(StoreError::Invalid(bisa_core::text!(
+            "error-store-invalid-cannot-address-agent-disabled-so-would-answer",
+            token = format!("{token:?}")
+        )))
+    }
+
     /// Resolve mention tokens for one scope into principals.
     ///
-    /// **The one place a mention becomes a pubkey.** A token is a 64-hex
-    /// principal, an agent id, a team id (expands to its enabled agents), or
+    /// **The one place a mention becomes a pubkey.** A token is the 64-hex
+    /// key of the owner, a member or an enabled agent, an agent id, a team id (expands to its enabled agents), or
     /// the scope's own channel id — the **channel handle**, which expands to
     /// the roster. Unknown tokens are an error rather than a silent drop.
     pub fn resolve_mentions(
@@ -270,6 +303,7 @@ impl Workspace {
                 }
             }
             if let Ok(pk) = PrincipalId::new(token.clone()) {
+                self.check_key_is_addressable(&pk, token)?;
                 out.push(pk);
                 continue;
             }
@@ -1331,6 +1365,41 @@ mod tests {
             )
         });
         assert!(announced, "a membership event never triages");
+    }
+
+    /// A key the index knows as an agent's with no record here — an agent
+    /// another node of this workspace told of — is addressed while its row
+    /// says enabled and refused as disabled when it does not; an agent of
+    /// this node whose record cannot be read is that error, not a mention.
+    #[test]
+    fn a_key_with_a_row_and_no_record_goes_by_its_row() {
+        let (_d, ws) = ws();
+        let key = |n: u8| format!("{n:02x}").repeat(32);
+        for (id, pk, enabled) in [("far-on", key(0xa1), true), ("far-off", key(0xa2), false)] {
+            ws.idx()
+                .upsert_agent(id, id, "mock", enabled, &pk, "local", 1)
+                .unwrap();
+        }
+        assert_eq!(
+            ws.resolve_mentions("general", &[key(0xa1)]).unwrap().len(),
+            1
+        );
+        let off = ws.resolve_mentions("general", &[key(0xa2)]).unwrap_err();
+        assert!(off.to_string().contains("disabled"), "{off}");
+
+        let own = ws
+            .add_agent(crate::agents::NewAgent {
+                name: "Near".into(),
+                harness: "mock".into(),
+                system_prompt: "be near".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        std::fs::write(ws.paths.agent_file(&own.id), b"{").unwrap();
+        let cut = ws
+            .resolve_mentions("general", &[own.pubkey.as_hex().to_string()])
+            .unwrap_err();
+        assert!(matches!(cut, StoreError::Unreadable { .. }), "{cut:?}");
     }
 
     #[test]

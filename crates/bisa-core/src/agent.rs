@@ -135,6 +135,17 @@ impl Agent {
         Ok(())
     }
 
+    /// What a definition must hold to be made, beyond [`Self::validate`]: a
+    /// prompt. `validate` cannot ask it — it is also asked of records a
+    /// workspace already holds, and one made before this rule keeps working.
+    pub fn check_new(&self) -> Result<(), AgentError> {
+        self.validate()?;
+        if self.system_prompt.trim().is_empty() {
+            return Err(AgentError::EmptyPrompt);
+        }
+        Ok(())
+    }
+
     /// What an update to this agent may change.
     ///
     /// Any agent may change anything but its id, its pubkey, its origin and its
@@ -144,6 +155,9 @@ impl Agent {
     /// restore is how a UI ends up reporting a save the store threw away. A
     /// field that is equal was not changed, so a client that PATCHes the whole
     /// object back still succeeds.
+    ///
+    /// No edit may turn a prompt blank; a record that already has none — made
+    /// before a prompt was asked for — is edited as any other.
     pub fn check_update(&self, next: &Agent) -> Result<(), AgentError> {
         if next.id != self.id {
             return Err(AgentError::Immutable("id"));
@@ -158,6 +172,9 @@ impl Agent {
             return Err(AgentError::Immutable("created_at"));
         }
         if !self.is_core() {
+            if next.system_prompt.trim().is_empty() && !self.system_prompt.trim().is_empty() {
+                return Err(AgentError::EmptyPrompt);
+            }
             return Ok(());
         }
         if !next.enabled {
@@ -195,6 +212,8 @@ pub enum AgentError {
     EmptyName,
     #[error("an agent needs a harness")]
     EmptyHarness,
+    #[error("an agent needs a prompt: what it is and what it is for")]
+    EmptyPrompt,
     #[error(
         "the core ids (`general-agent`, `workflow-agent`) and the core origin belong to \
          each other and to nothing else"
@@ -285,6 +304,29 @@ pub(crate) mod tests {
         let mut w = agent(AgentId::WORKFLOW, true);
         w.name = "Flow Bot".into();
         assert_eq!(w.validate(), Err(AgentError::CoreNameFixed));
+    }
+
+    /// A new agent needs a prompt, and no edit may take one away; a record
+    /// made before the rule, with none, still validates and is still edited.
+    #[test]
+    fn an_edit_may_not_blank_a_prompt() {
+        let made = agent("developer", false);
+        assert!(made.check_new().is_ok());
+        let mut blank = made.clone();
+        blank.system_prompt = "  \n".into();
+        assert_eq!(blank.check_new(), Err(AgentError::EmptyPrompt));
+        assert_eq!(made.check_update(&blank), Err(AgentError::EmptyPrompt));
+        // An older record with no prompt: valid, renamed, given one, and
+        // from then on kept.
+        assert!(blank.validate().is_ok());
+        let mut renamed = blank.clone();
+        renamed.name = "Dev".into();
+        assert!(blank.check_update(&renamed).is_ok());
+        assert!(blank.check_update(&made).is_ok());
+        // A refused name is still refused first.
+        let mut nameless = blank.clone();
+        nameless.name = String::new();
+        assert_eq!(nameless.check_new(), Err(AgentError::EmptyName));
     }
 
     #[test]

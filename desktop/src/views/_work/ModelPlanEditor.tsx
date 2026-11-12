@@ -41,6 +41,8 @@ import { useAsync } from "./useAsync";
 import { useVisible } from "../../shell/visibility";
 import { EffortPicker, useEffortSetting } from "./EffortPicker";
 import { effortOptions, effortWords, effortsFor, offersEffort, planEfforts, resolveEffort, withEffort } from "./effortModel.mjs";
+import { foreignModels } from "./agentDraftModel.mjs";
+import { useHarnessLabels } from "../../shell/useHarnesses";
 import { STRATEGIES, addModel, answeredBy, enabledCount, healthChips, healthOf, moveModel, patchModel, removeModel, strategyOf, unusedModels, weightFrom } from "./modelPlanModel.mjs";
 import { t as tr } from "../../i18n/l10n.mjs";
 
@@ -142,6 +144,9 @@ export function ModelPlanEditor({
   };
 
   const unused = unusedModels(offered, plan);
+  // A model this harness does not list — kept from the harness picked before, or typed by hand — stays, and says so.
+  const foreign = foreignModels(plan, answered);
+  const harnessName = useHarnessLabels()[harness] ?? harness;
 
   return (
     <div className="flex flex-col gap-3">
@@ -209,6 +214,13 @@ export function ModelPlanEditor({
                       {m.model}
                     </span>
                   </Tooltip>
+                  {foreign.includes(m.model) && (
+                    <Tooltip label={tr("work-model-plan-editor-not-listed-hint", { harness: harnessName })}>
+                      <span className="inline-flex">
+                        <Chip tone="warn">{tr("work-model-plan-editor-not-listed", { harness: harnessName })}</Chip>
+                      </span>
+                    </Tooltip>
+                  )}
                   <ModelHealthBadges row={healthOf(health, harness, m.model)} />
                   {strategy === "weighted" && (
                     <label className="flex shrink-0 items-center gap-1 text-2xs text-text-dim">{tr("work-model-plan-editor-weight")}<TextInput

@@ -19,7 +19,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bisa_core::tags::TagEntity;
 use bisa_core::Localize as _;
-use bisa_core::{Assignee, McpId, PhotoProfile, RespondPolicy, SkillId, Team};
+use bisa_core::{Assignee, McpId, PhotoProfile, RespondPolicy, SkillId};
 use bisa_store::{NewAgent, Workspace};
 use serde_json::json;
 use std::str::FromStr;
@@ -143,11 +143,9 @@ async fn create_agent(
     State(state): State<Shared>,
     crate::Body(body): crate::Body<NewAgentBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if body.name.trim().is_empty() || body.system_prompt.trim().is_empty() {
-        return Err(bad_request(bisa_core::text!(
-            "error-node-agents_api-agent-needs-name-system-prompt"
-        )));
-    }
+    // A name, a prompt and a harness are the store's to ask for — one rule
+    // for every door that makes an agent — and its refusal is a 400 in its
+    // own words.
     let ws = state.engine.workspace();
     let (skills, mcps) = check_refs(ws, &body.skills, &body.mcps)?;
     if let Some(photo) = &body.photo {
@@ -168,9 +166,7 @@ async fn create_agent(
             respond: parse_respond(body.respond.as_deref())?,
             decision_making: body.decision_making,
         },
-        // LCOV_EXCL_START: the refs and the picture are checked above; the engine's add fails only on disk
     )?;
-    // LCOV_EXCL_STOP
     Ok(Json(json!({"agent": agent})))
 }
 
@@ -181,51 +177,43 @@ async fn patch_agent(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let ws = state.engine.workspace();
     let id = agent_id(&id)?;
-    // Every field is read and checked before anything is written, and the
-    // record is written once, through the engine: enablement is a transition
-    // with consequences — membership events on every channel the agent is
-    // in — and an edit the node refuses has stood nobody down.
-    let mut agent = ws.get_agent(&id)?;
-    if let Some(enabled) = body.enabled {
-        agent.enabled = enabled;
+    // Every field the body names is read and checked here; the edit itself
+    // is made by the engine on the record **as it stands**, under the
+    // store's one writer — so two PATCHes of different fields both stand,
+    // and neither writes back a field as it read it a moment before. One
+    // write: enablement is a transition with consequences — membership
+    // events on every channel the agent is in — and an edit that is refused
+    // has stood nobody down.
+    if let Some(Some(photo)) = &body.photo {
+        crate::attachments::photo_check(ws, photo, PhotoProfile::Picture)?;
     }
-    if let Some(v) = body.name {
-        agent.name = v;
-    }
-    if let Some(photo) = body.photo {
-        if let Some(photo) = &photo {
-            crate::attachments::photo_check(ws, photo, PhotoProfile::Picture)?;
-        }
-        agent.photo = photo;
-    }
-    if let Some(description) = body.description {
-        agent.description = description;
-    }
-    if let Some(v) = body.system_prompt {
-        agent.system_prompt = v;
-    }
-    if let Some(v) = body.harness {
-        agent.harness = v;
-    }
-    if let Some(models) = body.models {
-        agent.models = models;
-    }
-    if let Some(v) = &body.skills {
-        agent.skills = check_refs(ws, v, &[])?.0;
-    }
-    if let Some(v) = &body.mcps {
-        agent.mcps = check_refs(ws, &[], v)?.1;
-    }
-    if let Some(v) = &body.tags {
-        agent.tags = parse_tags(v)?;
-    }
-    if let Some(v) = body.respond {
-        agent.respond = parse_respond(Some(&v))?;
-    }
-    if let Some(v) = body.decision_making {
-        agent.decision_making = v;
-    }
-    let agent = bisa_engine::directory::update_agent(state.engine.inner(), agent)?;
+    let edit = bisa_engine::directory::AgentEdit {
+        enabled: body.enabled,
+        name: body.name,
+        photo: body.photo,
+        description: body.description,
+        system_prompt: body.system_prompt,
+        harness: body.harness,
+        models: body.models,
+        skills: match &body.skills {
+            Some(v) => Some(check_refs(ws, v, &[])?.0),
+            None => None,
+        },
+        mcps: match &body.mcps {
+            Some(v) => Some(check_refs(ws, &[], v)?.1),
+            None => None,
+        },
+        tags: match &body.tags {
+            Some(v) => Some(parse_tags(v)?),
+            None => None,
+        },
+        respond: match body.respond {
+            Some(v) => Some(parse_respond(Some(&v))?),
+            None => None,
+        },
+        decision_making: body.decision_making,
+    };
+    let agent = bisa_engine::directory::edit_agent(state.engine.inner(), &id, edit)?;
     Ok(Json(json!({"agent": agent})))
 }
 
@@ -233,7 +221,7 @@ async fn delete_agent(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    bisa_engine::directory::remove_agent(state.engine.inner(), &agent_id(&id)?)?;
+    bisa_engine::directory::remove_agent(state.engine.inner(), &agent_id(&id)?).await?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -398,10 +386,9 @@ async fn get_team(
     // A team detail screen needs something to show: what it is carrying.
     let owed = crate::goals::owed_goals(&state);
     let mut goals: Vec<crate::dto::GoalRow> = Vec::new();
-    for g in ws
-        .goals_for_assignee(&bisa_core::Assignee::Team(id.to_string()))
-        .unwrap_or_default()
-    {
+    // A read that fails is said: answered as *carrying nothing*, a team
+    // with work in hand would look free to stand down.
+    for g in ws.goals_for_assignee(&bisa_core::Assignee::Team(id.to_string()))? {
         goals.push(crate::goals::goal_row(&state, &owed, &g)?);
     }
     Ok(Json(json!({"team": team, "goals": goals})))
@@ -429,11 +416,12 @@ async fn create_team(
     )?;
     // The picture rides the record once it exists — one creation, one photo.
     let team = match body.photo {
-        Some(photo) => bisa_engine::directory::update_team(
+        Some(photo) => bisa_engine::directory::edit_team(
             state.engine.inner(),
-            Team {
-                photo: Some(photo),
-                ..team
+            &team.id,
+            bisa_engine::directory::TeamEdit {
+                photo: Some(Some(photo)),
+                ..Default::default()
             },
         )?,
         None => team,
@@ -448,42 +436,30 @@ async fn patch_team(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let ws = state.engine.workspace();
     let id = team_id(&id)?;
-    let existing = ws.get_team(&id)?;
-    // A PATCH is partial: omitted fields keep their current value, so a
-    // caller editing only the roster does not have to resend the name.
-    let members = match &body.members {
-        Some(values) => parse_members(values)?,
-        None => existing.members.clone(),
-    };
-    let tags = match &body.tags {
-        Some(raw) => parse_tags(raw)?,
-        None => existing.tags.clone(),
-    };
-    let photo = match body.photo {
-        Some(photo) => {
-            if let Some(photo) = &photo {
-                crate::attachments::photo_check(ws, photo, PhotoProfile::Picture)?;
-            }
-            photo
-        }
-        None => existing.photo.clone(),
-    };
-    // One write, through the engine, once every field was read: it is what
-    // announces the membership change in every channel the team rosters,
-    // and an edit the node refuses has stood nobody down.
-    let team = bisa_engine::directory::update_team(
-        state.engine.inner(),
-        Team {
-            id: existing.id,
-            name: body.name.unwrap_or(existing.name),
-            purpose: body.purpose.unwrap_or(existing.purpose),
-            enabled: body.enabled.unwrap_or(existing.enabled),
-            photo,
-            members,
-            tags,
-            ..existing
+    // A PATCH is partial: a field left out keeps its value, so a caller
+    // editing only the roster does not have to resend the name. What it
+    // names is checked here and changed by the engine on the record as it
+    // stands, in one write — it is what announces the membership change in
+    // every channel the team rosters, and an edit that is refused has stood
+    // nobody down.
+    if let Some(Some(photo)) = &body.photo {
+        crate::attachments::photo_check(ws, photo, PhotoProfile::Picture)?;
+    }
+    let edit = bisa_engine::directory::TeamEdit {
+        enabled: body.enabled,
+        name: body.name,
+        purpose: body.purpose,
+        photo: body.photo,
+        members: match &body.members {
+            Some(values) => Some(parse_members(values)?),
+            None => None,
         },
-    )?;
+        tags: match &body.tags {
+            Some(raw) => Some(parse_tags(raw)?),
+            None => None,
+        },
+    };
+    let team = bisa_engine::directory::edit_team(state.engine.inner(), &id, edit)?;
     Ok(Json(json!({"team": team})))
 }
 
@@ -745,11 +721,11 @@ async fn answered_session(
 /// The routes this module mounts, for `bisa-node --bin api-docs` and the
 /// route test. Kept beside `routes()` so a route added here is added here.
 pub const ROUTES: &[RouteDoc] = &[
-    RouteDoc { method: "GET", path: "/agents", summary: "Every agent definition, the general agent first." },
-    RouteDoc { method: "POST", path: "/agents", summary: "Define an agent: `{name, system_prompt, harness, description?, models?, skills?, mcps?, tags?, respond?, decision_making?, photo?}` — `decision_making` lets the Decision-Making Agent stand in at the decision points this agent reaches; `photo` an attachment this machine holds, a picture within `MAX_PHOTO_BYTES` (ide/14 §Photos). A key the body does not know is a 400, and so is a name whose id is the Decision-Making Agent's." },
+    RouteDoc { method: "GET", path: "/agents", summary: "Every agent definition, oldest first — the General Agent and the Workflow Agent lead. One whose record cannot be read is left out and named among the workspace's problems." },
+    RouteDoc { method: "POST", path: "/agents", summary: "Define an agent: `{name, system_prompt, harness, description?, models?, skills?, mcps?, tags?, respond?, decision_making?, photo?}` — `decision_making` lets the Decision-Making Agent stand in at the decision points this agent reaches; `photo` an attachment this machine holds, a picture within `MAX_PHOTO_BYTES` (ide/14 §Photos). A key the body does not know is a 400, and so are a blank name, a blank prompt, a blank harness and a name whose id is the Decision-Making Agent's — each in words. An agent named *State* takes another id: `state` is kept by the agents' folder." },
     RouteDoc { method: "GET", path: "/agents/{id}", summary: "One agent definition." },
-    RouteDoc { method: "PATCH", path: "/agents/{id}", summary: "Edit an agent: what the body leaves out is kept, and `photo: null` or `description: null` takes that away. `enabled` stands the agent down or up, said in every channel it is in. The record is written once, after every field was read: an edit that is refused changed nothing and stood nobody down. The General Agent and the Workflow Agent accept only `harness`, `models` and `decision_making`. A key the body does not know is a 400; a skill or a server nobody has is a 400, and one whose record cannot be read is the store's own answer, naming its file." },
-    RouteDoc { method: "DELETE", path: "/agents/{id}", summary: "Delete an agent, or 409 while a team or channel still names it; the general agent is permanent." },
+    RouteDoc { method: "PATCH", path: "/agents/{id}", summary: "Edit an agent: what the body leaves out is kept, and `photo: null` or `description: null` takes that away. `enabled` stands the agent down or up, said in every channel it is in. The fields the body names are changed on the record as it stands, in one write: two edits of different fields both stand, and an edit that is refused changed nothing and stood nobody down. A prompt cannot be edited to blank. The General Agent and the Workflow Agent accept only `harness`, `models` and `decision_making`. A key the body does not know is a 400; a skill or a server nobody has is a 400, and one whose record cannot be read is the store's own answer, naming its file." },
+    RouteDoc { method: "DELETE", path: "/agents/{id}", summary: "Delete an agent, or 409 — naming the holder — while a team, a channel's roster, a goal's or a project's assignees, an unsettled work item, a workflow's step or a gate policy still names it; the General Agent and the Workflow Agent are permanent (409). The turns it runs in conversations are ended first, and the removal is said on the event stream (`{stream: conversation, payload: {scope, kind, snapshot: true, removed: true}}`). An agent whose record cannot be read is removed by its id." },
     RouteDoc { method: "GET", path: "/agents/{id}/recall", summary: "The agent's memory: records with `[[slug]]` links and orphans." },
     RouteDoc { method: "POST", path: "/agents/{id}/skills/{skill_id}", summary: "Attach a skill. Idempotent; the list keeps attach order." },
     RouteDoc { method: "DELETE", path: "/agents/{id}/skills/{skill_id}", summary: "Detach a skill. Idempotent." },
@@ -758,11 +734,11 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/harnesses/{id}/models", summary: "The models one harness advertises and the effort levels each takes, for the model-plan picker." },
     RouteDoc { method: "GET", path: "/models/health", summary: "The engine's model-health ledger: cooldowns and failures per `(harness, model)`." },
     RouteDoc { method: "GET", path: "/teams", summary: "Every team." },
-    RouteDoc { method: "POST", path: "/teams", summary: "Create a team: `{name, purpose?, members?, tags?, photo?}`; members in assignee wire form, `photo` a picture this machine holds." },
-    RouteDoc { method: "GET", path: "/teams/{id}", summary: "One team, with the goals it carries." },
-    RouteDoc { method: "PATCH", path: "/teams/{id}", summary: "Edit a team: what the body leaves out is kept, and `photo: null` or `purpose: null` takes that away; `enabled: false` withdraws it from every channel it is on, and a message that names it then reaches nobody. Written once, after every field was read: an edit that is refused changed nothing." },
-    RouteDoc { method: "DELETE", path: "/teams/{id}", summary: "Delete a team, or 409 while a goal or channel still names it." },
-    RouteDoc { method: "GET", path: "/sessions", summary: "Every session — its `kind` one of `worker` (a step's work item), `guided` (the Workflow Agent's design wake), `conversation` (an agent's turn in a conversation, a channel or a goal's thread, naming its `conversation` when it is one) and `terminal` (a harness a person opened in a desktop terminal) — with its state (starting · idle · thinking · running · waiting · done · aborted · failed · parked), harness, model and the effort it runs at, agent, sub-agents and cost; a finished engine session stays a minute, a finished terminal harness stays as long as its tab." },
+    RouteDoc { method: "POST", path: "/teams", summary: "Create a team: `{name, purpose?, members?, tags?, photo?}`; members in assignee wire form — left out, the team is made with nobody — `photo` a picture this machine holds. A member that names no agent is a 400; one whose record cannot be read is the store's own answer, naming its file." },
+    RouteDoc { method: "GET", path: "/teams/{id}", summary: "One team — its members with the General Agent and the Workflow Agent, who are in every team and stored in none — and the goals it carries: `{team, goals}`. A goals read that fails is an error, never an empty list." },
+    RouteDoc { method: "PATCH", path: "/teams/{id}", summary: "Edit a team: what the body leaves out is kept, and `photo: null` or `purpose: null` takes that away; `enabled: false` withdraws it from every channel it is on, and a message that names it then reaches nobody. The fields the body names are changed on the record as it stands, in one write: two edits of different fields both stand, and an edit that is refused changed nothing." },
+    RouteDoc { method: "DELETE", path: "/teams/{id}", summary: "Delete a team, or 409 — naming the holder — while a channel's roster, a goal's or a project's assignees, an unsettled work item, a workflow's step or a gate policy still names it. Said on the event stream as an agent's removal is." },
+    RouteDoc { method: "GET", path: "/sessions", summary: "Every session — its `kind` one of `worker` (a step's work item), `guided` (the Workflow Agent's design wake), `conversation` (an agent's turn in a conversation, a channel or a goal's thread, naming its `conversation` when it is one), `terminal` (a harness a person opened in a desktop terminal) and `ask` (one bounded question put to a model: the classifier's reading, the Decision-Making Agent's judgement, a suggested commit message) — with its state (starting · idle · thinking · running · waiting · done · aborted · failed · parked), harness, model and the effort it runs at, agent, sub-agents and cost; a finished engine session stays a minute, a finished terminal harness stays as long as its tab." },
     RouteDoc { method: "GET", path: "/sessions/{id}", summary: "One session's presence; 404 once it has left the roster." },
     RouteDoc { method: "POST", path: "/sessions/{id}/abort", summary: "Stop one session for good, whatever drives it: a worker's harness is aborted and its work item settles as failed; a conversation turn's session is let go of, and the next message is answered by a fresh one; the Workflow Agent's design wake is aborted and the goal says its design failed because it was stopped; a terminal session's row reads aborted and the desktop closes its terminal, which forgets the row. The row reads `aborted` at once and stays so. Stopping a session that is over changes nothing (200); 400 for an id that is none, 404 for one the roster does not have. Answers once the session's process is gone — or was terminated at the deadline — with `ended: {sessions, terminated, still_live, children}`." },
     RouteDoc { method: "POST", path: "/sessions/terminal", summary: "Register a harness a person is opening in a desktop terminal: `{scope, id, harness}` → the session (`kind: terminal`), and the environment (its secret among it) and arguments that make it report; no session when the harness cannot. A session stands where a terminal can open: a scope nobody knows, an id that is no id and a harness with no interactive form are a 400, an id of nothing the workspace has a 404 — and nothing is registered or written." },

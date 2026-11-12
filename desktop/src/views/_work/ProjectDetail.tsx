@@ -17,7 +17,8 @@
  * so, held, before you press it rather than after.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { rosterNotOffered } from "../rosterModel.mjs";
 import { PLAIN_FOLDER } from "./initRepositoryModel.mjs";
 import { api, inDesktopShell, revealPath } from "../../api";
 import { AheadBehind } from "./AheadBehind";
@@ -231,6 +232,8 @@ export function ProjectDetail({
   // The header's picture is the shared thumbnail (ide/14 §Photos) — read before any early return, as hooks must be.
   const headerThumb = usePhotoThumb(data?.project.photo?.sha256 ?? null);
   const known = useWorkspace();
+  // The core agents take no assigned work: the picker leaves them out.
+  const notOffered = useMemo(() => rosterNotOffered(known.agents), [known.agents]);
   const groups = [...new Set(known.projects.map((r) => r.project.group).filter((g): g is string => !!g))].sort();
   const [attaching, setAttaching] = useState(false);
   /** The goal a detach is being confirmed for. */
@@ -510,6 +513,7 @@ export function ProjectDetail({
         <AssigneePicker
           value={(p.assignees ?? []).map(assigneeWire)}
           onChange={(next) => void saveAssignees(next)}
+          exclude={notOffered}
           disabled={savingAssignees}
         />
         {assigneeError && (

@@ -6325,12 +6325,31 @@ fn agent_and_team_verbs_at_their_edges() {
     );
     let neither = bisa(dir.path(), &["team", "add-member", &team_id]);
     assert!(!neither.status.success(), "a member is somebody");
+}
 
+/// Aborting a session needs the node that owns it, and says so — by the
+/// verb's own refusal, never by a usage error for a verb that does not
+/// exist. An id that is no session id is refused as that, with or without a
+/// node: it never becomes a path the node is asked for.
+#[test]
+fn aborting_a_session_needs_the_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
     let abort = bisa(
         dir.path(),
-        &["session", "abort", "01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+        &["sessions", "abort", "01ARZ3NDEKTSV4RRFFQ69G5FAV"],
     );
-    assert!(!abort.status.success(), "aborting needs the daemon");
+    let said = String::from_utf8_lossy(&abort.stderr).to_string();
+    assert_eq!(abort.status.code(), Some(1), "{said}");
+    assert!(said.contains("aborting needs the daemon"), "{said}");
+    assert!(!said.contains("Usage:"), "{said}");
+
+    for no_id in ["not-a-session", "../goals", ""] {
+        let refused = bisa(dir.path(), &["sessions", "abort", no_id]);
+        let said = String::from_utf8_lossy(&refused.stderr).to_string();
+        assert_eq!(refused.status.code(), Some(1), "{no_id:?}: {said}");
+        assert!(said.contains("is not a session id"), "{no_id:?}: {said}");
+    }
 }
 
 // added by the coverage pass: mcp.rs, skills.rs
@@ -7817,5 +7836,81 @@ fn json_approve_offline_prints_one_document() {
         json(&bisa(dir.path(), &["--json", "status", &id]))["status"],
         settled,
         "what the answer said is where the goal stands"
+    );
+}
+
+/// Two edges of the roster's verbs said in words: a prompt file that cannot
+/// be read names the file, and a reference whose record is gone from under
+/// the agent — a skill file removed by hand — is listed as unresolved, never
+/// left out.
+#[test]
+fn a_prompt_file_nobody_can_read_and_a_reference_gone_are_said() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let missing = dir.path().join("no-such-prompt.md");
+    let refused = bisa(
+        dir.path(),
+        &[
+            "agent",
+            "add",
+            "--name",
+            "Reader",
+            "--prompt-file",
+            missing.to_str().unwrap(),
+        ],
+    );
+    let said = String::from_utf8_lossy(&refused.stderr).to_string();
+    assert!(!refused.status.success(), "{said}");
+    assert!(
+        said.contains("reading") && said.contains("no-such-prompt.md"),
+        "{said}"
+    );
+
+    let procedure = dir.path().join("triage.md");
+    std::fs::write(&procedure, "# Triage\nRead the alert.\n").unwrap();
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &[
+                "skill",
+                "add",
+                "--id",
+                "alert-triage",
+                "--name",
+                "Alert triage",
+                "--description",
+                "when an alert fires",
+                "--file",
+                procedure.to_str().unwrap(),
+            ],
+        ),
+        "skill add",
+    );
+    let agent = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "agent",
+            "add",
+            "--name",
+            "Responder",
+            "--prompt",
+            "You respond.",
+            "--skill",
+            "alert-triage",
+        ],
+    ))["agent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let record = bisa_store::Paths::new(dir.path())
+        .skill_file(&bisa_core::SkillId::new("alert-triage").unwrap());
+    std::fs::remove_file(&record).unwrap();
+    let listed = bisa(dir.path(), &["agent", "skill", "list", &agent]);
+    assert_ok(&listed, "agent skill list");
+    let shown = stdout(&listed);
+    assert!(
+        shown.contains("alert-triage") && shown.contains("(unresolved)"),
+        "{shown}"
     );
 }

@@ -127,6 +127,7 @@ export function ConfirmDialog({
   title,
   body,
   confirmLabel = t("ui-dialog-confirm"),
+  cancelLabel = t("ui-choice-dialog-cancel"),
   danger = false,
 }: {
   open: boolean;
@@ -135,6 +136,8 @@ export function ConfirmDialog({
   title: string;
   body: ReactNode;
   confirmLabel?: string;
+  /** What declining is called, where *Cancel* would be read as cancelling the wrong thing — *Keep editing* over a discard. */
+  cancelLabel?: string;
   danger?: boolean;
 }) {
   useSurface(open);
@@ -154,7 +157,7 @@ export function ConfirmDialog({
           <DialogFooter>
             {/* The kit's own buttons, so a confirmation's actions are the size of every other dialog's. */}
             <A.Cancel asChild>
-              <Button variant="ghost">{t("ui-choice-dialog-cancel")}</Button>
+              <Button variant="ghost">{cancelLabel}</Button>
             </A.Cancel>
             <A.Action asChild onClick={onConfirm}>
               <Button variant="primary" className={danger ? SOLID_DANGER : undefined}>

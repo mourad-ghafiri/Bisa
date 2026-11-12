@@ -1562,6 +1562,7 @@ async fn a_notify_mentioning_an_agent_beside_its_team_mentions_the_agent_once() 
         .add_agent(bisa_store::NewAgent {
             name: "Assayer".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();
@@ -1569,6 +1570,7 @@ async fn a_notify_mentioning_an_agent_beside_its_team_mentions_the_agent_once() 
         .add_agent(bisa_store::NewAgent {
             name: "Builder".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

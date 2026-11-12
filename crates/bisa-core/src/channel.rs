@@ -244,8 +244,9 @@ impl Member {
 /// `Listed` is also filtered by enablement and membership, so there is one
 /// rule rather than two: a disabled agent is out of every roster whether the
 /// roster names it or not, and a person who left the workspace is out of
-/// every roster that still names them. The core agent is included wherever
-/// it is enabled — which is always — because it participates in every room.
+/// every roster that still names them. The General Agent and the Workflow
+/// Agent are included wherever they are enabled — which is always — because
+/// they take part in every room.
 /// `people` are the workspace's members other than the owner, who is in
 /// every room the way the core agents are and is listed nowhere.
 pub fn members(

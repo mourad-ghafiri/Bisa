@@ -1641,7 +1641,7 @@ settings-appearance-panel-drag-row-or-icon-to-move = Drag a row — or an icon w
 
 ## Settings › Library — the catalog's panels (`views/_settings/CatalogPanel.tsx`) — words moved out of the markup.
 settings-catalog-panel-brings-with-it = Brings { $brought } with it.
-settings-catalog-panel-workspace-holds-one-agent-nothing-else = This workspace holds one agent — the platform's own, which answers you and delegates — and nothing else. The catalog is { $catalog } compiled into the binary, offered rather than installed, so the staff you end up with is the staff you chose. Install an agent to have somewhere to send a piece of work, or a team to get a group and its agents in one act.
+settings-catalog-panel-workspace-holds-one-agent-nothing-else = This workspace holds the platform's own agents — the General Agent, which answers you and delegates, and the Workflow Agent, which shapes a goal into steps — and nobody else. The catalog is { $catalog } compiled into the binary, offered rather than installed, so the staff you end up with is the staff you chose. Install an agent to have somewhere to send a piece of work, or a team to get a group and its agents in one act.
 settings-catalog-panel-install-brings-what-entry-needs = An install brings what its entry needs — a team brings its agents, an agent brings its skills — and never overwrites an id you already hold.
 settings-catalog-panel-shown-of-not-installed = { $shown } of { $all } · { $free } not installed
 settings-catalog-panel-this-creates = This creates { $what }: <slugs/>.

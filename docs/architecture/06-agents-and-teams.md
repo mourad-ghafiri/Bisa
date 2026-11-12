@@ -64,18 +64,43 @@ engine's memory beside the entry and read with it. Every `env` and `headers` val
 and never read back: the wire and the terminal answer `••••••`, and an edit that sends the mask back
 keeps the stored value.
 
-**An edit is one write.** `PATCH /agents/{id}` and `PATCH /teams/{id}` read every field of the
-body before anything is written, then write the record once through the engine
-(`directory::update_agent`, `update_team`), which announces what the edit did to the enablement —
-the transition, never the value — in every channel the member is in (`membership.rs`). An edit
-that is refused changed nothing, stood nobody down and told no room. What a body leaves out is
-kept; `photo`, `description` and a team's `purpose` are taken away by `null`. The command line
-makes the same edit through the node when one runs, and through an engine of its own for the
-one edit that must be announced when none does.
+**An edit is one write, of the fields it names.** `PATCH /agents/{id}` and `PATCH /teams/{id}`
+check every field of the body before anything is written, then hand the engine an edit
+(`directory::AgentEdit`, `TeamEdit`) that the store applies to the record **as it stands**, under
+the roster's one writer (`update_agent_with`, `update_team_with`): two edits of different fields
+both stand, whoever made them and however close together, and neither carries a field back as it
+read it a moment before. The engine announces what the edit did to the enablement — the
+transition, read from the record the store answered before and after, never from a read of its
+own — in every channel the member is in (`membership.rs`). An edit that is refused changed
+nothing, stood nobody down and told no room. What a body leaves out is kept; `photo`,
+`description` and a team's `purpose` are taken away by `null`. Every surface keeps to it: the
+command line sends a node the words it was given (`bisa agent edit` — a rename carries no switch),
+the desktop's editor the fields that changed, its switches `enabled` alone; with no node the
+command line writes the record itself, through an engine of its own for the one edit that must
+be announced.
+
+**One writer for the roster.** Creating, editing, enabling, attaching, detaching and removing an
+agent or a team — and removing a skill or an MCP server — run one after the other
+(`Workspace::roster_writer`): an edit that meets a removal finds the record gone, and an agent's
+id is minted where nothing holds it. `state` is no agent's id — it is the folder the agents'
+snapshots are kept in — and a new agent needs a prompt, which no edit may blank.
+
+**A removal is finished, or it is asked again.** The store checks that nothing points at the
+record, takes its index row, its tags and its snapshot, then the record itself, then — for an
+agent — its key and its folder, and says `StoreEvent::DefinitionRemoved` once the record went;
+the node carries it on the event stream as the record's snapshot frame with `removed: true`, and
+every open list drops it. Stopped before the record, the agent is whole and the removal is asked
+again; stopped after, the next removal finishes. The engine ends the turns the agent runs in
+conversations first (`directory::remove_agent`); a direct channel with it stays as history. A
+record that will not parse is removed by its id.
 
 **A record that cannot be read costs that record.** The four lists leave it out and say so in the
 log; asked for by itself it is `Unreadable`, by its file; a reference to it — a skill on an agent,
-an agent on a team — is answered with that, never as *unknown*
+an agent on a team, an assignee of a goal, a project or a work item, a channel's roster — is
+answered with that, never as *unknown*: one check stands behind every door that takes an assignee
+(`Workspace::check_assignee`), and each keeps only its own sentence for a name that is not there.
+A record the disk will not give — its permissions, a failing read — costs its row in the roster's
+lists the same way, and is named among the workspace's problems
 ([08 — Persistence](08-persistence.md#a-list-tolerates-one-broken-file)).
 
 **Teams have `enabled`**, because
@@ -322,6 +347,12 @@ The two special cases run in **opposite directions**, and each has a reason:
 **An unknown mention token is refused, never dropped.** A selection that quietly resolves to nothing
 is an address the human believes they gave.
 
+**A key gets the check an id gets.** A mention may be a 64-hex key, and a key is taken only when it
+is the owner's, a member's or an enabled agent's: a disabled agent named by its key is refused in
+the words its id is refused in, and a key that is nobody's here is refused as that
+(`check_key_is_addressable`). An agent another node of this workspace told of — a row in the index
+with no record here — is addressed while its row says enabled.
+
 **Unknown is not uninstalled.** A picker marks an agent whose harness this machine lacks, and marks
 nothing at all while the answer is still in flight or the read failed. A fact about *this machine*
 is never a reason to withhold the agent — a collaborator's node may have the harness.
@@ -333,9 +364,13 @@ workflow, the Workflow Agent before either, as the room's own (`ScopeFacts::owne
 answer and the Decision-Making Agent is on for the workspace or for the default agent, triage puts it a
 `choice` over who should — asked off the dispatch path, so a slow judgement never holds up the
 message — and falls to the default agent when it is unsure, fails, or is off
-([15](15-decision-making-agent.md#the-decision-points)). A message from the General Agent or the Workflow Agent may wake
-one other agent — the other of the two included, which is how the General Agent hands the shape of
-the work to `@Workflow Agent`. Nobody wakes itself, so a chain stops at two hops.
+([15](15-decision-making-agent.md#the-decision-points)). A message from the General Agent wakes
+each agent it names, once — the Workflow Agent included, which is how the General Agent hands the
+shape of the work to `@Workflow Agent` — whatever their respond policy: its hand-off carries the
+owner's authority (`may_respond`). The Workflow Agent hands off to nobody: no respond policy admits
+its post, and it never wakes the General Agent. No other agent's message wakes anybody, and nobody
+wakes itself, so a chain stops at two hops (`the_general_agents_post_wakes_each_agent_it_names_once`,
+`the_workflow_agent_hands_off_to_nobody`, `a_three_hop_chain_stops`).
 
 ---
 
@@ -481,7 +516,9 @@ catalog's thirty-two — carries one plan: `claude-opus-5-5[1m]`, then `claude-s
 window ([models overview](https://platform.claude.com/docs/en/about-claude/models/overview),
 [Claude Code — model configuration](https://code.claude.com/docs/en/model-config), read
 2026-09-29); a test in `bisa-store` holds all thirty-four to it. A workspace keeps the plans its
-agents already have: core agents are ensured only when absent, and nothing is migrated.
+agents already have: a core agent is made when it is missing and keeps its harness, its plan and
+its switch at every open — only its shipped words are restated (`restate_core_agent`) — and
+nothing is migrated.
 
 ---
 
@@ -614,6 +651,32 @@ would send an agent to a door that is not there. The MCP server's instructions c
 
 ---
 
+## What is open
+
+Known, written down, and not changed by the pass that hardened this area (2026-11): each is a
+question of authority, to be settled by a security pass rather than beside a fix.
+
+- **The intake socket takes a caller's word for which agent it is.** A session's tool calls name
+  their work item, and a core agent's name `agent`; the engine checks that the scope exists, not
+  that the caller is that agent. The socket is this machine's and its sessions are the engine's
+  own, which is what the rule leans on.
+- **A member can reach an owner-only agent through the General Agent.** The General Agent answers
+  a member, and its hand-off carries the owner's authority past every respond policy
+  (`may_respond`).
+- **Gate rights travel through teams as they stand.** A guest on a team a gate is assigned to, a
+  team stood down that a listed policy still names, and a person on a team who is no member of the
+  workspace are not separately checked.
+- **An agent's attestation outlives it at peers.** Removing an agent removes its key here; a peer
+  that verified its attestation has no word that it ended.
+
+Also open, and smaller: a core agent whose key is lost is not re-keyed; agent and team ids share
+no namespace under `@`; an explicit assignment that cannot be honoured runs with no agent rather
+than failing; no command-line verb renames a team or stands it down; an MCP server's change has no
+frame of its own, so another window follows on its next probe or reconnect; the store's *still
+used* refusal carries its holders and its remedy in English.
+
+---
+
 ## What holds it
 
 | Promise | Held by |
@@ -625,7 +688,7 @@ would send an agent to a door that is not there. The MCP server's instructions c
 | `null` takes a description, a purpose or a picture away; what is left out is kept | `bisa-node` `node::what_an_edit_names_as_nothing_is_taken_away` |
 | What the command line sends a node is a body the node reads | `bisa-cli` `agents::tests::what_is_sent_to_the_node_is_a_body_the_node_reads`, `a_member_is_said_as_the_node_reads_one`, `a_reference_goes_into_a_route_as_an_id_and_nothing_else` |
 | A team stood down is addressed by nothing, carries no work, and comes back as it was | `bisa-engine` `assign::a_team_stood_down_is_addressed_by_nothing_and_comes_back_as_it_was`; `guided::a_guided_wake_names_every_enabled_agent_and_team_and_no_disabled_one` |
-| A disabled agent cannot be addressed; an unknown mention is refused, never dropped | `bisa-store` `studio::a_disabled_agent_cannot_be_addressed`; the unit test `conversation::mentions_resolve_agents_teams_and_the_channel_handle` |
+| A disabled agent cannot be addressed; an unknown mention is refused, never dropped | `bisa-store` `studio::a_disabled_agent_cannot_be_addressed`, `studio::a_mention_by_the_key_of_a_disabled_agent_is_refused`, `studio::a_strangers_key_is_no_mention`; the unit test `conversation::mentions_resolve_agents_teams_and_the_channel_handle` |
 | A record that cannot be read costs that record and never the list, and is never said to be unknown | `bisa-store` `durability::an_unreadable_record_of_the_roster_costs_that_record_and_not_the_list`; `bisa-node` `node::a_record_that_cannot_be_read_is_never_said_to_be_unknown` |
 | Nothing is removed while something names it, and the refusal names what | `bisa-store` `usage.rs`; the journey `the_roster_and_its_library` |
 | A probe is a report, never an error; its answer is the server's health; a secret comes back masked and a mask sent back keeps the stored value | `bisa-engine` `mcp_health.rs`; `bisa-node` `node::a_probe_is_a_report_never_an_error_and_registers_nothing`, `mcp_registry_and_agent_wiring`; `bisa-core` `mcp.rs` (`masking_hides_every_value…`); `bisa-store` `usage::an_edit_that_keeps_a_masked_value_keeps_the_stored_one`; the journey (the platform's own server dialled) |

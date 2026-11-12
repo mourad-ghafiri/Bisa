@@ -715,6 +715,145 @@ fn a_read_marker_is_broadcast_locally_and_carries_no_event() {
     assert!(saw);
 }
 
+/// Every `DefinitionRemoved` the store said since `rx` was last drained.
+fn removals(
+    rx: &mut tokio::sync::broadcast::Receiver<bisa_store::StoreEvent>,
+) -> Vec<(u16, String)> {
+    let mut out = Vec::new();
+    while let Ok(ev) = rx.try_recv() {
+        if let bisa_store::StoreEvent::DefinitionRemoved { kind, d } = ev {
+            out.push((kind, d));
+        }
+    }
+    out
+}
+
+/// A removal is said on the store's stream, once, by the kind and the id of
+/// what went — and one that was refused says nothing: an open window drops
+/// the record then, and never one that is still there.
+#[test]
+fn a_removal_says_so_once_and_a_refused_one_says_nothing() {
+    let (_d, ws) = ws();
+    let agent = ws.add_agent(new_agent("Worker")).unwrap();
+    let team = ws
+        .create_team(
+            "landing",
+            None,
+            vec![Assignee::Agent(agent.id.to_string())],
+            Tags::default(),
+        )
+        .unwrap();
+    let kept = ws
+        .create_skill(NewSkill {
+            id: skill("brevity"),
+            name: "Brevity".into(),
+            description: "say less".into(),
+            tags: Tags::default(),
+            markdown: "Say less.".into(),
+        })
+        .unwrap();
+    let mut rx = ws.subscribe_store_events();
+
+    let refused = ws.remove_agent(&agent.id).unwrap_err();
+    assert!(matches!(refused, StoreError::StillUsed(_)), "{refused:?}");
+    assert_eq!(removals(&mut rx), vec![], "a refusal removed nothing");
+
+    ws.remove_team(&team.id).unwrap();
+    assert_eq!(
+        removals(&mut rx),
+        vec![(bisa_core::kind::KIND_TEAM, team.id.to_string())]
+    );
+    ws.remove_agent(&agent.id).unwrap();
+    assert_eq!(
+        removals(&mut rx),
+        vec![(bisa_core::kind::KIND_AGENT_PROFILE, agent.id.to_string())]
+    );
+    ws.remove_skill(&kept.id).unwrap();
+    assert_eq!(
+        removals(&mut rx),
+        vec![(bisa_core::kind::KIND_SKILL, kept.id.to_string())]
+    );
+    // What is gone is not removed twice, and says nothing the second time.
+    assert!(ws.remove_agent(&agent.id).is_err());
+    assert!(ws.remove_team(&team.id).is_err());
+    assert_eq!(removals(&mut rx), vec![]);
+}
+
+/// A record nobody can read — a file cut short, a hand edit — is still
+/// removed by its id: its snapshot and its folder go with it. What points at the id still refuses it, and a core
+/// agent's id is never removed, read or not.
+#[test]
+fn an_unreadable_agent_is_removed_by_its_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = file_ws(&dir);
+    let paths = ws.paths();
+    let agent = ws.add_agent(new_agent("Worker")).unwrap();
+    let held = ws.add_agent(new_agent("Held")).unwrap();
+    let team = ws
+        .create_team(
+            "landing",
+            None,
+            vec![Assignee::Agent(held.id.to_string())],
+            Tags::default(),
+        )
+        .unwrap();
+    for id in [&agent.id, &held.id] {
+        std::fs::write(paths.agent_file(id), b"{ \"def\": ").unwrap();
+        let unreadable = ws.get_agent(id).unwrap_err();
+        assert!(
+            matches!(unreadable, StoreError::Unreadable { .. }),
+            "{unreadable:?}"
+        );
+    }
+    let own = paths.agent(&agent.id).dir().to_path_buf();
+    std::fs::create_dir_all(&own).unwrap();
+    let mut rx = ws.subscribe_store_events();
+
+    let refused = ws.remove_agent(&held.id).unwrap_err();
+    assert!(matches!(refused, StoreError::StillUsed(_)), "{refused:?}");
+    assert!(
+        paths.agent_file(&held.id).exists(),
+        "a refusal removed nothing"
+    );
+
+    ws.remove_agent(&agent.id).unwrap();
+    assert!(!paths.agent_file(&agent.id).exists());
+    assert!(!own.exists(), "its folder went with it");
+    assert_eq!(
+        removals(&mut rx),
+        vec![(bisa_core::kind::KIND_AGENT_PROFILE, agent.id.to_string())]
+    );
+    let snapshot = paths.state_dir(Paths::NS_AGENTS).join(format!(
+        "{}-{}.json",
+        bisa_core::kind::KIND_AGENT_PROFILE,
+        agent.id
+    ));
+    assert!(!snapshot.exists(), "its snapshot went with it");
+
+    // A core agent's record cut short is restated at the next open, never
+    // removed.
+    let general = agent_id("general-agent");
+    std::fs::write(paths.agent_file(&general), b"{").unwrap();
+    let core = ws.remove_agent(&general).unwrap_err();
+    assert!(
+        matches!(
+            core,
+            StoreError::Agent(bisa_core::AgentError::CoreCannotBeRemoved)
+        ),
+        "{core:?}"
+    );
+    assert!(paths.agent_file(&general).exists());
+
+    // A team the same way: by its id, once nothing points at it.
+    std::fs::write(paths.team_file(&team.id), b"{").unwrap();
+    ws.remove_team(&team.id).unwrap();
+    assert!(!paths.team_file(&team.id).exists());
+    assert_eq!(
+        removals(&mut rx),
+        vec![(bisa_core::kind::KIND_TEAM, team.id.to_string())]
+    );
+}
+
 #[test]
 fn a_disabled_agent_cannot_be_addressed() {
     let (_d, ws) = ws();
@@ -727,6 +866,225 @@ fn a_disabled_agent_cannot_be_addressed() {
         .channel_roster_pubkeys(&ChannelId::general())
         .unwrap()
         .contains(&agent.pubkey));
+}
+
+/// A key is no way round the check an id gets: a disabled agent named by its
+/// key is refused in the same words, so the message is never *addressed* to
+/// somebody who answers nothing.
+#[test]
+fn a_mention_by_the_key_of_a_disabled_agent_is_refused() {
+    let (_d, ws) = ws();
+    let agent = ws.add_agent(new_agent("Quiet")).unwrap();
+    let by_key = vec![agent.pubkey.as_hex().to_string()];
+    assert_eq!(
+        ws.resolve_mentions("general", &by_key).unwrap(),
+        vec![agent.pubkey.clone()],
+        "an enabled agent is addressed by its key"
+    );
+    ws.set_agent_enabled(&agent.id, false).unwrap();
+    let by_id = ws
+        .resolve_mentions("general", &[agent.id.to_string()])
+        .unwrap_err();
+    let refused = ws.resolve_mentions("general", &by_key).unwrap_err();
+    assert!(matches!(refused, StoreError::Invalid(_)), "{refused:?}");
+    assert_eq!(
+        refused.to_string().replace(agent.pubkey.as_hex(), "x"),
+        by_id.to_string().replace(agent.id.as_str(), "x"),
+        "the same refusal by key as by id"
+    );
+    ws.set_agent_enabled(&agent.id, true).unwrap();
+    assert_eq!(ws.resolve_mentions("general", &by_key).unwrap().len(), 1);
+}
+
+/// A key that is nobody's here — not the owner's, not a member's, not an
+/// agent's — names nobody: the post is refused rather than addressed to a
+/// stranger. The owner and a member are addressed by theirs.
+#[test]
+fn a_strangers_key_is_no_mention() {
+    let (_d, ws) = ws();
+    let stranger = Keys::generate().public_key().to_hex();
+    let refused = ws
+        .resolve_mentions("general", std::slice::from_ref(&stranger))
+        .unwrap_err();
+    assert!(matches!(refused, StoreError::Invalid(_)), "{refused:?}");
+    assert!(refused.to_string().contains(&stranger), "{refused}");
+
+    let owner = ws.owner_principal();
+    let member = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+    ws.add_member(member.clone(), MemberRole::Member, Admission::default())
+        .unwrap();
+    assert_eq!(
+        ws.resolve_mentions(
+            "general",
+            &[owner.as_hex().to_string(), member.as_hex().to_string()]
+        )
+        .unwrap(),
+        vec![owner, member.clone()]
+    );
+    // A removed agent's key is a stranger's again.
+    let agent = ws.add_agent(new_agent("Gone")).unwrap();
+    ws.remove_agent(&agent.id).unwrap();
+    assert!(ws
+        .resolve_mentions("general", &[agent.pubkey.as_hex().to_string()])
+        .is_err());
+}
+
+/// An agent or a team whose record is there and cannot be read is said as
+/// that — by its file — at every door that names one: a team's members, a
+/// channel's roster, a goal's and a project's assignees. Never as *unknown*:
+/// the person would go looking for a typo that is not there.
+#[test]
+fn an_unreadable_member_is_said_unreadable_at_every_door() {
+    let (_d, ws) = ws();
+    let paths = ws.paths();
+    let agent = ws.add_agent(new_agent("Worker")).unwrap();
+    let team = ws
+        .create_team("landing", None, vec![], Tags::default())
+        .unwrap();
+    std::fs::write(paths.agent_file(&agent.id), b"{").unwrap();
+    std::fs::write(paths.team_file(&team.id), b"{").unwrap();
+    let by_agent = Assignee::Agent(agent.id.to_string());
+    let by_team = Assignee::Team(team.id.to_string());
+    let goal = ws.create_goal(NewGoal::captured("ship")).unwrap();
+    let unreadable = |door: &str, answer: Result<(), StoreError>| match answer {
+        Err(StoreError::Unreadable { .. }) => {}
+        other => panic!("{door}: {other:?}"),
+    };
+    unreadable(
+        "a team's member",
+        ws.create_team("crew", None, vec![by_agent.clone()], Tags::default())
+            .map(drop),
+    );
+    for (door, roster) in [
+        (
+            "a roster's agent",
+            RosterPolicy::Listed {
+                agents: vec![agent.id.clone()],
+                teams: vec![],
+                humans: vec![],
+            },
+        ),
+        (
+            "a roster's team",
+            RosterPolicy::Listed {
+                agents: vec![],
+                teams: vec![team.id.clone()],
+                humans: vec![],
+            },
+        ),
+    ] {
+        unreadable(
+            door,
+            ws.create_channel("room", None, roster, Tags::default())
+                .map(drop),
+        );
+    }
+    for who in [&by_agent, &by_team] {
+        unreadable(
+            "a goal's assignee",
+            ws.set_goal_assignees(goal.id, vec![who.clone()]).map(drop),
+        );
+        let mut project = bisa_store::NewProject::managed("web").unwrap();
+        project.assignees = vec![who.clone()];
+        unreadable("a project's assignee", ws.create_project(project).map(drop));
+    }
+    // One that is not there at all is still the caller's typo, in each
+    // door's own words.
+    let ghost = ws
+        .create_channel(
+            "room",
+            None,
+            RosterPolicy::Listed {
+                agents: vec![agent_id("nobody")],
+                teams: vec![],
+                humans: vec![],
+            },
+            Tags::default(),
+        )
+        .unwrap_err();
+    assert!(matches!(ghost, StoreError::Invalid(_)), "{ghost:?}");
+    let ghost = ws
+        .create_channel(
+            "room",
+            None,
+            RosterPolicy::Listed {
+                agents: vec![],
+                teams: vec![team_id("nobody")],
+                humans: vec![],
+            },
+            Tags::default(),
+        )
+        .unwrap_err();
+    assert!(matches!(ghost, StoreError::Invalid(_)), "{ghost:?}");
+    for who in [
+        Assignee::Agent("nobody".into()),
+        Assignee::Team("nobody".into()),
+    ] {
+        let ghost = ws.set_goal_assignees(goal.id, vec![who]).unwrap_err();
+        assert!(
+            matches!(ghost, StoreError::DefinitionNotFound { .. }),
+            "{ghost:?}"
+        );
+    }
+    assert_eq!(
+        ws.check_assignee(&Assignee::Agent("nobody".into()))
+            .unwrap(),
+        bisa_store::AssigneeStanding::NoSuchAgent(agent_id("nobody"))
+    );
+    assert_eq!(
+        ws.check_assignee(&Assignee::Team("nobody".into())).unwrap(),
+        bisa_store::AssigneeStanding::NoSuchTeam(team_id("nobody"))
+    );
+}
+
+/// An agent is made with a prompt and keeps one: a blank prompt is refused
+/// where the agent is made — at the store, so by every door — and by an edit
+/// that would blank it. A record made before the rule, with none, is still
+/// listed and still edited.
+#[test]
+fn an_edit_may_not_blank_a_prompt() {
+    let (_d, ws) = ws();
+    let before = ws.list_agents().unwrap().len();
+    let mut blank = new_agent("Hollow");
+    blank.system_prompt = "  \n\t".into();
+    let refused = ws.add_agent(blank).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            StoreError::Agent(bisa_core::AgentError::EmptyPrompt)
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(ws.list_agents().unwrap().len(), before, "nothing was made");
+
+    let agent = ws.add_agent(new_agent("Worker")).unwrap();
+    let mut edited = agent.clone();
+    edited.system_prompt = String::new();
+    let refused = ws.update_agent(edited).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            StoreError::Agent(bisa_core::AgentError::EmptyPrompt)
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        ws.get_agent(&agent.id).unwrap().system_prompt,
+        agent.system_prompt
+    );
+
+    // A record from before the rule: its file holds no prompt.
+    let path = ws.paths().agent_file(&agent.id);
+    let mut file: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    file["system_prompt"] = "".into();
+    std::fs::write(&path, serde_json::to_vec_pretty(&file).unwrap()).unwrap();
+    let mut older = ws.get_agent(&agent.id).unwrap();
+    assert_eq!(older.system_prompt, "");
+    older.description = Some("edited as any other".into());
+    let saved = ws.update_agent(older).unwrap();
+    assert_eq!(saved.description.as_deref(), Some("edited as any other"));
+    ws.set_agent_enabled(&agent.id, false).unwrap();
 }
 
 /// The staff a goal's design may name: its own agents and teams, else its

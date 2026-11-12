@@ -26,6 +26,9 @@
 //! SSE: `GET /events` emits a tagged envelope, one JSON object per event:
 //! `{stream: "engine", payload: EngineEvent}` |
 //! `{stream: "conversation", payload: {scope, kind, event_id, author, snippet, unread_count, latest}}` |
+//! `{stream: "conversation", payload: {scope, kind, snapshot: true, removed?}}` — a
+//! definition's record was written (`scope` its id, `kind` its wire kind), or,
+//! with `removed: true`, an agent, a team or a skill was removed |
 //! `{stream: "inbox",  payload: {key, kind, unread_count, needs_action_count,
 //! latest_at, read, handled, listed, notice_count, unread_notices, waiting?}}` |
 //! `{stream: "pulse", payload: {seq, at, concept, kind, source} | {concept: null}}`.
@@ -1377,6 +1380,14 @@ async fn events(
                     StoreEvent::ConversationSnapshot { kind, d, .. } => Some(vec![json!({
                         "stream": "conversation",
                         "payload": {"scope": d, "kind": kind, "snapshot": true}
+                    })]),
+                    // The same frame a write of the record sends, and one
+                    // word more: a reader that reloads on a snapshot of the
+                    // kind reloads as before and finds the record gone; one
+                    // that reads `removed` drops it without asking.
+                    StoreEvent::DefinitionRemoved { kind, d } => Some(vec![json!({
+                        "stream": "conversation",
+                        "payload": {"scope": d, "kind": kind, "snapshot": true, "removed": true}
                     })]),
                     _ => None,
                 }

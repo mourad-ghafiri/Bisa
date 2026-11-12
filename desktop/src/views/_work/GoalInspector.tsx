@@ -20,7 +20,7 @@
  * at once and reads again behind it.
  */
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { errorFields, log } from "../../log";
@@ -28,7 +28,10 @@ import { href, setSearch, useSearchValue } from "../../router";
 import { useViewScroll } from "../../shell/useViewScroll";
 import { placeOf, useViewState } from "../../shell/viewMemoryStore";
 import { wordsValue } from "../../shell/viewValuesModel.mjs";
-import type { GoalView, ProjectRow, WorkItemSpec, Workstream } from "../../types";
+import type { Assignee, GoalView, ProjectRow, WorkItemSpec, Workstream } from "../../types";
+import { useWorkspace } from "../../shell/useWorkspaceData";
+import { rosterNotOffered } from "../rosterModel.mjs";
+import { useHeldAnswer } from "./useHeldAnswer";
 import {
   Button,
   Chip,
@@ -431,9 +434,17 @@ export function GoalInspector({
 }) {
   const toast = useToast();
   const [savingAssignees, setSavingAssignees] = useState(false);
+  // What was written stands until the goal is read again: a second change,
+  // made before that read lands, is built from it and keeps the first.
+  const [heldAssignees, holdAssignees] = useHeldAnswer<Assignee[] | undefined, string[]>(view.goal.assignees);
+  const assigned = heldAssignees ?? (view.goal.assignees ?? []).map(assigneeWire);
+  // The core agents take no assigned work: the picker leaves them out.
+  const { agents: knownAgents } = useWorkspace();
+  const notOffered = useMemo(() => rosterNotOffered(knownAgents), [knownAgents]);
   const saveAssignees = async (next: string[]) => {
     setSavingAssignees(true);
     await attempt(() => api.setAssignees(view.goal.id, next), toast.error, () => {
+      holdAssignees(next);
       toast.ok(next.length > 0 ? t("work-goal-inspector-assignment-saved") : t("work-goal-inspector-assignment-cleared"));
       onWorkChanged?.();
     });
@@ -515,8 +526,9 @@ export function GoalInspector({
                 <AssigneeTags value={(goal.assignees ?? []).map(assigneeWire)} />
               ) : (
                 <AssigneePicker
-                  value={(goal.assignees ?? []).map(assigneeWire)}
+                  value={assigned}
                   onChange={(next) => void saveAssignees(next)}
+                  exclude={notOffered}
                   disabled={savingAssignees}
                 />
               )}

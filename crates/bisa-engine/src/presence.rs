@@ -275,6 +275,10 @@ struct Entry {
     /// Bumped on every terminal state; a retention timer that wakes to a
     /// different epoch does nothing.
     epoch: u64,
+    /// A retention clock is running for this row: it leaves when the window
+    /// closes. Started once — by the stop that aborted it or by its driver
+    /// settling it, whichever came first.
+    leaving: bool,
     /// A turn is open: what a session goes back to when nothing else is
     /// happening is *thinking* inside one and *idle* outside.
     in_turn: bool,
@@ -459,6 +463,7 @@ impl Presence {
                 native_root: None,
                 ever_child: false,
                 epoch: 0,
+                leaving: false,
                 pid_seen_at: None,
             },
         );
@@ -629,7 +634,7 @@ impl Presence {
     /// The session's driver settled it. The row stays for the retention
     /// window so the outcome is seen, then leaves with `SessionGone`.
     pub fn ended(&self, inner: &Arc<Inner>, id: LiveRunId, outcome: &ExecutionOutcome) {
-        let Some(epoch) = self.settle(inner, id, outcome) else {
+        let Some(epoch) = self.settle(inner, id, outcome, true) else {
             return;
         };
         let inner = Arc::clone(inner);
@@ -645,12 +650,20 @@ impl Presence {
     /// exactly as long as its terminal tab — the tab's close is what forgets
     /// it ([`Self::forget`]), never a clock.
     pub fn hold_ended(&self, inner: &Inner, id: LiveRunId, outcome: &ExecutionOutcome) {
-        self.settle(inner, id, outcome);
+        self.settle(inner, id, outcome, false);
     }
 
-    /// The ended state the outcome means, moved into; the epoch it moved to,
-    /// or `None` for a session the roster does not hold.
-    fn settle(&self, inner: &Inner, id: LiveRunId, outcome: &ExecutionOutcome) -> Option<u64> {
+    /// The ended state the outcome means, moved into; the epoch a retention
+    /// clock is to run on, or `None` for a session the roster does not hold
+    /// and for one whose clock already runs. `leaves` says the caller starts
+    /// that clock; a held row has none.
+    fn settle(
+        &self,
+        inner: &Inner,
+        id: LiveRunId,
+        outcome: &ExecutionOutcome,
+        leaves: bool,
+    ) -> Option<u64> {
         let state = match outcome {
             ExecutionOutcome::Completed => SessionState::Done,
             ExecutionOutcome::Aborted => SessionState::Aborted,
@@ -674,10 +687,19 @@ impl Presence {
             // `aborted` is somebody's decision, entered once: what the
             // session's driver says on its way out — *failed: session
             // aborted*, *done* — does not rewrite it, and the retention
-            // clock the abort started is the one that runs.
+            // clock the abort started is the one that runs. A row the
+            // harness's own last word aborted has no clock yet — nobody
+            // pressed stop — and its driver settling it starts the one it
+            // leaves by: without it the row stayed on the roster for good.
             if entry.presence.state == SessionState::Aborted {
-                return None;
+                if !leaves || entry.leaving {
+                    return None;
+                }
+                entry.leaving = true;
+                entry.epoch += 1;
+                return Some(entry.epoch);
             }
+            entry.leaving = leaves;
             entry.epoch += 1;
             entry.epoch
         };
@@ -1683,6 +1705,7 @@ mod tests {
             denied: vec![],
             ended_children: vec![],
             epoch: 0,
+            leaving: false,
             in_turn: false,
             native_root: None,
             ever_child: false,

@@ -37,6 +37,9 @@
 
 import { filterByTagsAndWords } from "../../ui/tagSearchModel.mjs";
 import { useMemo, useState } from "react";
+import { useConversationEvents } from "../../bus";
+import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
+import { busyRows, definitionMoved } from "../rosterModel.mjs";
 import { api } from "../../api";
 import { useSearchValue } from "../../router";
 import type { CatalogEntry, CatalogKind, Installed } from "../../types";
@@ -155,6 +158,13 @@ export interface Catalog {
  */
 export function useCatalog(): Catalog {
   const { data, error, loading, reload } = useAsync((s) => api.catalog(undefined, s), []);
+  // Every row says *installed* or not, so the list is behind the moment a
+  // definition is made or removed anywhere — this window, the prompt, an
+  // agent's own install — and when the node comes back.
+  useConversationEvents((f) => {
+    if (definitionMoved(f)) reload();
+  });
+  useReloadOnReconnect(reload);
   return { entries: data?.entries ?? [], loading, error, reload };
 }
 
@@ -454,7 +464,8 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<CatalogEntry | null>(null);
   const [updating, setUpdating] = useState<CatalogEntry | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  // The rows an install or an update is out for — a mark a row, never one slot for the list.
+  const [busy, setBusy] = useState<string[]>([]);
   const [report, setReport] = useState<{ entry: CatalogEntry; installed: Installed } | null>(null);
 
   const ofKind = useMemo(() => entries.filter((e) => e.kind === kind), [entries, kind]);
@@ -468,7 +479,8 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
   );
 
   const install = async (entry: CatalogEntry) => {
-    setBusy(`${entry.kind}/${entry.slug}`);
+    const row = `${entry.kind}/${entry.slug}`;
+    setBusy((b) => busyRows(b, row, true));
     let installed: Installed | null = null;
     // A refusal — a collision on an id this entry did not create, or an
     // unknown slug — arrives as the store's own message naming what is in the
@@ -478,8 +490,12 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
       const res = await api.installCatalogEntry(entry.kind, entry.slug);
       installed = res.installed;
     }, toast.error);
-    setBusy(null);
-    if (!installed) return;
+    setBusy((b) => busyRows(b, row, false));
+    if (!installed) {
+      // A refusal may have installed part of what the entry needs first: the rows are read again either way.
+      reload();
+      return;
+    }
     const created = totalCreated(installed);
     setReport({ entry, installed });
     toast.ok(
@@ -500,14 +516,18 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
    * written. The toast says which of the three things happened.
    */
   const update = async (entry: CatalogEntry) => {
-    setBusy(`${entry.kind}/${entry.slug}`);
+    const row = `${entry.kind}/${entry.slug}`;
+    setBusy((b) => busyRows(b, row, true));
     let outcome: ReturnType<typeof updateOutcome> | null = null;
     await attempt(async () => {
       const res = await api.updateCatalogEntry(entry.kind, entry.slug);
       outcome = updateOutcome(res.updated, res.installed);
     }, toast.error);
-    setBusy(null);
-    if (!outcome) return;
+    setBusy((b) => busyRows(b, row, false));
+    if (!outcome) {
+      reload();
+      return;
+    }
     toast.ok(
       outcome === "restated"
         ? t("settings-catalog-panel-updated", { entry: entry.name })
@@ -616,7 +636,7 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
                   e={e}
                   plan={plan}
                   expanded={expanded === key}
-                  busy={busy === key}
+                  busy={busy.includes(key)}
                   onToggle={() => setExpanded(expanded === key ? null : key)}
                   // An entry that creates more than itself gets a
                   // confirmation naming every object first: nine agents is

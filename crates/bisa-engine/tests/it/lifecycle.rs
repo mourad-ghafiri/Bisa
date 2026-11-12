@@ -753,6 +753,7 @@ async fn a_message_start_hears_people_anyone_a_direct_channel_and_a_list_of_plac
         .add_agent(bisa_store::NewAgent {
             name: "Herald".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();
@@ -1018,6 +1019,7 @@ async fn an_agent_start_hears_a_turn_in_a_channel_and_a_reply_in_a_goals_thread(
         .add_agent(bisa_store::NewAgent {
             name: "Herald".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

@@ -8,7 +8,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { CORE_FIELDS, draftOf, emptyDraft, saveOf, harnessChoices, maySaveAgent, startingHarness } from "./agentDraftModel.mjs";
+import { dirty, foreignModels, mayClose, CORE_FIELDS, draftOf, emptyDraft, saveOf, harnessChoices, maySaveAgent, startingHarness } from "./agentDraftModel.mjs";
 
 const core = readFileSync(new URL("../../../../crates/bisa-core/src/agent.rs", import.meta.url), "utf8");
 
@@ -93,7 +93,7 @@ test("a draft is the agent as it stands, its lists copied; its switch off when t
   assert.equal(draftOf({ ...reviewer, decision_making: undefined }).decision_making, false);
   assert.deepEqual(draftOf({ ...reviewer, models: undefined }).plan, { strategy: "fallback", models: [] });
   const editor = readFileSync(new URL("./AgentEditor.tsx", import.meta.url), "utf8");
-  assert.ok(editor.includes("saveOf(d, agent, core)") && editor.includes("draftOf(agent)") && editor.includes("emptyDraft(startingAtOpen.current)"), "the editor asks the model");
+  assert.ok(editor.includes("saveOf(d, agent, core, seeded.current)") && editor.includes("draftOf(agent)") && editor.includes("emptyDraft(startingAtOpen.current)"), "the editor asks the model");
 });
 
 test("a new agent starts on a harness this machine can run, or on none — no harness id is made up, and the picker shows what the definition holds", () => {
@@ -129,3 +129,52 @@ test("a new agent starts on a harness this machine can run, or on none — no ha
   assert.ok(editor.includes("disabled={!maySaveAgent(d, busy)}") && editor.includes("harnessChoices(harnesses, d.harness)"));
 });
 
+test("an editor asks before it drops what was typed, stays shut while its save is out, and closes at once when nothing changed", () => {
+  const agent = { id: "scout", name: "Scout", system_prompt: "You scout.", harness: "claude-code", respond: "owner_only", skills: ["survey"], mcps: [], tags: [] };
+  const seeded = draftOf(agent);
+  assert.equal(dirty(draftOf(agent), seeded), false, "opened and left alone");
+  assert.equal(dirty({ ...seeded, name: "Scout " }, seeded), true);
+  assert.equal(dirty({ ...seeded, name: "Scout" }, seeded), false, "typed and typed back is no change");
+  assert.equal(dirty({ ...seeded, skills: ["survey"] }, seeded), false, "a list picked again in the same order is none either");
+  assert.equal(dirty({ ...seeded, skills: [] }, seeded), true);
+  assert.equal(mayClose({ dirty: false, busy: false }), "close");
+  assert.equal(mayClose({ dirty: true, busy: false }), "ask", "Escape over a long prompt asks first");
+  assert.equal(mayClose({ dirty: true, busy: true }), "stay", "a save is out: its answer is coming");
+  assert.equal(mayClose({ dirty: false, busy: true }), "stay");
+  // Every way out of the editor is the one door, and its fields are held while the node answers.
+  const editor = readFileSync(new URL("./AgentEditor.tsx", import.meta.url), "utf8");
+  assert.ok(editor.includes("const leave = mayClose({ dirty: dirty(d, seeded.current), busy });"));
+  assert.ok(editor.includes("onClose={requestClose}") && editor.includes("onClick={requestClose}"), "Escape, a click outside, the ✕ and Cancel");
+  assert.ok(editor.includes('<fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">'));
+  assert.ok(editor.includes('cancelLabel={t("work-draft-keep-editing")}'), "declining a discard is *Keep editing*, never a second *Cancel*");
+});
+
+test("a save of an agent of yours names what the editor changed, and nothing it only read", () => {
+  const agent = { id: "scout", name: "Scout", description: "looks ahead", system_prompt: "You scout.", harness: "claude-code", respond: "owner_only", skills: ["survey"], mcps: ["platform"], tags: ["research"] };
+  const seeded = draftOf(agent);
+  // A rename: the skills are not sent — one attached elsewhere while the editor stood open stays attached.
+  assert.deepEqual(saveOf({ ...seeded, name: "Scout the First" }, agent, false, seeded), { kind: "patch", id: "scout", body: { name: "Scout the First" } });
+  // The description cleared is `null`; the list re-ordered is sent whole.
+  const edited = { ...seeded, description: "", skills: ["brevity", "survey"] };
+  assert.deepEqual(saveOf(edited, agent, false, seeded).body, { description: null, skills: ["brevity", "survey"] });
+  assert.deepEqual(saveOf(seeded, agent, false, seeded).body, {}, "nothing changed: nothing named");
+  // `enabled` is no field of the editor's: a save never undoes a switch.
+  assert.ok(!("enabled" in saveOf({ ...seeded, name: "x" }, agent, false, seeded).body));
+  // With nothing to compare with, the whole definition — the shape the node has always taken.
+  assert.equal(Object.keys(saveOf(seeded, agent, false).body).length, 11);
+  // A core agent's three fields are sent as before, whatever was seeded.
+  assert.deepEqual(Object.keys(saveOf(seeded, agent, true, seeded).body), [...CORE_FIELDS]);
+  assert.ok(readFileSync(new URL("./AgentEditor.tsx", import.meta.url), "utf8").includes("const save = saveOf(d, agent, core, seeded.current);"));
+});
+
+test("a model the chosen harness does not list stays in the plan, and is said", () => {
+  const plan = { strategy: "fallback", models: [{ model: "claude-opus-5-5[1m]" }, { model: "gpt-5.5" }, { model: "hand-typed" }] };
+  const claude = { harness: "claude-code", models: [{ id: "claude-opus-5-5[1m]" }, { id: "claude-sonnet-5-5[1m]" }] };
+  assert.deepEqual(foreignModels(plan, claude), ["gpt-5.5", "hand-typed"]);
+  assert.deepEqual(foreignModels(plan, null), [], "the harness has not answered: unknown is not none");
+  assert.deepEqual(foreignModels(plan, { harness: "custom", models: [] }), [], "a harness that lists nothing marks nothing");
+  assert.deepEqual(foreignModels({ models: [] }, claude), []);
+  assert.deepEqual(foreignModels(null, claude), []);
+  const editor = readFileSync(new URL("./ModelPlanEditor.tsx", import.meta.url), "utf8");
+  assert.ok(editor.includes("const foreign = foreignModels(plan, answered);") && editor.includes("foreign.includes(m.model)"));
+});

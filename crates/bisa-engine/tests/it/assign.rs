@@ -959,3 +959,378 @@ async fn an_assignee_names_its_principals_and_the_disabled_and_the_unknown_name_
     );
     engine.shutdown().await;
 }
+
+/// The engine's doors ask the store's one check: a name that is not there is
+/// the caller's typo, in the engine's words; a record that is there and
+/// cannot be read is the store's error by its file — never *not found*, which
+/// would send the person after a typo that does not exist.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_assignee_is_never_said_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let ws = engine.workspace();
+    let worker = agent(ws, "Worker", "mock");
+    let team = ws
+        .create_team("crew", None, vec![], Default::default())
+        .unwrap();
+    for ghost in [
+        Assignee::Agent("nobody".into()),
+        Assignee::Team("nobody".into()),
+    ] {
+        let err = bisa_engine::ops::check_assignees(engine.inner(), &[ghost]).unwrap_err();
+        assert!(
+            matches!(err, bisa_engine::EngineError::Invalid(_)),
+            "{err:?}"
+        );
+    }
+    std::fs::write(ws.paths().agent_file(&aid(&worker)), b"{").unwrap();
+    std::fs::write(ws.paths().team_file(&team.id), b"{").unwrap();
+    for cut in [
+        Assignee::Agent(worker.clone()),
+        Assignee::Team(team.id.to_string()),
+    ] {
+        let err = bisa_engine::ops::check_assignees(engine.inner(), &[cut]).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                bisa_engine::EngineError::Store(bisa_store::StoreError::Unreadable { .. })
+            ),
+            "{err:?}"
+        );
+    }
+    engine.shutdown().await;
+}
+
+/// A key store whose agent keys can be taken away and given back: the
+/// record stays readable, the key does not answer — a keyring that is
+/// locked, a key file somebody moved.
+#[derive(Clone, Default)]
+struct LockableKeys {
+    inner: Arc<MemoryKeyStore>,
+    locked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl bisa_store::KeyStore for LockableKeys {
+    fn get(&self, name: &str) -> Result<Option<String>, bisa_store::StoreError> {
+        if name.starts_with("agent:") && self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(None);
+        }
+        self.inner.get(name)
+    }
+    fn set(&self, name: &str, secret_hex: &str) -> Result<(), bisa_store::StoreError> {
+        self.inner.set(name, secret_hex)
+    }
+    fn replace(&self, name: &str, secret_hex: &str) -> Result<(), bisa_store::StoreError> {
+        self.inner.replace(name, secret_hex)
+    }
+    fn delete(&self, name: &str) -> Result<(), bisa_store::StoreError> {
+        self.inner.delete(name)
+    }
+}
+
+/// What an agent does is signed by the agent or by nobody. A step whose
+/// agent's key does not answer fails in words that name the agent, before
+/// any session starts — it used to run and have its progress and its result
+/// signed by the owner, who had done none of it. Once the key answers
+/// again the same step runs, and its result is the agent's.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_whose_key_is_gone_fails_its_step_in_words_and_signs_nothing_as_the_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys = LockableKeys::default();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys.clone())).unwrap();
+    let engine = Engine::start(ws, catalog(), design_off_config()).unwrap();
+    let ws = engine.workspace();
+    let worker = agent(ws, "Worker", "mock");
+    let worker_key = ws.get_agent(&aid(&worker)).unwrap().pubkey;
+    let results_of = |goal: GoalId| -> Vec<String> {
+        ws.journal(&bisa_core::Home::Goal { goal })
+            .unwrap()
+            .into_iter()
+            .filter(|e| matches!(e.payload, bisa_core::event::JournalPayload::Result { .. }))
+            .map(|e| e.author.as_hex().to_string())
+            .collect()
+    };
+
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..SubmitRequest::captured("the key is locked away")
+        })
+        .unwrap();
+    ws.set_goal_assignees(goal.id, vec![Assignee::Agent(worker.clone())])
+        .unwrap();
+    keys.locked.store(true, std::sync::atomic::Ordering::SeqCst);
+    let item_id = run_spec(&engine, goal.id, item(goal.id, None)).await;
+    let stored = ws
+        .get_work_item(&bisa_core::Home::from(goal.id), item_id)
+        .unwrap();
+    let WorkItemState::Blocked { reason, .. } = &stored.state else {
+        panic!(
+            "the step must fail, not run as the owner: {:?}",
+            stored.state
+        );
+    };
+    assert!(
+        reason.contains(&worker),
+        "the words name the agent: {reason}"
+    );
+    assert_eq!(
+        results_of(goal.id),
+        Vec::<String>::new(),
+        "nothing was done, so nothing is signed — least of all by the owner"
+    );
+
+    // The key is back: the same work runs, and its result is the agent's.
+    keys.locked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let again = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..SubmitRequest::captured("the key is back")
+        })
+        .unwrap();
+    ws.set_goal_assignees(again.id, vec![Assignee::Agent(worker.clone())])
+        .unwrap();
+    run_spec(&engine, again.id, item(again.id, None)).await;
+    let signed_by_the_agent = |goal: GoalId| {
+        ws.journal(&bisa_core::Home::Goal { goal })
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.author == worker_key)
+            .count()
+    };
+    assert!(
+        signed_by_the_agent(again.id) > 0,
+        "the step runs once the key is back, and what it does is the agent's"
+    );
+    assert_eq!(signed_by_the_agent(goal.id), 0);
+
+    engine.shutdown().await;
+}
+
+/// The tool calls an agent's session makes for its own work — its progress,
+/// its note, its result — are refused in words while its key does not
+/// answer, and none of them lands in the journal under the owner's name.
+/// With the key back the same call is taken, signed by the agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_call_of_an_agent_whose_key_is_gone_is_refused_and_signed_by_nobody() {
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let keys = LockableKeys::default();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys.clone())).unwrap();
+    let engine = Engine::start(ws, catalog(), design_off_config()).unwrap();
+    let ws = engine.workspace();
+    let worker = agent(ws, "Worker", "mock");
+    let worker_key = ws.get_agent(&aid(&worker)).unwrap().pubkey;
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("work in hand"))
+        .unwrap();
+    let mut spec = item(goal.id, None);
+    spec.agent = Some(worker.clone());
+    spec.state = WorkItemState::InProgress {
+        by: worker_key.clone(),
+    };
+    ws.put_work_item(&spec).unwrap();
+    let id = spec.id.to_string();
+    let calls = [
+        json!({"op": "progress", "work_item": id, "verb": "fixed", "object": "parser"}),
+        json!({"op": "add_note", "work_item": id, "text": "half way"}),
+        json!({"op": "result_submit", "work_item": id, "output": {"ok": true}}),
+    ];
+    let journal_len = || {
+        ws.journal(&bisa_core::Home::Goal { goal: goal.id })
+            .unwrap()
+            .len()
+    };
+    let before = journal_len();
+
+    keys.locked.store(true, std::sync::atomic::Ordering::SeqCst);
+    for call in &calls {
+        let reply = common::intake_roundtrip(engine.socket_path(), call.clone()).await;
+        assert_eq!(reply["ok"], false, "{call} → {reply}");
+        let words = reply["errors"].to_string();
+        assert!(
+            words.contains(&worker) && words.contains("cannot sign"),
+            "{call} → {reply}"
+        );
+    }
+    assert_eq!(journal_len(), before, "nothing was written for it");
+
+    keys.locked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let reply = common::intake_roundtrip(engine.socket_path(), calls[0].clone()).await;
+    assert_eq!(reply["ok"], true, "{reply}");
+    let last = ws
+        .journal(&bisa_core::Home::Goal { goal: goal.id })
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(last.author, worker_key, "its progress is its own");
+
+    engine.shutdown().await;
+}
+
+/// What the platform says *about* an agent's work — a note a person or a
+/// script adds in its name — is still journaled while the agent's key does
+/// not answer: it is the owner's node speaking, and it is signed as the
+/// owner's. Only what the agent itself does waits for its key.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_platform_note_about_an_agents_work_is_still_journaled_without_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys = LockableKeys::default();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys.clone())).unwrap();
+    let engine = Engine::start(ws, catalog(), design_off_config()).unwrap();
+    let ws = engine.workspace();
+    let worker = agent(ws, "Worker", "mock");
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("noted"))
+        .unwrap();
+    keys.locked.store(true, std::sync::atomic::Ordering::SeqCst);
+    bisa_engine::ops::add_note(
+        engine.inner(),
+        goal.id,
+        "the build is red".into(),
+        Some(&worker),
+    )
+    .unwrap();
+    let last = ws
+        .journal(&bisa_core::Home::Goal { goal: goal.id })
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert!(matches!(
+        last.payload,
+        bisa_core::event::JournalPayload::Note { .. }
+    ));
+    assert_eq!(last.author, ws.owner_principal());
+    engine.shutdown().await;
+}
+
+/// An edit changes the fields it names on the record as it stands. Twelve
+/// edits at once — one flipping the switch, the others each a different
+/// description — leave the switch flipped and one of the descriptions, and
+/// the room is told of the flip once: the announcement comes from the record
+/// the store answered before and after, never from a read beside the write.
+/// A whole-record write that only repeats the flag says nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_announcement_a_flip() {
+    use bisa_engine::directory::{self, AgentEdit, TeamEdit};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let ws = engine.workspace();
+    let worker = aid(&agent(ws, "Worker", "mock"));
+    let said = || ws.messages("general", None, 200).unwrap().len();
+    let before = said();
+
+    let start = Arc::new(std::sync::Barrier::new(12));
+    let writers: Vec<_> = (0..12)
+        .map(|n| {
+            let (inner, worker, start) = (engine.inner().clone(), worker.clone(), start.clone());
+            std::thread::spawn(move || {
+                let edit = match n {
+                    0 => AgentEdit {
+                        enabled: Some(false),
+                        ..Default::default()
+                    },
+                    1 => AgentEdit {
+                        name: Some("Renamed".into()),
+                        ..Default::default()
+                    },
+                    n => AgentEdit {
+                        description: Some(Some(format!("edit {n}"))),
+                        ..Default::default()
+                    },
+                };
+                start.wait();
+                directory::edit_agent(&inner, &worker, edit).unwrap();
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    let stands = ws.get_agent(&worker).unwrap();
+    assert!(!stands.enabled, "the flip stands beside every other edit");
+    assert_eq!(stands.name, "Renamed");
+    assert!(stands.description.unwrap().starts_with("edit "));
+    assert_eq!(said(), before + 1, "one flip, one note in general");
+
+    // The whole record written back with the flag as it is: nothing said.
+    let same = ws.get_agent(&worker).unwrap();
+    directory::update_agent(engine.inner(), same).unwrap();
+    assert_eq!(said(), before + 1);
+    // An edit the store refuses announces nothing and changes nothing.
+    let refused = directory::edit_agent(
+        engine.inner(),
+        &worker,
+        AgentEdit {
+            enabled: Some(true),
+            system_prompt: Some("  ".into()),
+            ..Default::default()
+        },
+    );
+    assert!(refused.is_err());
+    assert!(!ws.get_agent(&worker).unwrap().enabled);
+    assert_eq!(said(), before + 1);
+
+    // A team the same way: a rename beside a stand-down, both stand, one note.
+    let team = ws
+        .create_team("crew", Some("ships"), vec![], Default::default())
+        .unwrap();
+    let before = said();
+    directory::edit_team(
+        engine.inner(),
+        &team.id,
+        TeamEdit {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let renamed = directory::edit_team(
+        engine.inner(),
+        &team.id,
+        TeamEdit {
+            name: Some("Deck crew".into()),
+            purpose: Some(None),
+            members: Some(vec![Assignee::Agent(worker.to_string())]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(!renamed.enabled, "a rename keeps the stand-down");
+    assert_eq!(renamed.name, "Deck crew");
+    assert_eq!(renamed.purpose, None);
+    assert_eq!(renamed.members.len(), 1);
+    let whole = directory::update_team(engine.inner(), renamed).unwrap();
+    assert!(!whole.enabled);
+    assert_eq!(said(), before + 1, "one flip, one note");
+
+    engine.shutdown().await;
+}
+
+/// An agent a goal names whose record cannot be read takes no work, and the
+/// agents named beside it still do: one cut file costs one worker, never the
+/// assignment.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_named_agent_whose_record_is_cut_takes_no_work_and_the_others_do() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let ws = engine.workspace();
+    let cut = agent(ws, "Cut", "mock");
+    let whole = agent(ws, "Whole", "mock");
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("two hands"))
+        .unwrap();
+    ws.set_goal_assignees(
+        goal.id,
+        vec![Assignee::Agent(cut.clone()), Assignee::Agent(whole.clone())],
+    )
+    .unwrap();
+    std::fs::write(ws.paths().agent_file(&aid(&cut)), b"{").unwrap();
+    assert_eq!(
+        assign::workers(engine.inner(), &item(goal.id, None)).await,
+        vec![whole]
+    );
+    engine.shutdown().await;
+}

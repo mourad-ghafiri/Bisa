@@ -12662,3 +12662,248 @@ async fn an_agents_note_sends_a_pulse_frame_for_its_goal() {
     assert_eq!(row["event"]["text"], json!("half way there"), "{row}");
     node.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// The roster on the wire: edits that name fields, a removal that is said
+// ---------------------------------------------------------------------------
+
+/// Read `GET /events` until a frame holds every one of `needles`, and answer
+/// that frame's line.
+fn sse_frame_with(
+    socket: PathBuf,
+    needles: Vec<String>,
+) -> tokio::task::JoinHandle<Option<String>> {
+    tokio::spawn(async move {
+        let stream = UnixStream::connect(&socket).await.expect("sse connect");
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .expect("sse handshake");
+        tokio::spawn(conn);
+        let request = Request::builder()
+            .method("GET")
+            .uri("/events")
+            .header(hyper::header::HOST, "localhost")
+            .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        let resp = sender.send_request(request).await.expect("sse request");
+        let mut body = resp.into_body();
+        let mut buf = String::new();
+        while let Some(Ok(frame)) = body.frame().await {
+            if let Some(data) = frame.data_ref() {
+                buf.push_str(&String::from_utf8_lossy(data));
+                if let Some(line) = buf
+                    .lines()
+                    .find(|line| needles.iter().all(|n| line.contains(n.as_str())))
+                {
+                    return Some(line.to_string());
+                }
+            }
+        }
+        None
+    })
+}
+
+async fn scout_on(node: &Node) -> String {
+    let made = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "You scout.", "harness": "claude-code"}),
+        )
+        .await;
+    made["agent"]["id"].as_str().unwrap().to_string()
+}
+
+/// A PATCH changes the fields it names on the record as it stands. A dozen
+/// at once — one standing the agent down, one renaming it, the rest each a
+/// description — leave it stood down and renamed: the handler used to read
+/// the record, merge the body and write the whole record back, so the last
+/// writer took the others' fields with it. A team's PATCH the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_patches_of_different_fields_both_stand() {
+    let node = Node::start().await;
+    let scout = scout_on(&node).await;
+    let team = node.post("/teams", json!({"name": "Crew"})).await["team"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for round in 0..6 {
+        let agent_path = format!("/agents/{scout}");
+        let team_path = format!("/teams/{team}");
+        let flag = round % 2 == 1;
+        let name = format!("Scout {round}");
+        let mut patches = vec![
+            (agent_path.clone(), json!({"enabled": flag})),
+            (agent_path.clone(), json!({"name": name})),
+            (team_path.clone(), json!({"enabled": flag})),
+            (team_path.clone(), json!({"name": name})),
+            (team_path.clone(), json!({"members": [{"agent": scout}]})),
+        ];
+        for n in 0..8 {
+            patches.push((
+                agent_path.clone(),
+                json!({"description": format!("round {round} edit {n}")}),
+            ));
+            patches.push((
+                team_path.clone(),
+                json!({"purpose": format!("round {round} edit {n}")}),
+            ));
+        }
+        let sent = patches
+            .iter()
+            .map(|(path, body)| node.req("PATCH", path, Some(body.clone())));
+        for (code, answer) in futures::future::join_all(sent).await {
+            assert_eq!(code, 200, "{answer}");
+        }
+        let agent = node.get(&agent_path).await;
+        assert_eq!(
+            agent["agent"]["enabled"],
+            json!(flag),
+            "round {round}: {agent}"
+        );
+        assert_eq!(
+            agent["agent"]["name"],
+            json!(name),
+            "round {round}: {agent}"
+        );
+        let stored = node.get("/teams").await["teams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == json!(team))
+            .cloned()
+            .unwrap();
+        assert_eq!(stored["enabled"], json!(flag), "round {round}: {stored}");
+        assert_eq!(stored["name"], json!(name), "round {round}: {stored}");
+        assert!(
+            stored["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["agent"] == json!(scout)),
+            "round {round}: {stored}"
+        );
+    }
+    node.shutdown().await;
+}
+
+/// A removed agent, team or skill is said on the stream: the snapshot frame
+/// of its kind and id, with `removed: true`. Every open window drops the
+/// record then, instead of keeping a ghost until it reloads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_agent_is_said_on_the_stream() {
+    let node = Node::start().await;
+    let scout = scout_on(&node).await;
+    let team = node.post("/teams", json!({"name": "Crew"})).await["team"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    node.post(
+        "/skills",
+        json!({"id": "brevity", "name": "Brevity", "description": "say less", "markdown": "Say less."}),
+    )
+    .await;
+    for (path, id) in [
+        (format!("/agents/{scout}"), scout.clone()),
+        (format!("/teams/{team}"), team.clone()),
+        ("/skills/brevity".to_string(), "brevity".to_string()),
+    ] {
+        let heard = sse_frame_with(
+            node.socket.clone(),
+            vec!["\"removed\":true".into(), format!("\"scope\":\"{id}\"")],
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (code, v) = node.req("DELETE", &path, None).await;
+        assert_eq!(code, 200, "{v}");
+        let line = tokio::time::timeout(Duration::from_secs(10), heard)
+            .await
+            .unwrap_or_else(|_| panic!("no removed frame for {path}"))
+            .unwrap()
+            .expect("the stream ended");
+        let frame: Value =
+            serde_json::from_str(line.trim_start_matches("data:").trim()).expect(&line);
+        assert_eq!(frame["stream"], json!("conversation"), "{frame}");
+        assert_eq!(frame["payload"]["snapshot"], json!(true), "{frame}");
+        assert!(frame["payload"]["kind"].is_u64(), "{frame}");
+    }
+    node.shutdown().await;
+}
+
+/// `members` is optional when a team is made, as the route says: a team is
+/// named first and staffed after.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_team_is_made_with_no_members_named() {
+    let node = Node::start().await;
+    let (code, v) = node
+        .req("POST", "/teams", Some(json!({"name": "Launch crew"})))
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["team"]["members"], json!([]), "{v}");
+    assert_eq!(v["team"]["enabled"], json!(true));
+    node.shutdown().await;
+}
+
+/// What the store refuses of a new agent reaches the caller as a 400 in
+/// words: a blank harness, and a name whose id is the Decision-Making
+/// Agent's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_harness_and_the_reserved_name_are_400s_in_words() {
+    let node = Node::start().await;
+    let before = node.get("/agents").await["agents"]
+        .as_array()
+        .unwrap()
+        .len();
+    for (body, word) in [
+        (
+            json!({"name": "Scout", "system_prompt": "You scout.", "harness": "  "}),
+            "harness",
+        ),
+        (
+            json!({"name": "Decision-Making Agent", "system_prompt": "x", "harness": "claude-code"}),
+            "Decision-Making Agent",
+        ),
+    ] {
+        let (code, v) = node.req("POST", "/agents", Some(body)).await;
+        assert_eq!(code, 400, "{v}");
+        assert!(v.to_string().contains(word), "{v}");
+    }
+    assert_eq!(
+        node.get("/agents").await["agents"]
+            .as_array()
+            .unwrap()
+            .len(),
+        before,
+        "a refusal made nobody"
+    );
+    node.shutdown().await;
+}
+
+/// A prompt is asked for where the agent is made and kept where it is
+/// edited: both refusals are 400s that say so, and neither changes anything.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_prompt_is_refused_on_create_and_on_an_edit_that_blanks_it() {
+    let node = Node::start().await;
+    let (code, v) = node
+        .req(
+            "POST",
+            "/agents",
+            Some(json!({"name": "Hollow", "system_prompt": " \n", "harness": "claude-code"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("prompt"), "{v}");
+    let scout = scout_on(&node).await;
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/agents/{scout}"),
+            Some(json!({"system_prompt": "", "name": "Renamed"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v.to_string().contains("prompt"), "{v}");
+    let kept = node.get(&format!("/agents/{scout}")).await;
+    assert_eq!(kept["agent"]["system_prompt"], json!("You scout."));
+    assert_eq!(kept["agent"]["name"], json!("Scout"), "one write or none");
+    node.shutdown().await;
+}

@@ -661,12 +661,20 @@ fn dispatch_to(
     // naming `@developer` could never reach the developer, so the core agent
     // could route in prose and nothing would happen.
     //
-    // Admitting exactly the core agent bounds the chain by construction.
-    // Human → triage → worker → stop: the worker's reply is agent-authored and
-    // is not the core agent, and the core agent's own post is refused a wake
-    // of itself in the loop below. Two sessions per human message, maximum,
-    // and that bound is a property of who may speak rather than of a count
-    // somebody has to remember to decrement.
+    // Admitting exactly the core agents bounds the chain by construction.
+    // Human → the General Agent → each agent its post names → stop: a
+    // worker's reply is agent-authored and not a core agent's, so it is
+    // dropped here, and a core agent's own post is refused a wake of itself
+    // in the loop below. The Workflow Agent passes this guard and wakes
+    // nobody all the same: no respond policy admits its post (`may_respond`
+    // — only the General Agent's hand-off carries the owner's authority),
+    // and it is refused the General Agent outright. The bound is a property
+    // of who may speak rather than of a count somebody has to remember to
+    // decrement.
+    //
+    // The roster's list is how an author is known for an agent. One whose
+    // record the list skipped reads as nobody's here — neither the owner
+    // nor a member — and every respond policy refuses it.
     //
     // One more thing may speak: **the platform, announcing** — a workflow's
     // `notify` step, signed by the agent it names or by the Workflow Agent.
@@ -2727,6 +2735,37 @@ pub(crate) async fn dispose_live_sessions(inner: &Arc<Inner>, scope: &str) {
         } // LCOV_EXCL_LINE: the session taken under the disposal; a window
         drop(guard);
         park(inner, &conv);
+    }
+}
+
+/// End every live session one agent holds, in whatever scope — what its
+/// removal does first. Ended, never parked: nothing revives the session of
+/// an agent that is gone, and a message queued behind its turn is dropped
+/// with it.
+pub(crate) async fn end_agent_sessions(inner: &Arc<Inner>, agent: &str) {
+    let keys: Vec<(String, String)> = inner
+        .conversation
+        .sessions
+        .iter()
+        .filter(|e| e.key().1 == agent)
+        .map(|e| e.key().clone())
+        .collect();
+    inner
+        .conversation
+        .pending
+        .retain(|(_, pending_agent), _| pending_agent != agent);
+    for key in keys {
+        let Some((_, conv)) = inner.conversation.sessions.remove(&key) else {
+            continue; // LCOV_EXCL_LINE: the chat desk emptied under the removal; a window
+        };
+        if let Some(session) = conv.session.lock().await.take() {
+            warn_on_err(session.abort().await, "aborting a removed agent's turn");
+            warn_on_err(
+                session.dispose().await,
+                "disposing a removed agent's session",
+            );
+        } // LCOV_EXCL_LINE: the session taken under the removal; a window
+        crate::sessions::ended(inner, &conv.session_id.to_string());
     }
 }
 

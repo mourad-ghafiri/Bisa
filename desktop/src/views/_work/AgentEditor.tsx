@@ -36,6 +36,7 @@ import type { AgentDef, HarnessRow } from "../../types";
 import { isCoreAgent } from "../../types";
 import {
   Button,
+  ConfirmDialog,
   Dialog,
   ErrorNote,
   Field,
@@ -60,7 +61,7 @@ import {
   type Library,
 } from "./LibraryRefs";
 import { ModelPlanEditor } from "./ModelPlanEditor";
-import { draftOf, emptyDraft, harnessChoices, maySaveAgent, saveOf, startingHarness, type AgentDraft } from "./agentDraftModel.mjs";
+import { dirty, draftOf, emptyDraft, harnessChoices, mayClose, maySaveAgent, saveOf, startingHarness, type AgentDraft } from "./agentDraftModel.mjs";
 import { CORE_AGENT_LOCKED, CORE_AGENT_PURPOSE } from "./Origin";
 import { settingsSearch } from "../_settings/settingsLink.mjs";
 import { attempt } from "./useAsync";
@@ -99,7 +100,10 @@ export function AgentEditor({
   const startingAtOpen = useRef(starting);
   startingAtOpen.current = starting;
   const [d, setD] = useState<AgentDraft>(() => emptyDraft(starting));
+  // The draft as the dialog opened: what *edited* is measured against, and what a save names its changes from.
+  const seeded = useRef<AgentDraft>(d);
   const [busy, setBusy] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const core = agent !== null && isCoreAgent(agent);
 
   const set = (patch: Partial<AgentDraft>) => setD((prev) => ({ ...prev, ...patch }));
@@ -108,12 +112,26 @@ export function AgentEditor({
   // harness list arriving, or read again, must not take what was typed.
   useEffect(() => {
     if (!open) return;
-    setD(agent ? draftOf(agent) : emptyDraft(startingAtOpen.current));
+    const fresh = agent ? draftOf(agent) : emptyDraft(startingAtOpen.current);
+    seeded.current = fresh;
+    setD(fresh);
+    setDiscarding(false);
   }, [open, agent]);
-  // The list may land after the dialog opened: a draft that has no harness yet takes the first installed, and nothing else of it moves.
+  // The list may land after the dialog opened: a draft that has no harness yet takes the first installed, and nothing else of it moves —
+  // the harness is the dialog's own pick, so it is no edit of the person's either.
   useEffect(() => {
-    if (open && starting !== null) setD((prev) => (prev.harness === null ? { ...prev, harness: starting } : prev));
+    if (!open || starting === null) return;
+    if (seeded.current.harness === null) seeded.current = { ...seeded.current, harness: starting };
+    setD((prev) => (prev.harness === null ? { ...prev, harness: starting } : prev));
   }, [open, starting]);
+
+  // Every way out is one door — Escape, a click outside, the ✕, Cancel: it
+  // stays shut while a save is out, and asks before it drops what was typed.
+  const requestClose = () => {
+    const leave = mayClose({ dirty: dirty(d, seeded.current), busy });
+    if (leave === "close") onClose();
+    else if (leave === "ask") setDiscarding(true);
+  };
   const choices = harnessChoices(harnesses, d.harness);
 
   const save = async () => {
@@ -121,8 +139,9 @@ export function AgentEditor({
     const ok = await attempt(async () => {
       // What is sent is the model's to say (`saveOf`): a core agent's three
       // fields — a stale draft is never a refusal naming a field nobody
-      // touched — an agent's whole definition in one request, or a new one.
-      const save = saveOf(d, agent, core);
+      // touched — the fields of an agent's definition that were changed
+      // here, in one request, or a new one.
+      const save = saveOf(d, agent, core, seeded.current);
       if (save.kind === "patch") await api.patchAgent(save.id, save.body);
       else await api.createAgent(save.body);
     }, toast.error);
@@ -134,9 +153,10 @@ export function AgentEditor({
   };
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       title={agent ? t("work-agent-editor-edit", { agent: agent.name }) : t("work-agent-editor-new-agent")}
       description={
         core
@@ -146,7 +166,7 @@ export function AgentEditor({
       width="max-w-4xl"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>{t("work-agent-editor-cancel")}</Button>
+          <Button variant="ghost" onClick={requestClose} disabled={busy}>{t("work-agent-editor-cancel")}</Button>
           <Button
             variant="primary"
             onClick={() => void save()}
@@ -157,6 +177,8 @@ export function AgentEditor({
         </>
       }
     >
+      {/* Nothing is typed into a save that is out: every field is held while the node answers. */}
+      <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
       <div className="flex flex-col gap-3">
         {core && (
           <p className="rounded-control border border-border bg-surface-2/70 px-3 py-2 text-2xs leading-relaxed text-text">
@@ -360,6 +382,22 @@ export function AgentEditor({
           </fieldset>
         </div>
       </div>
+      </fieldset>
     </Dialog>
+    {/* Asked over the editor, which stays as it is underneath: *Keep editing* loses nothing. */}
+    <ConfirmDialog
+      open={discarding}
+      onClose={() => setDiscarding(false)}
+      onConfirm={() => {
+        setDiscarding(false);
+        onClose();
+      }}
+      title={t("work-draft-discard-title")}
+      body={agent ? t("work-draft-discard-edits-of", { name: agent.name }) : t("work-draft-discard-new-agent")}
+      confirmLabel={t("work-draft-discard")}
+      cancelLabel={t("work-draft-keep-editing")}
+      danger
+    />
+    </>
   );
 }

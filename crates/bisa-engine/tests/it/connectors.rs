@@ -1758,6 +1758,13 @@ async fn an_agents_read_waiting_at_a_full_permit_pool_is_timed_out_in_the_operat
         new_workflow("a", vec![post_step("say", None, None)]),
     );
     step_in_state(&engine, goal.id, "say", "running").await;
+    // A step reads *running* a moment before its call takes the permit: the
+    // pool is full once the stub has heard the step's request, and not
+    // before — a read sent in between is simply answered.
+    common::until("the step's call to hold the one permit", || {
+        stub.calls().iter().any(|c| c.path == "/post").then_some(())
+    })
+    .await;
     let started = std::time::Instant::now();
     let read = intake_roundtrip(
         engine.socket_path(),

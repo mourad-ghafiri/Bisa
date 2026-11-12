@@ -24,10 +24,11 @@
  */
 
 import { healthWords } from "../_settings/mcpHealthModel.mjs";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import { api, type UsageKind } from "../../api";
-import { useConversationEvents } from "../../bus";
-import { skillMoved } from "../rosterModel.mjs";
+import { useConversationEvents, useEngineEvents } from "../../bus";
+import { mcpMoved, registryChanges, skillMoved } from "../rosterModel.mjs";
 import { href } from "../../router";
 import type { McpServerView, Origin, Reference, ReferenceKind, SkillDef } from "../../types";
 import {
@@ -41,7 +42,6 @@ import {
   TagChips,
   TextInput,
   failureText,
-  useToast,
 } from "../../ui";
 import { OriginChip } from "./Origin";
 import { attempt, useAsync } from "./useAsync";
@@ -153,13 +153,29 @@ export function useSkillLibrary(): SkillLibrary {
   useConversationEvents((f) => {
     if (skillMoved(f)) reload();
   });
+  useReloadOnReconnect(reload);
   const entries = useMemo(() => (data?.skills ?? []).map(skillEntry), [data]);
   return { entries, skills: data?.skills ?? [], loading, error, reload };
 }
 
-/** The local MCP registry. Empty on a fresh workspace, deliberately. */
+/** This window's word that the MCP registry changed here — said by the Settings panel, heard by every open registry. */
+export const mcpRegistry = registryChanges();
+
+/**
+ * The local MCP registry. Empty on a fresh workspace, deliberately.
+ *
+ * Read again when a server is probed anywhere, when the node is back, and
+ * when this window changed the registry: it used to be read once, so a
+ * server made in Settings was not offered to an agent until the screen was
+ * left and opened again.
+ */
 export function useMcpRegistry(): Library {
   const { data, error, loading, reload } = useAsync((s) => api.mcps(undefined, s), []);
+  useEngineEvents((e) => {
+    if (mcpMoved(e.payload)) reload();
+  });
+  useReloadOnReconnect(reload);
+  useEffect(() => mcpRegistry.listen(reload), [reload]);
   const entries = useMemo(() => (data?.mcp ?? []).map(mcpEntry), [data]);
   return { entries, loading, error, reload };
 }
@@ -212,7 +228,7 @@ export function AttachedRefs({
             )}
           </span>
           {onDetach && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDetach(e.id)}>{tr("work-library-refs-detach")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} aria-label={tr("screens-agents-detach-named", { name: e.name })} onClick={() => onDetach(e.id)}>{tr("work-library-refs-detach")}</Button>
           )}
         </li>
       ))}
@@ -602,18 +618,30 @@ export function DeleteDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
-  const toast = useToast();
   const [busy, setBusy] = useState(false);
+  // What the node said when it refused, kept in the dialog: the body said
+  // *nothing points at it, so this will go through* — and after a refusal
+  // went on saying it, under a toast that was already gone.
+  const [refused, setRefused] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) setRefused(null);
+  }, [open]);
   // Read once into a local so the blocked branch narrows without an assertion.
   const refs = usage.refs;
   const blocked = refs !== null && refs.length > 0;
 
   const run = async () => {
     setBusy(true);
+    setRefused(null);
     // The refusal is the store's own sentence, naming the holders and the
     // remedy. It is passed through unchanged: rewording it here would drop
-    // the names, which are the only part worth reading.
-    const ok = await attempt(remove, toast.error);
+    // the names, which are the only part worth reading. Who holds the
+    // record is asked again — something took hold of it since the dialog
+    // opened — so the body under the refusal is the node's present answer.
+    const ok = await attempt(remove, (message) => {
+      setRefused(message);
+      usage.reload();
+    });
     setBusy(false);
     if (ok) {
       onDeleted();
@@ -641,6 +669,7 @@ export function DeleteDialog({
       }
     >
       <div className="flex flex-col gap-3 text-2xs text-text-dim">
+        {refused !== null && <ErrorNote error={refused} />}
         {usage.checking ? (
           <>
             <p>{tr("work-library-refs-checking-what-still-points")}</p>
@@ -665,7 +694,8 @@ export function DeleteDialog({
           </>
         ) : (
           <>
-            <p>{tr("work-library-refs-nothing-points-so-will-go-through")}</p>
+            {/* After a refusal the promise is not repeated: the node just said otherwise, above. */}
+            {refused === null && <p>{tr("work-library-refs-nothing-points-so-will-go-through")}</p>}
             <div>{consequence}</div>
           </>
         )}

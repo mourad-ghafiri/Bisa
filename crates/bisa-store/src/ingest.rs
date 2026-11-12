@@ -495,6 +495,10 @@ impl Workspace {
             }
             k if k == kind::KIND_AGENT_PROFILE => {
                 match serde_json::from_str::<bisa_core::Agent>(&event.content) {
+                    // An id this node holds a record for keeps its own row:
+                    // another node's agent of the same id has another key,
+                    // and the row is how a fact's author is found.
+                    Ok(a) if self.paths.agent_file(&a.id).exists() => Ok(()),
                     Ok(a) => self.index_agent(&a),
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
                         "error-store-ingest-refused",
@@ -504,6 +508,7 @@ impl Workspace {
             }
             k if k == kind::KIND_TEAM => {
                 match serde_json::from_str::<bisa_core::Team>(&event.content) {
+                    Ok(t) if self.paths.team_file(&t.id).exists() => Ok(()),
                     Ok(t) => self.index_team(&t),
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
                         "error-store-ingest-refused",
@@ -1431,7 +1436,8 @@ mod tests {
                 StoreEvent::RemoteMessageArrived { .. }
                 | StoreEvent::RemoteDrawingArrived { .. }
                 | StoreEvent::PeopleChanged { .. }
-                | StoreEvent::InviteChanged { .. } => {
+                | StoreEvent::InviteChanged { .. }
+                | StoreEvent::DefinitionRemoved { .. } => {
                     panic!("a local goal write is not a person's, a remote message or a peer's drawing")
                 }
             }
@@ -2131,6 +2137,74 @@ mod tests {
                 .unwrap()
         )
         .contains("bad work item content"));
+    }
+
+    /// Two nodes of one workspace each made an agent and a team under one
+    /// id. The other's snapshot lands as a file, and the index keeps what
+    /// this node's own record says: its key still answers to its id, its
+    /// tags are still its own — a fact its agent signs is never left with no
+    /// author because another node's key took the row.
+    #[test]
+    fn a_twins_agent_never_takes_this_nodes_row() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        staffed(&ws1);
+        staffed(&ws2);
+        let id = bisa_core::AgentId::new("developer").unwrap();
+        let mine = ws1.get_agent(&id).unwrap();
+        let theirs = ws2.get_agent(&id).unwrap();
+        assert_ne!(mine.pubkey, theirs.pubkey, "each node minted its own key");
+        let my_team = ws1
+            .create_team("Ops", None, vec![], Tags::new(["mine"]).unwrap())
+            .unwrap();
+        let their_team = ws2
+            .create_team("Ops", None, vec![], Tags::new(["theirs"]).unwrap())
+            .unwrap();
+        assert_eq!(my_team.id, their_team.id);
+        // A later revision than anything this node holds, signed by the
+        // owner both nodes share.
+        let later = |k: u16, d: &str, content: String| {
+            EventBuilder::new(Kind::from(k), content)
+                .tag(Tag::parse(["d", d]).unwrap())
+                .tag(Tag::parse(["revision", "99"]).unwrap())
+                .finalize(ws2.owner_keys())
+                .unwrap()
+        };
+        for event in [
+            later(
+                kind::KIND_AGENT_PROFILE,
+                id.as_str(),
+                serde_json::to_string(&theirs).unwrap(),
+            ),
+            later(
+                kind::KIND_TEAM,
+                their_team.id.as_str(),
+                serde_json::to_string(&their_team).unwrap(),
+            ),
+        ] {
+            let outcome = ws1.ingest_remote_event(&event).unwrap();
+            assert!(
+                matches!(outcome, IngestOutcome::AppliedConversation { .. }),
+                "the snapshot lands: {outcome:?}"
+            );
+        }
+        let idx = ws1.idx();
+        assert_eq!(
+            idx.agent_id_for_pubkey(mine.pubkey.as_hex())
+                .unwrap()
+                .as_deref(),
+            Some("developer"),
+            "this node's key still answers to its id"
+        );
+        assert_eq!(
+            idx.agent_id_for_pubkey(theirs.pubkey.as_hex()).unwrap(),
+            None
+        );
+        assert_eq!(
+            idx.tags_of(bisa_core::tags::TagEntity::Team, my_team.id.as_str())
+                .unwrap(),
+            vec!["mine".to_string()]
+        );
     }
 
     #[test]

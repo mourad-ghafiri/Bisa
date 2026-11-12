@@ -131,7 +131,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/skills",
-        summary: "Create a skill: `{name, description, markdown, tags?}`.",
+        summary: "Create a skill: `{id, name, description, markdown, tags?}` — `id` the slug agents reference, fixed from then on.",
     },
     RouteDoc {
         method: "GET",
@@ -146,6 +146,6 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "DELETE",
         path: "/skills/{id}",
-        summary: "Delete a skill, or 409 while an agent still carries it.",
+        summary: "Delete a skill, or 409 while an agent still carries it. Said on the event stream as an agent's removal is.",
     },
 ];

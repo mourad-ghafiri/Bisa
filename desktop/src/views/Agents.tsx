@@ -65,7 +65,8 @@ import { coreLine, movesStatus } from "./_settings/decisionsModel.mjs";
 import type { AgentDef, SessionRow } from "../types";
 import { isCoreAgent, planSummary } from "../types";
 import { coreAgents, rosterable } from "./_studio/addressModel.mjs";
-import { answerOf, detailStacked, respondsTo } from "./rosterModel.mjs";
+import { answerPlace, asksDelete, detailStacked, respondsTo, stillStopping, switchOf } from "./rosterModel.mjs";
+import { useHeldAnswer } from "./_work/useHeldAnswer";
 import {
   AnimatedList,
   Avatar,
@@ -137,6 +138,8 @@ function AgentCard({
   onOpen,
   onMessage,
   onEdit,
+  onSwitch,
+  switching,
   onDelete,
 }: {
   a: AgentDef;
@@ -144,12 +147,18 @@ function AgentCard({
   onOpen: () => void;
   onMessage: () => void;
   onEdit: () => void;
+  /** Disable or enable it — absent on a core agent, as Delete is. */
+  onSwitch?: () => void;
+  /** The switch is out: its entry is held until the node answers. */
+  switching?: boolean;
   /**
    * Absent on the core agent, and absent rather than disabled: a menu entry
    * that exists only to refuse you is worse than no entry.
    */
   onDelete?: () => void;
 }) {
+  const harnessLabels = useHarnessLabels();
+  const flip = onSwitch ? switchOf("agent", a) : null;
   return (
     // The open card is where you are, not something asking for you: a neutral edge, never the accent.
     <Card className={selected ? "border-text/35" : ""}>
@@ -174,6 +183,9 @@ function AgentCard({
             { label: t("screens-inbox-open"), icon: ICON.forward, onSelect: onOpen },
             { label: t("screens-agents-message"), icon: ICON.dm, onSelect: onMessage },
             { label: t("screens-agents-edit-definition"), icon: ICON.edit, onSelect: onEdit },
+            ...(flip && onSwitch
+              ? [{ label: switching ? flip.doing : flip.label, icon: flip.on ? ICON.pause : ICON.play, disabled: switching, onSelect: onSwitch }]
+              : []),
             ...(onDelete
               ? [
                   {
@@ -192,7 +204,8 @@ function AgentCard({
       {/* The harness is the agent's identity, so it keeps a (neutral) chip;
           the model chain and the counts are meta, read as plain words. */}
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Chip>{a.harness}</Chip>
+        {/* The harness by its name, as every other surface says it; its id where the name is not known yet. */}
+        <Chip>{harnessLabels[a.harness] ?? a.harness}</Chip>
         <span className="min-w-0 truncate font-mono text-2xs text-text-dim">{planSummary(a.models)}</span>
         {a.skills.length > 0 && (
           <span className="text-2xs text-text-dim">{t("screens-agents-skill-count", { skills: a.skills.length })}</span>
@@ -362,27 +375,37 @@ function AgentRefs({
    * possible outcome is a red toast.
    */
   locked?: ReactNode;
-  onChange: (next: string[]) => Promise<unknown>;
+  /** Writes the whole list, and answers the list the node then holds — `null` when it refused. */
+  onChange: (next: string[]) => Promise<string[] | null>;
 }) {
   const [busy, setBusy] = useState(false);
-  const entries = useMemo(() => resolveRefs(ids, library.entries), [ids, library.entries]);
+  // What the node answered this list's last write stands until the roster is
+  // read again: a second attach, pressed before that read lands, is built
+  // from the answer — never from the list as it was before the first.
+  const [held, hold] = useHeldAnswer<string[], string[]>(ids);
+  const shown = held ?? ids;
+  const entries = useMemo(() => resolveRefs(shown, library.entries), [shown, library.entries]);
 
   const run = (next: string[]) => {
     setBusy(true);
-    void onChange(next).finally(() => setBusy(false));
+    void onChange(next)
+      .then((answered) => {
+        if (answered) hold(answered);
+      })
+      .finally(() => setBusy(false));
   };
 
   return (
     <Section
-      title={ids.length ? `${title} (${ids.length})` : title}
+      title={shown.length ? `${title} (${shown.length})` : title}
       action={
         locked ? null : (
           <AttachSelect
             library={library.entries}
-            attached={ids}
+            attached={shown}
             label={attachLabel}
             busy={busy}
-            onAttach={(id) => run([...ids, id])}
+            onAttach={(id) => run([...shown, id])}
           />
         )
       }
@@ -394,15 +417,15 @@ function AgentRefs({
           <Spinner />
         ) : library.error && library.entries.length === 0 ? (
           <ErrorNote error={library.error} retry={library.reload} />
-        ) : library.entries.length === 0 && ids.length === 0 ? (
+        ) : library.entries.length === 0 && shown.length === 0 ? (
           <p className="text-2xs text-text-dim">{emptyLibrary}</p>
-        ) : ids.length === 0 ? (
+        ) : shown.length === 0 ? (
           <p className="text-2xs text-text-dim">{t("screens-agents-carries-none")}</p>
         ) : (
           <AttachedRefs
             entries={entries}
             busy={busy}
-            onDetach={locked ? undefined : (id) => run(ids.filter((v) => v !== id))}
+            onDetach={locked ? undefined : (id) => run(shown.filter((v) => v !== id))}
           />
         )}
         {locked && <p className="text-2xs text-text-dim">{locked}</p>}
@@ -418,6 +441,8 @@ function AgentDetail({
   mcps,
   usage,
   onEdit,
+  onSwitch,
+  switching,
   onDelete,
 }: {
   a: AgentDef;
@@ -426,13 +451,24 @@ function AgentDetail({
   /** Asked at the screen, so this pane and the dialog read one answer. */
   usage: ReturnType<typeof useUsage>;
   onEdit: () => void;
+  onSwitch: () => void;
+  switching: boolean;
   onDelete: () => void;
 }) {
   const toast = useToast();
   const { refresh } = useWorkspace();
   const core = isCoreAgent(a);
-  const patchRefs = (patch: { skills: string[] } | { mcps: string[] }) =>
-    attempt(() => api.patchAgent(a.id, patch), toast.error, refresh);
+  const harnessLabels = useHarnessLabels();
+  const flip = switchOf("agent", a);
+  /** One list written whole; the agent the node answers is what the list then draws. */
+  const patchRefs = async (patch: { skills: string[] } | { mcps: string[] }): Promise<AgentDef | null> => {
+    let answered: AgentDef | null = null;
+    await attempt(() => api.patchAgent(a.id, patch), toast.error, (res) => {
+      answered = res.agent;
+      refresh();
+    });
+    return answered;
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -443,8 +479,9 @@ function AgentDetail({
             <div className="flex items-center gap-1.5">
               <h2 className="truncate text-lg font-semibold tracking-tight">{a.name}</h2>
               <OriginChip origin={a.origin} id={a.id} />
+              {!a.enabled && <Chip tone="warn">{t("screens-agents-disabled")}</Chip>}
             </div>
-            <p className="mt-0.5 text-2xs text-text-dim">{respondsTo(a)}</p>
+            <p className="mt-0.5 text-2xs text-text-dim">{a.enabled ? respondsTo(a) : t("screens-agents-disabled-pane")}</p>
             {core && <p className="mt-1 text-2xs text-text-dim">{CORE_AGENT_PURPOSE}</p>}
           </div>
         </div>
@@ -472,13 +509,19 @@ function AgentDetail({
               Every other agent gets whichever control its usage earns — a red
               Delete when nothing points at it, and a way to see the holders
               when something does. */}
+          {flip && (
+            <Button size="sm" variant="ghost" disabled={switching} onClick={onSwitch}>
+              {flip.on ? <ICON.pause size={12} aria-hidden /> : <ICON.play size={12} aria-hidden />}
+              {switching ? flip.doing : flip.label}
+            </Button>
+          )}
           {!core && <DeleteButton usage={usage} onOpen={onDelete} />}
         </div>
 
         {core && <p className="mt-2 text-2xs text-text-dim">{CORE_AGENT_PERMANENT}</p>}
       </Card>
 
-      <Section title={t("screens-agents-model-plan")} action={<Chip>{a.harness}</Chip>}>
+      <Section title={t("screens-agents-model-plan")} action={<Chip>{harnessLabels[a.harness] ?? a.harness}</Chip>}>
         <ModelPlanSummary a={a} />
       </Section>
 
@@ -490,7 +533,7 @@ function AgentDetail({
         emptyLibrary={t("screens-agents-skill-library-empty", { rule: SKILL_RULE })}
         note={a.skills.length > 0 ? SKILL_BUDGET : undefined}
         locked={core ? CORE_AGENT_LOCKED : undefined}
-        onChange={(next) => patchRefs({ skills: next })}
+        onChange={async (next) => (await patchRefs({ skills: next }))?.skills ?? null}
       />
 
       <AgentRefs
@@ -509,7 +552,7 @@ function AgentDetail({
           </>
         }
         locked={core ? CORE_AGENT_LOCKED : undefined}
-        onChange={(next) => patchRefs({ mcps: next })}
+        onChange={async (next) => (await patchRefs({ mcps: next }))?.mcps ?? null}
       />
 
       <Section
@@ -529,6 +572,11 @@ function Sessions() {
   // on the rail.
   const sessions = sessionState.sortRows(useSettledSessions());
   const [aborting, setAborting] = useState<SessionRow | null>(null);
+  // The sessions an abort is on its way for: each one's button is latched
+  // until the row has left, reads ended, or the node refused — a second
+  // press cannot ask twice.
+  const [asked, setAsked] = useState<string[]>([]);
+  const stopping = stillStopping(asked, sessions.filter((s) => sessionState.isStoppable(s.state)));
   // Who a session is and what it is for, in the window's own names: its goal by title, its agent by name, its channel by name.
   const ws = useWorkspace();
   const harnessLabels = useHarnessLabels();
@@ -556,8 +604,8 @@ function Sessions() {
           // Who, what for, where it opens — the one reading every surface shares.
           const words = originOf(s, index);
           const link = words.door ? href(words.door) : null;
-          // The rail's rule: only a gate is an ask, answered on the Inbox row it lives under.
-          const ask = answerOf(s);
+          // A gate is answered on the Inbox row it lives under; anything else that waits on you, where it was asked.
+          const answer = answerPlace(s, words.door);
           return (
             <div className="flex flex-col gap-1 rounded-control border border-border px-2 py-1.5">
               <div className="flex items-center gap-2">
@@ -577,11 +625,16 @@ function Sessions() {
                 <RelativeTime at={s.started} className="ml-auto shrink-0" />
                 {/* A per-row action: default, so a list of waiting sessions is not a column of primaries. */}
                 {/* Every session waiting on the person keeps its door; a gate opens its own Inbox row. */}
-                {s.state.state === "waiting" && s.state.on.on !== "auth" && (
-                  <Button size="sm" onClick={() => navigate({ name: "inbox" }, ask?.item ? { item: ask.item } : undefined)}>{t("screens-agents-answer")}</Button>
+                {answer && (
+                  <Button
+                    size="sm"
+                    onClick={() => ("door" in answer ? navigate(answer.door) : navigate({ name: "inbox" }, answer.inbox ? { item: answer.inbox } : undefined))}
+                  >{t("screens-agents-answer")}</Button>
                 )}
                 {sessionState.isStoppable(s.state) && (
-                  <Button size="sm" variant="danger" onClick={() => setAborting(s)}>{t("screens-agents-abort")}</Button>
+                  <Button size="sm" variant="danger" disabled={stopping.includes(s.id)} aria-label={t("screens-agents-abort-named", { who: words.title })} onClick={() => setAborting(s)}>
+                    {stopping.includes(s.id) ? t("screens-agents-aborting") : t("screens-agents-abort")}
+                  </Button>
                 )}
               </div>
               {/* The rail's rule (`liveChildren`): a sub-agent that finished has left; one that failed stays to be read. */}
@@ -621,16 +674,35 @@ function Sessions() {
         title={t("screens-agents-abort-session")}
         danger
         confirmLabel={t("screens-agents-abort")}
-        body={t("screens-agents-aborted-terminal-session-cannot-revived-whatever")}
+        body={
+          <>
+            {/* Which one: the session by who it is and what it is at work on, as its row says it. */}
+            {aborting && (
+              <p className="mb-1.5 font-medium text-text">
+                {t("screens-agents-abort-which", { who: originOf(aborting, index).title, what: originOf(aborting, index).origin })}
+              </p>
+            )}
+            {t("screens-agents-aborted-terminal-session-cannot-revived-whatever")}
+          </>
+        }
         onConfirm={() => {
           if (!aborting) return;
           const id = aborting.id;
+          setAsked((ids) => (ids.includes(id) ? ids : [...ids, id]));
           // The store's one door: a row the node no longer has is dropped, and said — never an error for a session that had ended.
-          void attempt(() => stopSession(id), toast.error, ({ how, ended }) => {
-            // The row says the rest; the toast speaks only of what else the stop did.
-            const said = stopWords(how, "", ended);
-            if (said) toast.ok(said);
-          });
+          void attempt(
+            () => stopSession(id),
+            (message) => {
+              // Refused: the button is the person's again.
+              setAsked((ids) => ids.filter((v) => v !== id));
+              toast.error(message);
+            },
+            ({ how, ended }) => {
+              // The row says the rest; the toast speaks only of what else the stop did.
+              const said = stopWords(how, "", ended);
+              if (said) toast.ok(said);
+            },
+          );
         }}
       />
     </>
@@ -654,7 +726,8 @@ export default function Agents({ id }: { id?: string }) {
 
   const [editing, setEditing] = useState<AgentDef | null>(null);
   const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  // The id a delete was asked of — never a bare yes (`asksDelete`).
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [query, setQuery] = useViewState(PLACE, "search", "", textValue);
   const [tagFilter, setTagFilter] = useViewState<TagFilterState>(PLACE, "tags", NO_TAG_FILTER, parseTagFilter);
   // One scrollport shows two tabs: each is kept under its own name, and put
@@ -708,12 +781,25 @@ export default function Agents({ id }: { id?: string }) {
       navigate({ name: "dm", id: channel.id });
     }, toast.error);
 
+  // The agents a switch is out for: each one's control is held until the node answers.
+  const [switching, setSwitching] = useState<string[]>([]);
+  /** Disable or enable one agent: `enabled` alone, on the record as it stands. */
+  const flip = (a: AgentDef) => {
+    const turn = switchOf("agent", a);
+    if (!turn || switching.includes(a.id)) return;
+    setSwitching((ids) => [...ids, a.id]);
+    void attempt(() => api.patchAgent(a.id, turn.body), toast.error, () => {
+      toast.ok(turn.done);
+      refresh();
+    }).finally(() => setSwitching((ids) => ids.filter((id) => id !== a.id)));
+  };
+
   /** Select an agent and ask to delete it, from wherever the row was. */
   const askDelete = (a: AgentDef) => {
     // Selecting first is what puts the usage check on this agent; the dialog
     // opens on its "checking" body and fills in when the answer lands.
     if (a.id !== id) navigate({ name: "agent", id: a.id });
-    setDeleting(true);
+    setDeleting(a.id);
   };
 
   return (
@@ -849,6 +935,8 @@ export default function Agents({ id }: { id?: string }) {
                           }
                           onMessage={() => openDm(a)}
                           onEdit={() => setEditing(a)}
+                          onSwitch={() => flip(a)}
+                          switching={switching.includes(a.id)}
                           onDelete={() => askDelete(a)}
                         />
                       )}
@@ -870,7 +958,9 @@ export default function Agents({ id }: { id?: string }) {
                   mcps={mcps}
                   usage={usage}
                   onEdit={() => setEditing(selected)}
-                  onDelete={() => setDeleting(true)}
+                  onSwitch={() => flip(selected)}
+                  switching={switching.includes(selected.id)}
+                  onDelete={() => setDeleting(selected.id)}
                 />
               ) : id && ready ? (
                 // The roster is read and does not hold it: the node is asked for that one agent, and what it says is what is drawn.
@@ -916,13 +1006,13 @@ export default function Agents({ id }: { id?: string }) {
           called without an id — and never for the core agent. */}
       {deletable && (
         <DeleteDialog
-          open={deleting}
+          open={asksDelete(deleting, deletable)}
           title={t("screens-agents-delete", { deletable: deletable.name })}
           usage={usage}
           consequence={t("screens-agents-definition-keypair-removed-work-already-signed")}
           note={t("screens-agents-agent-s-own-key-gate-policy")}
           remove={() => api.deleteAgent(deletable.id)}
-          onClose={() => setDeleting(false)}
+          onClose={() => setDeleting(null)}
           onDeleted={() => {
             toast.ok(t("screens-agents-agent-deleted"));
             if (id === deletable.id) navigate({ name: "agents" });

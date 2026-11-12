@@ -48,13 +48,14 @@ import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { textValue } from "../shell/viewValuesModel.mjs";
 import { settingsSearch } from "./_settings/settingsLink.mjs";
-import type { AgentDef, Assignee, AttachmentRef, TeamDef } from "../types";
+import type { AgentDef, Assignee, TeamDef } from "../types";
 import {
   AnimatedList,
   Avatar,
   Button,
   Card,
   Chip,
+  ConfirmDialog,
   Dialog,
   EmptyState,
   ErrorNote,
@@ -79,11 +80,13 @@ import {
   type TagFilterState,
 } from "../ui";
 import { AssigneePicker, useAssigneeOptions } from "./_work/AssigneePicker";
-import { requireWire } from "./_work/assigneeWire.mjs";
+import { dirty, mayClose } from "./_work/agentDraftModel.mjs";
+import { emptyTeamDraft, maySaveTeam, teamDraftOf, teamSaveOf, type TeamDraft } from "./_work/teamDraftModel.mjs";
 import { DeleteButton, DeleteDialog, useUsage } from "./_work/LibraryRefs";
 import { OriginChip } from "./_work/Origin";
 import { TEAM_EFFECT, teamApi } from "./_work/teamRelation";
-import { detailStacked, isImplicitMember, memberFace, rosterLine, storedMembers, teamMoved, withoutMember } from "./rosterModel.mjs";
+import { switchOf, asksDelete, detailStacked, isImplicitMember, memberFace, rosterLine, rosterNotOffered, shownTeam, storedMembers, teamMoved, withoutMember } from "./rosterModel.mjs";
+import { useHeldAnswer } from "./_work/useHeldAnswer";
 import { AbsentRecord } from "./_work/AbsentRecord";
 import { assigneeWire } from "./_work/types";
 import { readKey } from "./_work/keptReadsModel.mjs";
@@ -130,67 +133,50 @@ function TeamDialog({
   onSaved: (t: TeamDef) => void;
 }) {
   const toast = useToast();
-  const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState("");
-  /** The team's picture — an attachment by content hash (ide/14 §Photos). */
-  const [photo, setPhoto] = useState<AttachmentRef | null>(null);
-  /** Wire keys — `agent:<id>` / `human:<hex>`. Never `team:` from the picker. */
-  const [chosen, setChosen] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
+  // The dialog's own draft (`teamDraftModel.mjs`): the roster as wire keys —
+  // `agent:<id>` / `human:<hex>`, never `team:` from the picker — and never a
+  // core agent, which arrives in `members` at read time and is in no stored
+  // list: offering it would offer a member you can appear to remove and cannot.
+  const [d, setD] = useState<TeamDraft>(emptyTeamDraft);
+  const set = (patch: Partial<TeamDraft>) => setD((prev) => ({ ...prev, ...patch }));
+  // The draft as the dialog opened: what *edited* is measured against, and what a save names its changes from.
+  const seeded = useRef<TeamDraft>(d);
   const [busy, setBusy] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  // The core agents are in every team and stored in none: the picker leaves them out.
+  const { agents } = useWorkspace();
+  const notOffered = useMemo(() => rosterNotOffered(agents), [agents]);
 
   // Re-seed whenever the dialog opens, so editing never shows the last team.
   useEffect(() => {
     if (!open) return;
-    setName(team?.name ?? "");
-    setPurpose(team?.purpose ?? "");
-    setPhoto(team?.photo ?? null);
-    // The core agent arrives in `members` at read time and is in no stored
-    // list, so offering it in the picker would offer a member you can appear
-    // to remove and cannot. The store strips it on every write anyway;
-    // dropping it here is what keeps the screen honest.
-    setChosen((team ? storedMembers(team) : []).map(assigneeWire));
-    setTags([...(team?.tags ?? [])]);
+    const fresh = team ? teamDraftOf(team) : emptyTeamDraft();
+    seeded.current = fresh;
+    setD(fresh);
+    setDiscarding(false);
   }, [open, team]);
 
-  const nAgents = chosen.filter((k) => k.startsWith("agent:")).length;
-  const nHumans = chosen.length - nAgents;
+  const nAgents = d.members.filter((k) => k.startsWith("agent:")).length;
+  const nHumans = d.members.length - nAgents;
+
+  // Every way out is one door — Escape, a click outside, the ✕, Cancel: it
+  // stays shut while a save is out, and asks before it drops what was typed.
+  const requestClose = () => {
+    const leave = mayClose({ dirty: dirty(d, seeded.current), busy });
+    if (leave === "close") onClose();
+    else if (leave === "ask") setDiscarding(true);
+  };
 
   const save = async () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    // The picker offers agents and people only, so a `team:` key can only have
-    // arrived by editing a team that already had one — a hand-edited truth
-    // file. It is sent as it stands rather than dropped: the server refuses
-    // nesting and names the offending member, which is the message worth
-    // reading. `POST /teams` is typed to the two legal arms, and creating
-    // starts from an empty roster, so nothing is lost narrowing there.
+    if (!maySaveTeam(d, busy)) return;
     setBusy(true);
     let saved: TeamDef | null = null;
     await attempt(async () => {
-      const members: Assignee[] = chosen.map(requireWire);
-      if (team) {
-        // PATCH is partial — send only what this dialog owns.
-        const res = await api.patchTeam(team.id, {
-          name: trimmed,
-          purpose: purpose.trim() || null,
-          photo,
-          members,
-          tags,
-        });
-        saved = res.team;
-      } else {
-        const res = await api.createTeam({
-          name: trimmed,
-          purpose: purpose.trim() || undefined,
-          ...(photo ? { photo } : {}),
-          members: members.filter(
-            (m): m is { agent: string } | { human: string } => !("team" in m),
-          ),
-          tags,
-        });
-        saved = res.team;
-      }
+      // What is sent is the model's to say (`teamSaveOf`): the fields this
+      // dialog changed of a team edited — a roster nobody touched is not
+      // written back — or a new team.
+      const save = teamSaveOf(d, team, seeded.current);
+      saved = save.kind === "patch" ? (await api.patchTeam(save.id, save.body)).team : (await api.createTeam(save.body)).team;
     }, toast.error);
     setBusy(false);
     if (saved) {
@@ -201,63 +187,83 @@ function TeamDialog({
   };
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       title={team ? tr("screens-teams-edit", { team: team.name }) : tr("screens-teams-new-team")}
       description={TEAM_EFFECT}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>{tr("screens-channels-cancel")}</Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy || !name.trim()}>
+          <Button variant="ghost" onClick={requestClose} disabled={busy}>{tr("screens-channels-cancel")}</Button>
+          <Button variant="primary" onClick={() => void save()} disabled={!maySaveTeam(d, busy)}>
             {busy ? tr("screens-channels-saving") : team ? tr("screens-channels-save") : tr("screens-teams-create-team")}
           </Button>
         </>
       }
     >
+      {/* Nothing is typed into a save that is out: every field is held while the node answers. */}
+      <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
       <div className="flex flex-col gap-3">
         <Field label={tr("screens-channels-name")}>
           <TextInput
-            value={name}
+            value={d.name}
             autoFocus
             placeholder={tr("screens-teams-delivery")}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => set({ name: e.target.value })}
           />
         </Field>
         <Field label={tr("screens-teams-purpose")} hint={tr("screens-teams-what-team-operating-brief-optional")}>
           <TextArea
             rows={3}
-            value={purpose}
+            value={d.purpose}
             placeholder={tr("screens-teams-ships-product-surface-builds-reviews-signs")}
-            onChange={(e) => setPurpose(e.target.value)}
+            onChange={(e) => set({ purpose: e.target.value })}
           />
         </Field>
         <Field label={tr("screens-teams-photo")} hint={tr("screens-teams-picture-team-s-card-rows-png")}>
-          <PhotoField id={team?.id ?? "team"} name={name || team?.name} photo={photo} onChange={setPhoto} disabled={busy} />
+          <PhotoField id={team?.id ?? "team"} name={d.name || team?.name} photo={d.photo} onChange={(photo) => set({ photo })} disabled={busy} />
         </Field>
 
         <Labelled
           label={tr("screens-teams-members")}
           hint={
-            chosen.length === 0
+            d.members.length === 0
               ? tr("screens-teams-agents-do-work-people-approve-gates")
               : tr("screens-teams-agents-and-people-chosen", { agents: nAgents, people: nHumans })
           }
         >
           <AssigneePicker
-            value={chosen}
-            onChange={setChosen}
+            value={d.members}
+            onChange={(members) => set({ members })}
             kinds={[...ROSTER_KINDS]}
+            exclude={notOffered}
             disabled={busy}
             placeholder={tr("screens-teams-search-agents-people")}
           />
         </Labelled>
 
         <Labelled label={tr("screens-channels-tags")} hint={tr("screens-teams-how-files-tags-how-find-one")}>
-          <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
+          <TagInput value={d.tags} onChange={(tags) => set({ tags })} suggestions={[...TAG_VOCABULARY]} />
         </Labelled>
       </div>
+      </fieldset>
     </Dialog>
+    {/* Asked over the dialog, which stays as it is underneath: *Keep editing* loses nothing. */}
+    <ConfirmDialog
+      open={discarding}
+      onClose={() => setDiscarding(false)}
+      onConfirm={() => {
+        setDiscarding(false);
+        onClose();
+      }}
+      title={tr("work-draft-discard-title")}
+      body={team ? tr("work-draft-discard-edits-of", { name: team.name }) : tr("work-draft-discard-new-team")}
+      confirmLabel={tr("work-draft-discard")}
+      cancelLabel={tr("work-draft-keep-editing")}
+      danger
+    />
+    </>
   );
 }
 
@@ -271,6 +277,8 @@ function TeamCard({
   selected,
   onOpen,
   onEdit,
+  onSwitch,
+  switching,
   onDelete,
 }: {
   t: TeamDef;
@@ -279,9 +287,14 @@ function TeamCard({
   selected: boolean;
   onOpen: () => void;
   onEdit: () => void;
+  /** Stand it down or bring it back. */
+  onSwitch: () => void;
+  /** The switch is out: its entry is held until the node answers. */
+  switching: boolean;
   onDelete: () => void;
 }) {
   const ws = useWorkspace();
+  const flip = switchOf("team", t);
   const stored = storedMembers(t);
   const face = (m: Assignee) => memberFace(m, agents, ws);
 
@@ -297,9 +310,11 @@ function TeamCard({
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium underline-offset-2 group-hover:underline">{t.name}</span>
             <OriginChip origin={t.origin} id={t.id} />
+            {t.enabled === false && <Chip tone="warn">{tr("screens-roster-stood-down")}</Chip>}
             {stored.length === 0 && <Chip tone="warn">{tr("screens-teams-not-staffed")}</Chip>}
           </span>
-          <span className="mt-0.5 block text-2xs text-text-dim">{rosterLine(t.members)}</span>
+          {/* What somebody put on it: the count beside *Not staffed* never says two agents nobody chose. */}
+          <span className="mt-0.5 block text-2xs text-text-dim">{rosterLine(stored)}</span>
           </span>
         </button>
         <MoreMenu
@@ -308,6 +323,7 @@ function TeamCard({
           items={[
             { label: tr("screens-inbox-open"), icon: ICON.forward, onSelect: onOpen },
             { label: tr("screens-teams-edit-team"), icon: ICON.edit, onSelect: onEdit },
+            ...(flip ? [{ label: switching ? flip.doing : flip.label, icon: flip.on ? ICON.pause : ICON.play, disabled: switching, onSelect: onSwitch }] : []),
             {
               label: tr("screens-agents-delete-2"),
               icon: ICON.delete,
@@ -330,7 +346,7 @@ function TeamCard({
       {/* Who is on it, as a line of faces and names rather than a cloud of
           pills: the same six and the same "+N", read as one quiet fact. */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {t.members.slice(0, 6).map((m, i) => (
+        {stored.slice(0, 6).map((m, i) => (
           <span
             key={`${assigneeWire(m)}:${i}`}
             className="inline-flex items-center gap-1 text-2xs text-text-dim"
@@ -340,8 +356,8 @@ function TeamCard({
             <span className="max-w-[8rem] truncate">{face(m).label}</span>
           </span>
         ))}
-        {t.members.length > 6 && (
-          <span className="text-2xs text-text-dim">{tr("screens-teams-more-members", { more: t.members.length - 6 })}</span>
+        {stored.length > 6 && (
+          <span className="text-2xs text-text-dim">{tr("screens-teams-more-members", { more: stored.length - 6 })}</span>
         )}
       </div>
     </Card>
@@ -353,39 +369,47 @@ function TeamCard({
 // ---------------------------------------------------------------------------
 
 /**
- * The detail pane: who is on the team, and what the team is carrying.
+ * The detail pane: who is on the team.
  *
- * The goals come from `GET /teams/{id}` rather than from a second filtered
- * list, so "carrying" is the node's answer to the assignment relation rather
- * than this screen's guess at it.
+ * It draws the list's own copy of the team — the one the screen reads again
+ * on every frame about a team — so an edit made in the dialog, at the
+ * prompt or on another node is on screen as soon as the list is. It used to
+ * keep a read of its own, which an edit left behind: the pane went on
+ * showing the old roster, and *Remove* wrote that old roster back, undoing
+ * the edit.
  *
  * Mounted with the team id as its `key`, so selecting a different team
- * remounts rather than showing the previous team's goals under the new
- * team's name while the next request is in flight.
+ * starts from that team alone.
  */
 function TeamPane({
   team,
   usage,
   onEdit,
+  onSwitch,
+  switching,
   onDelete,
   onChanged,
 }: {
   team: TeamDef;
   usage: ReturnType<typeof useUsage>;
   onEdit: () => void;
+  onSwitch: () => void;
+  switching: boolean;
   onDelete: () => void;
   /** A write landed; the roster on the left is now behind. */
   onChanged: () => void;
 }) {
   const toast = useToast();
   const { describe } = useAssigneeOptions([...ROSTER_KINDS]);
-  const { data, error, loading, reload } = useAsync((s) => teamApi.detail(team.id, s), [team.id], { keep: readKey("team", team.id) });
   const [busy, setBusy] = useState(false);
 
-  // The list's copy is a frame behind a rename; the detail route's is the one
-  // that was just written.
-  const current = data?.team ?? team;
+  // What the node answered this pane's last write stands until the list is
+  // read again (`shownTeam`): the next removal is made from that record,
+  // never from the roster as it was before the first.
+  const [answered, hold] = useHeldAnswer<TeamDef, TeamDef>(team);
+  const current = shownTeam(team, answered);
   const stored = storedMembers(current);
+  const flip = switchOf("team", team);
 
   /**
    * Take one member off, by writing the roster the team should have.
@@ -393,7 +417,8 @@ function TeamPane({
    * A whole-list PATCH rather than a per-member route, matching every other
    * reference list in the app: one request cannot leave a roster half-changed,
    * and the order survives. The implicit member is never in `stored`, so this
-   * cannot be asked to remove it.
+   * cannot be asked to remove it. The latch holds until the node's answer is
+   * what the pane draws.
    */
   const removeMember = (m: Assignee) => {
     setBusy(true);
@@ -401,26 +426,24 @@ function TeamPane({
       () =>
         api.patchTeam(current.id, withoutMember(current, m)),
       toast.error,
-      () => {
+      (res) => {
+        hold(res.team);
         toast.ok(tr("screens-teams-member-removed"));
-        reload();
         onChanged();
       },
     ).finally(() => setBusy(false));
   };
 
-  if (loading && !data) return <SkeletonRows rows={6} />;
-
   return (
     <div className="flex flex-col gap-4">
-      {error && <ErrorNote error={error} retry={reload} />}
 
       <Card>
         <div className="flex items-center gap-1.5">
           <h2 className="truncate text-lg font-semibold tracking-tight">{current.name}</h2>
           <OriginChip origin={current.origin} id={current.id} />
+          {team.enabled === false && <Chip tone="warn">{tr("screens-roster-stood-down")}</Chip>}
         </div>
-        <p className="mt-0.5 text-2xs text-text-dim">{rosterLine(current.members)}</p>
+        <p className="mt-0.5 text-2xs text-text-dim">{team.enabled === false ? tr("screens-teams-stood-down-pane") : rosterLine(stored)}</p>
 
         {(current.tags ?? []).length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -437,11 +460,18 @@ function TeamPane({
         {/* The pane's own actions: the screen's one primary is New team, up in the toolbar. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" variant="ghost" onClick={onEdit}>{tr("screens-teams-edit-team")}</Button>
+          {flip && (
+            <Button size="sm" variant="ghost" disabled={switching} onClick={onSwitch}>
+              {flip.on ? <ICON.pause size={12} aria-hidden /> : <ICON.play size={12} aria-hidden />}
+              {switching ? flip.doing : flip.label}
+            </Button>
+          )}
           <DeleteButton usage={usage} onOpen={onDelete} />
         </div>
       </Card>
 
-      <Section title={tr("screens-teams-members-2", { members: current.members.length })}>
+      {/* The count is of who was put here — the number the card says. */}
+      <Section title={tr("screens-teams-members-2", { members: stored.length })}>
         {/* The implicit member means this list is never empty, so the count
             above cannot answer tr("screens-teams-has-anybody-been-put"). This can. */}
         {stored.length === 0 && (
@@ -490,6 +520,7 @@ function TeamPane({
                     size="sm"
                     variant="ghost"
                     disabled={busy}
+                    aria-label={tr("screens-teams-remove-named", { name: o.name })}
                     onClick={() => removeMember(m)}
                   >{tr("screens-teams-remove")}</Button>
                 )}
@@ -526,8 +557,21 @@ export default function Teams() {
   });
 
   const [creating, setCreating] = useState(false);
+  // The teams a switch is out for: each one's control is held until the node answers.
+  const [switching, setSwitching] = useState<string[]>([]);
+  /** Stand one team down or bring it back: `enabled` alone, on the record as it stands. */
+  const flip = (team: TeamDef) => {
+    const turn = switchOf("team", team);
+    if (!turn || switching.includes(team.id)) return;
+    setSwitching((ids) => [...ids, team.id]);
+    void attempt(() => api.patchTeam(team.id, turn.body), toast.error, () => {
+      toast.ok(turn.done);
+      reload();
+    }).finally(() => setSwitching((ids) => ids.filter((id) => id !== team.id)));
+  };
   const [editing, setEditing] = useState<TeamDef | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // The id a delete was asked of — never a bare yes (`asksDelete`).
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [query, setQuery] = useViewState(PLACE, "search", "", textValue);
   const [tagFilter, setTagFilter] = useViewState<TagFilterState>(PLACE, "tags", NO_TAG_FILTER, parseTagFilter);
 
@@ -592,12 +636,12 @@ export default function Teams() {
           without an id to delete. */}
       {selected && (
         <DeleteDialog
-          open={deleting}
+          open={asksDelete(deleting, selected)}
           title={tr("screens-teams-delete", { selected: selected.name })}
           usage={usage}
           consequence={tr("screens-teams-definition-removed-nothing-assigned-no-gate")}
           remove={() => api.deleteTeam(selected.id)}
-          onClose={() => setDeleting(false)}
+          onClose={() => setDeleting(null)}
           onDeleted={() => {
             toast.ok(tr("screens-teams-team-deleted"));
             select(null);
@@ -722,12 +766,14 @@ export default function Teams() {
                   selected={t.id === selectedId}
                   onOpen={() => select(t.id === selectedId ? null : t.id)}
                   onEdit={() => setEditing(t)}
+                  onSwitch={() => flip(t)}
+                  switching={switching.includes(t.id)}
                   onDelete={() => {
                     // Selecting first is what puts the usage check on this
                     // team; the dialog opens on its "checking" body and fills
                     // in when the answer lands.
                     select(t.id);
-                    setDeleting(true);
+                    setDeleting(t.id);
                   }}
                 />
               )}
@@ -746,7 +792,9 @@ export default function Teams() {
               team={selected}
               usage={usage}
               onEdit={() => setEditing(selected)}
-              onDelete={() => setDeleting(true)}
+              onSwitch={() => flip(selected)}
+              switching={switching.includes(selected.id)}
+              onDelete={() => setDeleting(selected.id)}
               onChanged={reload}
             />
           ) : selectedId && data !== null ? (

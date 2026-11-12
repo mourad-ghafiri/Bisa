@@ -10,9 +10,10 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import {
+import { answerableAddressed,
   CHECKOUT_KINDS,
   GENERAL_AGENT_ID,
   WORKFLOW_AGENT_ID,
@@ -190,4 +191,24 @@ test("a reader's addressees are kept per conversation scope", async () => {
   const { storedAddressKey } = await import("./addressModel.mjs");
   assert.equal(storedAddressKey("01C"), "bisa:address:01C");
   assert.notEqual(storedAddressKey("a"), storedAddressKey("b"));
+});
+
+test("an addressee disabled or removed since it was chosen is let go of — once the roster is read, never before", () => {
+  const agents = [
+    { id: "coder", pubkey: "pk-coder", enabled: true },
+    { id: "resting", pubkey: "pk-resting", enabled: false },
+    { id: "plain", pubkey: "pk-plain" },
+  ];
+  const remembered = ["pk-coder", "pk-resting", "pk-gone", "pk-plain"];
+  assert.deepEqual(answerableAddressed(remembered, agents, true), ["pk-coder", "pk-plain"], "the disabled one and the removed one are dropped; absent means enabled");
+  assert.deepEqual(answerableAddressed(remembered, [], false), remembered, "a roster not yet read is no evidence that anybody left");
+  assert.deepEqual(answerableAddressed(remembered, agents, false), remembered);
+  assert.deepEqual(answerableAddressed([], agents, true), [], "chose nobody stays chose nobody");
+  assert.deepEqual(answerableAddressed(null, agents, true), []);
+  // The tray lets go in what it shows and in what the scope remembers, so the node never refuses a send for a chip nobody can see the reason of.
+  const tray = readFileSync(new URL("./AddressTray.tsx", import.meta.url), "utf8");
+  assert.ok(tray.includes("const kept = answerableAddressed(prev, agents, ready);"));
+  assert.ok(tray.includes("writePref(webStorage(), key(scope), kept);"));
+  const store = readFileSync(new URL("../../../../crates/bisa-store/src/conversation.rs", import.meta.url), "utf8");
+  assert.ok(store.includes("fn check_key_is_addressable"), "the rule the tray keeps to is the store's");
 });

@@ -4088,8 +4088,11 @@ mod node_wire_tests {
                 true
             }),
         );
+        // The word is spelled in two halves on the command line: a terminal
+        // echoes what is typed into it, and *armed* read off that echo says
+        // the line was typed, not that the trap was set.
         registry
-            .write(&id, "trap '' HUP TERM; echo armed\n")
+            .write(&id, "trap '' HUP TERM; echo ar''med\n")
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         while !seen.lock().unwrap().contains("armed") {

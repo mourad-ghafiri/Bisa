@@ -699,7 +699,8 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
         StoreEvent::JournalAppended { .. }
         | StoreEvent::SnapshotWritten { .. }
         | StoreEvent::ConversationSnapshot { .. }
-        | StoreEvent::ReadMarkerSet { .. } => {}
+        | StoreEvent::ReadMarkerSet { .. }
+        | StoreEvent::DefinitionRemoved { .. } => {}
     }
 }
 

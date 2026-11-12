@@ -20,7 +20,22 @@ notes (`docs/contributing/release.md`).
   RustSec advisories against 0.26.1: panics and a memory amplification in DNS parsing) and
   `rustix` 1.1.6 (RUSTSEC, an unsound `xattr` read). Patch releases: `Cargo.lock`, with the unification crate and the notices regenerated.
 
+- **Two more dependencies with published advisories are upgraded.** `hickory-resolver` and
+  `hickory-net` 0.26.3 (twelve RustSec advisories against 0.26.1, RUSTSEC-2026-0506 to -0520:
+  DNSSEC validation that accepted what it should not, a recursor with no per-query budget,
+  lookups aborted by spoofed datagrams). Patch releases: `Cargo.lock`, with the notices
+  regenerated.
+
 ### Added
+
+- **Disable an agent and stand a team down from the desktop.** *Disable* and *Enable* are in an
+  agent's card menu and its pane — never on the General Agent or the Workflow Agent — and *Stand
+  down* and *Bring back* in a team's. Each changes that one thing and nothing else of the record,
+  and the state is said on the card, in the pane and in every picker. It was the command line's
+  alone (`bisa agent edit --enabled`), and no verb stood a team down at all.
+- **The agent editor and the team dialog ask before they drop what you typed.** Escape, a click
+  outside, the ✕ and *Cancel* are one door: with edits it asks, and *Keep editing* loses nothing;
+  while a save is out it stays shut and its fields are held.
 
 - **The event stream says the Pulse's rows.** `GET /events` has a fourth stream, `pulse`: one frame
   per row of the activity feed as it lands — `{seq, at, concept, kind, source}` — for every row,
@@ -185,6 +200,113 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **Saving the agent editor or the team dialog no longer writes back what it only read.** A save
+  named every field of the record as the dialog had read it when it opened, so an editor left
+  open undid a skill attached meanwhile. A save names the fields that changed.
+- **A model the chosen harness does not list is marked in the plan.** Changing an agent's harness
+  kept the other harness's models with nothing said.
+- **The roster says people's words**: a harness by its name on cards and in pickers, a member's
+  role as *Owner* or *Member*, the permanent agents by their names where their ids were spelled,
+  *Settings › Capabilities › Skills* where a *Skills tab* was named, and each per-row *Remove*,
+  *Detach* and *Abort* names whom it is for to a screen reader.
+- **Removing a member from a team no longer undoes an edit.** The team open beside the list kept a
+  read of its own, which an edit left behind: the pane showed the old roster, and *Remove* wrote
+  it back. The pane draws the list's own copy, and a removal is made from the record the node
+  last answered — two in a row keep the first.
+- **Two skills attached quickly are both kept**, and the same for an agent's servers and a goal's
+  assignees: a second change made before the first one's re-read landed was built from the old
+  list and dropped the first.
+- **An agent, a team or a skill removed elsewhere leaves every open list at once**, and a delete
+  dialog that stood open on it closes with it instead of reopening on the next one picked. A
+  delete the node refuses is said in the dialog — which no longer goes on saying *this will go
+  through* — with who now holds the record.
+- **A team's, a goal's and a project's pickers no longer offer the General Agent or the Workflow
+  Agent** — the store kept neither — and offer a disabled agent marked *disabled*.
+- **A team's card and its pane count who was put on it.** *Not staffed* stood beside *2 agents*,
+  the two nobody stored. A member whose agent is gone is named one way everywhere.
+- **Abort cannot be asked twice**, and its confirmation says which session. **Answer** on a
+  session that asked with no gate opens where it asked, not an Inbox with nothing picked.
+- **A server made in Settings is offered to an agent at once**: an open Agents screen read the MCP
+  registry once. The catalog's *installed* marks follow what is made or removed anywhere, a row
+  being installed keeps its own mark, and a failed install reads the list again.
+- **A conversation lets go of an addressee that was disabled or removed since you chose it**, so
+  the next message is not refused for a chip left in the tray.
+- **`bisa agent edit` no longer undoes what another window changed.** Through a node the command
+  read the agent's record itself and sent all of it back — the switch included — so a rename could
+  put back an agent somebody had just stood down. It sends the words it was given and nothing
+  else. `bisa team add-member` and `remove-member` send the roster alone, and with no node change
+  the record as it stands.
+- **`bisa sessions abort` says what it ended.** It printed *aborted* whatever the node answered;
+  it now says a harness that had to be terminated or a session that would not end, as `bisa stop`
+  does, and `--json` carries `ended` beside `aborted`. An id that is no session id is refused as
+  that, before any node is asked.
+- **The roster's verbs speak from the catalogue.** Words printed bare — *(off)*, *(orphan)*,
+  *(unresolved)*, a team's member rows, what a catalog entry installed, the two halves of
+  *N things point at …* — are catalogue messages; `usage` words a holder and its way out from
+  the holder's kind. English output is unchanged.
+- **Help said what was no longer so**: `agent rm` names both permanent agents, `catalog` every
+  kind it lists, `sessions` its five kinds.
+- **What an agent did is never signed by you.** A step whose agent's key or record could not be
+  read — a locked keyring, a key file moved — ran all the same, and its progress, its notes and
+  its result were journaled under the owner's key. The step now fails before any session starts,
+  in words that name the agent, and an agent's tool call for its own work is refused the same
+  way; once the key answers, the step runs. What the platform itself says about the work is
+  unchanged.
+- **Removing an agent ends the turn it is running in a conversation.** Its key and its working
+  folder were removed under a session that went on. The turn is ended first — after the store
+  agreed nothing points at the agent — and a direct channel with it stays as history.
+- **A session its harness aborted leaves the roster.** A row the harness's own last word marked
+  *aborted* — nobody pressed stop — had no clock to leave by and stayed listed for good.
+- **An edit of an agent or a team changes the fields it names.** The engine applies an edit to
+  the record as it stands, so an edit beside a disable keeps the disable, and the room is told of
+  a flip once, from the record before and after the write.
+- **An agent named *State* could take every agent's snapshot with it.** Its id was `state`, the
+  name of the folder the agents' snapshots are kept in, so deleting it deleted that folder. The id
+  is reserved — an agent named *State* gets another — and an agent a workspace already calls
+  `state` keeps working: removing it takes its scratch and its recall, never the folder.
+- **Two edits of one agent or one team no longer lose one another.** The roster has one writer:
+  creating, editing, enabling, attaching, detaching and removing an agent or a team run one after
+  the other, each edit made on the record as it stands. Two skills attached at the same moment
+  both stay; an edit that meets a removal finds the record gone instead of writing it back
+  without its key.
+- **A removal is finished, or it can be asked again.** Removing an agent took its key first and
+  its record after: stopped midway, it left an agent with no key, or a snapshot that kept syncing
+  a record that was gone. The index row and the snapshot go first, then the record, then the key
+  and the folder — stopped before the record the agent is whole, stopped after it the next
+  removal finishes it. An agent or a team whose record will not parse can be removed by its id.
+- **A removed agent, team or skill is said.** The store says the removal once
+  (`DefinitionRemoved`), and a refused one says nothing; the node carries it on `GET /events` as
+  the snapshot frame of the record's kind and id with `removed: true`, so an open window drops
+  the record instead of keeping a ghost until it reloads.
+- **Two PATCHes of one agent or one team both stand.** `PATCH /agents/{id}` and
+  `PATCH /teams/{id}` read the record, merged the body and wrote the whole record back: a rename
+  sent beside a disable could undo it. The fields a body names are now changed on the record as
+  it stands, in one write.
+- **`POST /teams` takes a team with no members named**, as its reference always said; the body
+  required `members`.
+- **`GET /teams/{id}` no longer answers a failed read of the team's goals as *carrying
+  nothing*.**
+- **The route reference says what the roster's routes do**: five kinds of session (`ask` was
+  missing), both core agents permanent, everything that holds an agent or a team against a
+  removal, the `id` a new skill needs.
+- **A mention by key gets the check a name gets.** A 64-hex key was taken as a mention unchecked:
+  a disabled agent's key — or a stranger's — made the message *addressed*, so nobody answered and
+  triage stayed out. A key is now the owner's, a member's or an enabled agent's, or the post is
+  refused in words.
+- **Another node's agent no longer takes this node's row.** Two nodes of one workspace that each
+  made an agent under one id have two keys; the other's snapshot rewrote the row that says whose
+  key is whose, and facts were attributed to nobody until a rebuild. A record this node holds
+  keeps its own row; a team's the same.
+- **An agent or a team whose record cannot be read is said so, at every door.** A channel's roster
+  and a work item's or a project's assignees called it *unknown* — a typo to go looking for. One
+  check answers all five doors, and the unreadable record is named by its file.
+- **One unreadable agent file no longer fails every list.** A record the disk would not give
+  failed the whole list of agents, teams or skills — and with it every dispatch, every picker and
+  a rebuild. It costs that one record, named among the workspace's problems; two files that carry
+  one key are named by the rebuild instead of stopping it.
+- **An agent needs a prompt wherever it is made.** The node refused a blank prompt on create;
+  the command line with no node did not, and an edit could blank one anywhere. The store refuses
+  both. An agent made before the rule, with no prompt, is listed and edited as before.
 - **The desktop's generated types had fallen behind the API schema.** `types.gen.ts` is regenerated
   from the schema, and the replace answer's schema now says `applied` as the literal each arm carries
   (`false` for a preview, `true` for an apply) instead of a `boolean` on both, so the generated types

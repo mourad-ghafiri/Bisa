@@ -278,6 +278,198 @@ async fn an_agents_own_message_never_wakes_it() {
     engine.shutdown().await;
 }
 
+/// A room with the two agents every test of the wake rules names, and a post
+/// into it signed by `signer` that mentions `named`.
+struct WakeRoom {
+    engine: Engine,
+    scope: String,
+    ada: bisa_core::Agent,
+    grace: bisa_core::Agent,
+}
+
+impl WakeRoom {
+    fn open(dir: &tempfile::TempDir) -> Self {
+        let ws = workspace(dir);
+        core_on(&ws, "chat-harness");
+        let mut flow = ws.get_agent(&AgentId::workflow()).unwrap();
+        flow.harness = "chat-harness".into();
+        ws.update_agent(flow).unwrap();
+        let ada = ws
+            .add_agent(new_agent("Ada", RespondPolicy::Members))
+            .unwrap();
+        let grace = ws
+            .add_agent(new_agent("Grace", RespondPolicy::OwnerOnly))
+            .unwrap();
+        let channel = ws
+            .create_channel("ops", None, RosterPolicy::default(), Default::default())
+            .unwrap();
+        let engine = Engine::start(ws, catalog(), config()).unwrap();
+        Self {
+            engine,
+            scope: channel.id.to_string(),
+            ada,
+            grace,
+        }
+    }
+
+    fn post_as(&self, signer: &AgentId, named: &[&bisa_core::Agent]) {
+        let named: Vec<_> = named.iter().map(|a| a.pubkey.clone()).collect();
+        self.engine
+            .workspace()
+            .post_message(
+                &self.scope,
+                MessageBody::post("over to you"),
+                None,
+                &named,
+                &[],
+                Some(signer),
+                PostOrigin::Asked,
+            )
+            .unwrap();
+    }
+
+    fn said(&self, agent: &bisa_core::Agent) -> usize {
+        said_by(&self.engine, &self.scope, agent.pubkey.as_hex()).len()
+    }
+}
+
+/// The wake rule, as the code has it: **the General Agent's post wakes each
+/// agent it names, once** — whatever their respond policy, for its hand-off
+/// carries the owner's authority — and never itself.
+#[tokio::test]
+async fn the_general_agents_post_wakes_each_agent_it_names_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let room = WakeRoom::open(&dir);
+    let general = room
+        .engine
+        .workspace()
+        .get_agent(&AgentId::general())
+        .unwrap();
+    room.post_as(&AgentId::general(), &[&room.ada, &room.grace, &general]);
+    until("both named agents answer", || {
+        (room.said(&room.ada) == 1 && room.said(&room.grace) == 1).then_some(())
+    })
+    .await;
+    settle().await;
+    settle().await;
+    assert_eq!(room.said(&room.ada), 1, "once");
+    assert_eq!(room.said(&room.grace), 1, "once");
+    // Its own post is the only thing it said: naming itself woke nothing,
+    // and neither answer woke it.
+    assert_eq!(room.said(&general), 1);
+    room.engine.shutdown().await;
+}
+
+/// **The Workflow Agent hands off to nobody.** It is a core agent, so the
+/// loop guard lets its post through — and no respond policy admits it: only
+/// the General Agent's hand-off carries the owner's authority. An agent it
+/// names stays silent, and so does the General Agent.
+#[tokio::test]
+async fn the_workflow_agent_hands_off_to_nobody() {
+    let dir = tempfile::tempdir().unwrap();
+    let room = WakeRoom::open(&dir);
+    let general = room
+        .engine
+        .workspace()
+        .get_agent(&AgentId::general())
+        .unwrap();
+    room.post_as(&AgentId::workflow(), &[&room.ada, &room.grace, &general]);
+    settle().await;
+    settle().await;
+    assert_eq!(room.said(&room.ada), 0);
+    assert_eq!(room.said(&room.grace), 0);
+    assert_eq!(room.said(&general), 0);
+    room.engine.shutdown().await;
+}
+
+/// **A chain stops at the second hop.** A person's word reaches the General
+/// Agent, its hand-off reaches a worker, and the worker's own post — naming
+/// another worker and both core agents — wakes nobody: only a core agent's
+/// message may wake another agent.
+#[tokio::test]
+async fn a_three_hop_chain_stops() {
+    let dir = tempfile::tempdir().unwrap();
+    let room = WakeRoom::open(&dir);
+    let ws = room.engine.workspace();
+    let general = ws.get_agent(&AgentId::general()).unwrap();
+    let flow = ws.get_agent(&AgentId::workflow()).unwrap();
+    room.post_as(&room.ada.id, &[&room.grace, &general, &flow]);
+    settle().await;
+    settle().await;
+    assert_eq!(room.said(&room.grace), 0);
+    assert_eq!(room.said(&general), 0);
+    assert_eq!(room.said(&flow), 0);
+    assert_eq!(room.said(&room.ada), 1, "its own post, and no echo of it");
+    room.engine.shutdown().await;
+}
+
+/// An agent whose record the roster's list skips — a file cut short, a
+/// read the disk refused — still wrote what it wrote, and its post naming
+/// another agent wakes nobody. The loop guard does not see it as an agent
+/// (the list is how it knows one), and the respond policy holds instead: a
+/// key that is neither the owner's nor a member's is answered by no agent.
+/// Pinned here because a list that skips one unreadable record must never
+/// become a way for two agents to talk.
+#[tokio::test]
+async fn a_skipped_agents_own_post_wakes_nobody() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let talker = ws
+        .add_agent(new_agent("Talker", RespondPolicy::Members))
+        .unwrap();
+    let listener = ws
+        .add_agent(new_agent("Listener", RespondPolicy::Members))
+        .unwrap();
+    let channel = ws
+        .create_channel("room", None, RosterPolicy::default(), Default::default())
+        .unwrap();
+    let engine = Engine::start(ws, catalog(), config()).unwrap();
+    let ws = engine.workspace();
+
+    // Signed while its record reads; the record is cut before the engine,
+    // which runs on this thread, has heard of the post.
+    ws.post_message(
+        channel.id.as_str(),
+        MessageBody::post("over to you"),
+        None,
+        std::slice::from_ref(&listener.pubkey),
+        &[],
+        Some(&talker.id),
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    let record = ws.paths().agent_file(&talker.id);
+    let whole = std::fs::read(&record).unwrap();
+    std::fs::write(&record, b"{").unwrap();
+    assert!(ws.list_agents().unwrap().iter().all(|a| a.id != talker.id));
+    settle().await;
+    settle().await;
+    assert_eq!(
+        said_by(&engine, channel.id.as_str(), listener.pubkey.as_hex()),
+        Vec::<String>::new(),
+        "an agent's post woke another agent"
+    );
+
+    // A person naming the same agent is answered: the guard is about who
+    // wrote, not about whom it names.
+    std::fs::write(&record, whole).unwrap();
+    ws.post_message(
+        channel.id.as_str(),
+        MessageBody::post("and from me"),
+        None,
+        std::slice::from_ref(&listener.pubkey),
+        &[],
+        None,
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    until("the listener answers a person", || {
+        (!said_by(&engine, channel.id.as_str(), listener.pubkey.as_hex()).is_empty()).then_some(())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
 /// `RespondPolicy::OwnerOnly` is enforced: a member who is not the owner
 /// gets silence, not an answer.
 #[tokio::test]
@@ -1583,6 +1775,84 @@ async fn deleting_a_channel_stops_the_turn_running_in_it() {
         (live(inner) == 0).then_some(())
     })
     .await;
+    engine.shutdown().await;
+}
+
+/// Removing an agent ends the turn it is running in a conversation, before
+/// its key and its folder go: no session goes on under an agent that is no
+/// longer there, signing with a key the keystore gave back. An agent
+/// something still points at is refused before anything is stopped.
+#[tokio::test]
+async fn removing_an_agent_ends_its_chat_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    core_on(&ws, "chat-harness");
+    let helper = ws
+        .add_agent(NewAgent {
+            harness: "endless".into(),
+            ..new_agent("Helper", RespondPolicy::Members)
+        })
+        .unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&helper.pubkey)).unwrap();
+    let team = ws
+        .create_team(
+            "crew",
+            None,
+            vec![bisa_core::Assignee::Agent(helper.id.to_string())],
+            Default::default(),
+        )
+        .unwrap();
+    let mut catalog = catalog();
+    catalog.register(Arc::new(MockAdapter {
+        id: "endless".into(),
+        script: Some(vec![]),
+        ..Default::default()
+    }));
+    let engine = Engine::start(ws, catalog, config()).unwrap();
+    let inner = engine.inner();
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post("are you there?"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let live = |inner: &bisa_engine::Inner| {
+        inner
+            .presence
+            .snapshot()
+            .into_iter()
+            .filter(|row| row.agent.as_ref() == Some(&helper.id) && row.state.is_live())
+            .count()
+    };
+    until("the agent's turn is live in the direct channel", || {
+        (live(inner) == 1).then_some(())
+    })
+    .await;
+
+    // Held by a team: refused, and the turn goes on.
+    let refused = bisa_engine::directory::remove_agent(inner, &helper.id)
+        .await
+        .unwrap_err();
+    assert!(refused.to_string().contains("crew"), "{refused}");
+    assert_eq!(live(inner), 1, "a refusal stopped nothing");
+
+    engine.workspace().remove_team(&team.id).unwrap();
+    bisa_engine::directory::remove_agent(inner, &helper.id)
+        .await
+        .unwrap();
+    assert!(engine.workspace().get_agent(&helper.id).is_err());
+    until("the turn ended with its agent", || {
+        (live(inner) == 0).then_some(())
+    })
+    .await;
+    // The direct channel stays, as history.
+    assert!(engine.workspace().get_channel(&dm.id).is_ok());
     engine.shutdown().await;
 }
 

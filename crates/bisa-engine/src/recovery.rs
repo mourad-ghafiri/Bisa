@@ -419,7 +419,7 @@ pub(crate) fn withdraw_question(
     reason: &str,
     note: Option<String>,
 ) -> bool {
-    let (signer, attestation) = ops::signer_for(&inner.ws, None);
+    let (signer, attestation) = ops::signer_or_owner(&inner.ws, None);
     if let Err(e) = inner.ws.append_journal(
         &home,
         JournalPayload::Withdrawn {

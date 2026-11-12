@@ -531,6 +531,7 @@ async fn an_edit_of_the_goals_record_is_announced() {
         .add_agent(bisa_store::NewAgent {
             name: "Assayer".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

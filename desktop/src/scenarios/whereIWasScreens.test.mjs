@@ -232,7 +232,7 @@ test("every list keeps the tags picked, its search and its scroll — and draws 
   // The reads of a mount are kept for the window.
   const library = read("views/Workflows.tsx");
   assert.ok(library.includes('{ keep: readKey("workflows", archived ? "archived" : "library") }') && library.includes('{ keep: readKey("catalog", "workflow") }'), "the library and the catalog");
-  assert.ok(read("views/Teams.tsx").includes('{ keep: readKey("teams") }') && read("views/Teams.tsx").includes('{ keep: readKey("team", team.id) }'), "the teams, and the team open beside them");
+  assert.ok(read("views/Teams.tsx").includes('{ keep: readKey("teams") }') && read("views/Teams.tsx").includes("const current = shownTeam(team, answered);"), "the teams — and the team open beside them is the list's own copy, drawn as the list is");
   // One path, several things: the name carries which.
   assert.ok(library.includes("data-scroll-keep={`list:${view}`}"));
   assert.ok(read("views/Agents.tsx").includes("data-scroll-keep={`tab:${tab}`}"));
@@ -275,7 +275,7 @@ test("the Pulse keeps its place as a row, and the kit's list never fights the ha
 test("a dialog and a form start empty: nothing typed into one is the screen's memory", () => {
   const teams = read("views/Teams.tsx");
   const dialog = between(teams, "function TeamDialog(", "function TeamCard(");
-  assert.ok(dialog.includes('useState("")') && !dialog.includes("useViewState") && !dialog.includes("viewState"), "the team's dialog");
+  assert.ok(dialog.includes("useState<TeamDraft>(emptyTeamDraft)") && !dialog.includes("useViewState") && !dialog.includes("viewState"), "the team's dialog");
   const channels = read("views/Channels.tsx");
   const forms = between(channels, "function NewChannelDialog(", "/** Where the index keeps its memory");
   assert.ok(forms.includes('useState("")') && !forms.includes("useViewState") && !forms.includes("viewState"), "the channel's dialogs");
@@ -284,7 +284,7 @@ test("a dialog and a form start empty: nothing typed into one is the screen's me
   const goal = read("views/GoalDetail.tsx");
   for (const transient of ['useState<"archive" | "delete" | null>(null)', "const [confirmClose, setConfirmClose] = useState(false);", "const [choosing, setChoosing] = useState(false);", "useState<RunVerb | null>(null)"]) assert.ok(goal.includes(transient), `${transient}: a confirmation is the moment's`);
   const agents = read("views/Agents.tsx");
-  for (const transient of ["useState<AgentDef | null>(null)", "const [creating, setCreating] = useState(false);", "const [deleting, setDeleting] = useState(false);"]) assert.ok(agents.includes(transient), transient);
+  for (const transient of ["useState<AgentDef | null>(null)", "const [creating, setCreating] = useState(false);", "const [deleting, setDeleting] = useState<string | null>(null);"]) assert.ok(agents.includes(transient), transient);
   // No screen of this slice names a storage key or reaches storage by hand.
   for (const screen of ["views/Inbox.tsx", "views/Pulse.tsx", "views/Goals.tsx", "views/GoalDetail.tsx", "views/WorkflowRun.tsx", "views/Agents.tsx", "views/Teams.tsx", "views/Settings.tsx", "views/_goal/RunSteps.tsx", "views/_workflow/GoalWorkflowTab.tsx", "views/_workflow/designDraftStore.ts", "views/_workflow/designerMemoryStore.ts"]) {
     const text = read(screen);

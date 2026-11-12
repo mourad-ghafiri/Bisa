@@ -1198,6 +1198,7 @@ async fn a_wait_on_a_workflows_save_and_on_an_agents_reply_complete_when_they_ha
         .add_agent(bisa_store::NewAgent {
             name: "Herald".into(),
             harness: "mock".into(),
+            system_prompt: "do the work".into(),
             ..Default::default()
         })
         .unwrap();

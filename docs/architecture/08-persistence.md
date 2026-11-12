@@ -108,7 +108,10 @@ and the guided resume read every goal that *can* be read. The roster and its lib
 same rule — `list_agents`, `list_teams`, `list_skills`, `list_mcps`, and the connectors' `list_connectors`
 and `list_connector_accounts`: one agent's file cut short
 costs that agent, never the roster every picker, every wake and every assignment reads, and the
-workspace still opens; asked for by itself (`get_agent`, `get_team`, `get_skill`, `get_mcp`) it
+workspace still opens — and for the agents', the teams' and the skills' lists a file the disk will
+not give (its permissions, a failing read) costs its row the same way, named among the
+workspace's problems (`tolerated_definition`; the shared rule is not widened for the other
+lists), while a rebuild that meets two agent files with one key names the second and goes on; asked for by itself (`get_agent`, `get_team`, `get_skill`, `get_mcp`) it
 is `Unreadable`, naming its file and what it should have been — and a reference to it is
 answered with that, never as a reference to something nobody wrote. A list is a read and repairs nothing —
 `rebuild_index` is the one reconciler of the index against the disk, and it skips the same file

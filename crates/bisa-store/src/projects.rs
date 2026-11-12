@@ -174,7 +174,7 @@ impl Workspace {
             }
             self.check_folder_free(path)?;
         }
-        self.vet_assignees(&new.assignees)?;
+        self.require_assignees(&new.assignees)?;
         let project = Project {
             id: ProjectId::from_ulid(mint_ulid()),
             name: new.name.unwrap_or_else(|| new.slug.to_string()),
@@ -238,21 +238,6 @@ impl Workspace {
                 a1 = format!("{:?}", other.name),
                 a2 = (other.slug).to_string()
             )));
-        }
-        Ok(())
-    }
-
-    fn vet_assignees(&self, assignees: &[Assignee]) -> Result<(), StoreError> {
-        for a in assignees {
-            match a {
-                Assignee::Agent(id) => {
-                    self.get_agent(&bisa_core::AgentId::new(id)?)?;
-                }
-                Assignee::Team(id) => {
-                    self.get_team(&bisa_core::TeamId::new(id)?)?;
-                }
-                Assignee::Human(_) => {}
-            }
         }
         Ok(())
     }
@@ -392,7 +377,7 @@ impl Workspace {
                 "error-store-invalid-project-name-must-not-be-blank"
             )));
         }
-        self.vet_assignees(&project.assignees)?;
+        self.require_assignees(&project.assignees)?;
         project.created_at = current.created_at;
         project.revision = current.revision + 1;
         self.write_project(&project)?;

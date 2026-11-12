@@ -254,3 +254,23 @@ export function addressChips(pubkeys, candidates) {
   const byKey = new Map((candidates ?? []).map((a) => [a.pubkey, a]));
   return (pubkeys ?? []).map((pubkey) => ({ pubkey, agent: byKey.get(pubkey) ?? null }));
 }
+
+/**
+ * The addressees a scope still has, of the ones it remembered: the keys of
+ * agents that can answer. A key kept from before its agent was disabled or
+ * removed is dropped — the node refuses a mention by such a key
+ * (`resolve_mentions`: a key gets the check an id gets), so a tray that kept
+ * it would have every send from this scope refused until somebody found the
+ * chip and took it off. Nothing is dropped before the roster is read: a list
+ * that has not arrived is no evidence that anybody left.
+ * @param {readonly string[] | null | undefined} pubkeys what the scope remembers
+ * @param {readonly {pubkey: string, enabled?: boolean}[] | null | undefined} agents the roster, once read
+ * @param {boolean} ready whether the roster was read
+ * @returns {string[]}
+ */
+export function answerableAddressed(pubkeys, agents, ready) {
+  const kept = [...(pubkeys ?? [])];
+  if (!ready) return kept;
+  const answering = new Set((agents ?? []).filter(canAnswer).map((a) => a.pubkey));
+  return kept.filter((pubkey) => answering.has(pubkey));
+}

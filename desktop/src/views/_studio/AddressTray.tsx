@@ -37,7 +37,8 @@ import {
   WorkingDot,
   type AgentCandidate,
 } from "../../ui";
-import { addressChips, initialAddressed, parseStored, storedAddressKey as key } from "./addressModel.mjs";
+import { addressChips, answerableAddressed, initialAddressed, parseStored, storedAddressKey as key } from "./addressModel.mjs";
+import { useWorkspace } from "../../shell/useWorkspaceData";
 import { warningFor } from "./participantsModel.mjs";
 import { readPref, webStorage, writePref } from "../../shell/storedPrefModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -87,6 +88,21 @@ export function useAddressed(scope: string, seed: AgentDef[], unreachable: reado
     setPubkeys(reachable(initialAddressed(load(scope), seedKeys)));
   }, [scope, seedKeys, reachable]);
 
+  // An addressee disabled or removed since it was chosen — here or anywhere
+  // — is let go of, in the tray and in what the scope remembers: the node
+  // refuses a mention by its key, so keeping the chip would have every send
+  // from here refused. Only once the roster is read, and again whenever it
+  // moves.
+  const { agents, ready } = useWorkspace();
+  useEffect(() => {
+    setPubkeys((prev) => {
+      const kept = answerableAddressed(prev, agents, ready);
+      if (kept.length === prev.length) return prev;
+      writePref(webStorage(), key(scope), kept);
+      return kept;
+    });
+  }, [agents, ready, scope, pubkeys.length]);
+
   const set = useCallback(
     (next: string[]) => {
       const kept = reachable(next);
@@ -128,9 +144,10 @@ export function AddressTray({
   candidates: AgentCandidate[];
   /**
    * Every agent the workspace has, for drawing chips. Wider than `candidates`
-   * on purpose: an addressee that is no longer offerable here — disabled
-   * since you picked it, or remembered from another scope — still has to be
-   * visible and removable.
+   * on purpose: an addressee that is not offered here — remembered from
+   * another scope — still has to be visible and removable. One disabled or
+   * removed since it was picked is no addressee at all: `useAddressed` lets
+   * go of it (`answerableAddressed`).
    */
   known: AgentDef[];
   /** Agent ids mid-turn here, so a chip can show it is thinking. */

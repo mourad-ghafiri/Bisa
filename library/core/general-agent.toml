@@ -1,5 +1,6 @@
 # The platform's own agent. Ensured at workspace open, never removed, never
-# disabled. Only `harness` and the model plan below may be edited.
+# disabled. Only `harness`, the model plan below and the decision-making
+# switch may be edited.
 #
 # It carries no tags on purpose: tags exist so a roster can be filtered, and a
 # filter that can hide the one agent you can always reach is a filter that can

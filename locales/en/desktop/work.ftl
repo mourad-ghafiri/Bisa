@@ -2089,7 +2089,7 @@ work-blame-not-committed = not committed
 work-conflict-sides-both-sides-changed-same-lines = Both sides changed the same lines of a file, and git cannot tell which version you want — so it stopped and asked.
 work-merge-autostash-note = ; your uncommitted changes are stashed first and brought back after
 work-merge-record-origin-note = , each naming where it came from
-work-origin-core-agents-permanent = { $agents } cannot be removed or switched off: they answer you and shape every goal, so a workspace always has them.
+work-origin-core-agents-permanent = The General Agent and the Workflow Agent cannot be removed or switched off: they answer you and shape every goal, so a workspace always has them.
 work-pr-form-gated-project-opens-gate = A gated project opens a gate instead; the pull request exists once someone approves it.
 work-pr-lifecycle-checks-still-running = checks still running
 work-project-form-files-copied-in = { $files ->
@@ -2464,9 +2464,6 @@ work-agent-editor-pick-harness = pick a harness
 work-workstream-sessions-open = open
 work-workstream-sessions-unverifiable = unverifiable
 work-review-step-model-someone = someone
-work-assignee-picker-kind-agent = agent
-work-assignee-picker-kind-person = person
-work-assignee-picker-kind-team = team
 work-assignee-picker-nobody = nobody
 
 ## A pull request's draft, asked of the General Agent (`views/_work/PrForm.tsx`, `prFormModel.mjs`).
@@ -2485,3 +2482,11 @@ work-pr-form-no-suggestion-node = Nothing was suggested, and the node did not sa
 work-pr-form-empty-suggestion = The agent answered with no title. Write it yourself.
 
 work-work-item-panel-cancelled = Cancelled — its step was stopped, cancelled or amended away; the session working on it was ended.
+work-draft-discard-title = Discard your changes?
+work-draft-discard-edits-of = What you changed of { $name } here was not saved, and closing drops it.
+work-draft-discard-new-agent = This agent was not created yet, and closing drops what you wrote.
+work-draft-discard-new-team = This team was not created yet, and closing drops what you wrote.
+work-draft-discard = Discard
+work-draft-keep-editing = Keep editing
+work-model-plan-editor-not-listed = not listed by { $harness }
+work-model-plan-editor-not-listed-hint = { $harness } does not list this model. It stays in the plan and is tried as written; remove it if it belonged to another harness.

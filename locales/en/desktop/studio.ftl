@@ -65,7 +65,7 @@ studio-chat-retracted-message = { $name } retracted a message
 studio-chat-running = running { $working }
 studio-chat-runs = { $agent } runs on { $harness } · { $models }
 studio-chat-say-something-address-agent-below-will = Say something. Address an agent below and it will answer here.
-studio-chat-say-something-message-addresses-nobody-reaches = Say something — a message that addresses nobody reaches the core agent, and it routes.
+studio-chat-say-something-message-addresses-nobody-reaches = Say something — a message that addresses nobody reaches the General Agent, and it routes.
 studio-chat-say-something-where-work-gets-talked = Say something — this is where the work gets talked about.
 studio-chat-scope-attach-message = Attach to the message
 studio-chat-scope-attached-annotations-write-message-beside-page = Attached { $count } annotations — write the message beside the page.
@@ -324,7 +324,7 @@ studio-changed-files-undid-all = Undid the changes to { $files } { $files ->
 studio-participants-everyone-channel-s-roster-agent-agents = everyone on this channel's roster — { $roster } { $roster ->
     [one] agent
    *[other] agents
-  }, plus the core agent
+  }, plus the General Agent and the Workflow Agent
 studio-proposal-step-steps-rev = { $p } · { $n } { $n ->
     [one] step
    *[other] steps
