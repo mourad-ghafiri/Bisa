@@ -184,7 +184,15 @@ retried, not dropped; a run of the workspace is its own home and waits for nobod
 A hosted member's key is admitted for `MESSAGE`, `REACTION`, `RETRACTION` and `DECISION` — and
 `CHANNEL` when the role holds `ManageChannels` — and refused for every other kind with *a hosted
 member writes as a human only*; a conversation fact from one also passes `reaches` and
-`PostInChannels`. An attestation is admitted only when the attesting owner is this node's: *an
+`PostInChannels`. **A person's fact names this workspace**: the coordinate in its `a` tag carries
+the owner's key, and one that names another workspace — their own room of the same id — is refused
+for good, so two nodes that host each other never write into each other's rooms; a room's
+coordinate names its owner whoever wrote its record. **A person's message is a post** — words and
+the chips they carry: a membership event, a post wearing an agent's reasoning or one said to be the
+platform's sentence is refused. **A fact is what its kind says**, whoever signs it: another journal
+fact under the decision kind's number is refused, and a person's decision lands only on a goal or a
+run this node holds — no folder is made for one it does not. A person's seal carries that
+person's own fact: only a host relays what somebody else wrote. An attestation is admitted only when the attesting owner is this node's: *an
 agent of another node never writes here — its person may*. A message so admitted is said once as
 `RemoteMessageArrived`, for the classifier to read before any agent does.
 
@@ -218,7 +226,7 @@ removal. What already reached them cannot be un-sent.
 | | |
 |---|---|
 | **Relays** | ordinary Nostr relays, the pool in `bisa-collab` — reconnecting on their own, each with a health row; negentropy catch-up (NIP-77) where supported, a since-window `REQ` where not |
-| **Direct** | iroh QUIC, relay-less, between nodes that host each other's key — a hosted member's client dialling its host |
+| **Direct** | iroh QUIC, relay-less, between nodes that host each other's key — attachment bytes on demand. What it carries passes the same admission as a relay's: a fact lands only in the workspace it names, and nothing on a guest's side receives over it yet, so facts travel by relay |
 | **Neither** | a workspace with no relay and no peer is complete and fully functional |
 
 What travels to a person is their reach: the conversation facts of the channels their role reaches,

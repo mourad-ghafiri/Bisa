@@ -4,8 +4,9 @@
 //! contacted.
 //!
 //! A session forms only between nodes that host each other's key: the hello
-//! is checked against the hosted members, so a stranger's dial is closed
-//! and a hosted member's carries the facts its role reaches.
+//! is checked against the hosted members, so a stranger's dial is closed.
+//! What a session carries lands only in the workspace it names: one node's
+//! room is never the other's room of the same id (14-collaboration).
 #![cfg(feature = "iroh")]
 
 use bisa_collab::Relays;
@@ -47,16 +48,6 @@ async fn start(ws: &Arc<Workspace>, dir: &std::path::Path, cfg: NetConfig) -> Ho
         .expect("host start")
 }
 
-async fn wait_for(what: &str, mut pred: impl FnMut() -> bool) {
-    for _ in 0..200 {
-        if pred() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("timed out waiting for: {what}");
-}
-
 fn pid(ws: &Workspace) -> PrincipalId {
     ws.owner_principal()
 }
@@ -68,11 +59,14 @@ fn host_each_other(a: &Workspace, b: &Workspace) {
         .unwrap();
 }
 
-/// Two nodes that host each other's key form a session over loopback, and
-/// a message posted on one lands on the other — the backlog by have/want,
-/// the live one by push — with zero relays configured anywhere.
+/// Two nodes that host each other's key form a session over loopback, with
+/// zero relays configured anywhere — and what one says in its own `general`
+/// stays its own. Each is a person in the other's workspace, and a fact
+/// names the workspace it was said in: A's words in A's room are not B's
+/// room's, the backlog and the live one alike. Taken by the id of the scope
+/// alone, they landed there — two workspaces written into each other.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hosted_member_s_session_carries_the_facts_its_role_reaches() {
+async fn a_session_between_nodes_that_host_each_other_keeps_their_rooms_apart() {
     trace();
     std::env::set_var("BISA_IROH_RECONNECT_SECS", "1");
     let dir_a = tempfile::tempdir().unwrap();
@@ -80,18 +74,21 @@ async fn a_hosted_member_s_session_carries_the_facts_its_role_reaches() {
     let ws_a = open_ws(dir_a.path());
     let ws_b = open_ws(dir_b.path());
     host_each_other(&ws_a, &ws_b);
+    let say = |ws: &Workspace, text: &str| {
+        ws.post_message(
+            "general",
+            MessageBody::post(text),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    };
 
     // Backlog: said before any pump exists.
-    ws_a.post_message(
-        "general",
-        MessageBody::post("before the session"),
-        None,
-        &[],
-        &[],
-        None,
-        PostOrigin::Asked,
-    )
-    .unwrap();
+    say(&ws_a, "before the session");
 
     let host_a = start(&ws_a, dir_a.path(), relayless_cfg(vec![])).await;
     assert_eq!(
@@ -108,37 +105,34 @@ async fn a_hosted_member_s_session_carries_the_facts_its_role_reaches() {
         addrs,
     };
     let host_b = start(&ws_b, dir_b.path(), relayless_cfg(vec![peer_a])).await;
-
-    let ws_b2 = Arc::clone(&ws_b);
-    wait_for("the backlog message on B", move || {
-        ws_b2
-            .messages("general", None, 10)
-            .map(|m| m.iter().any(|r| r.content.contains("before the session")))
-            .unwrap_or(false)
-    })
-    .await;
-
-    ws_a.post_message(
-        "general",
-        MessageBody::post("live"),
-        None,
-        &[],
-        &[],
-        None,
-        PostOrigin::Asked,
-    )
-    .unwrap();
-    let ws_b3 = Arc::clone(&ws_b);
-    wait_for("the live message on B", move || {
-        ws_b3
-            .messages("general", None, 10)
-            .map(|m| m.iter().any(|r| r.content == "live"))
-            .unwrap_or(false)
-    })
-    .await;
-
+    for _ in 0..200 {
+        if host_a.status().await.iroh_peers_connected >= 1
+            && host_b.status().await.iroh_peers_connected >= 1
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert!(host_a.status().await.iroh_peers_connected >= 1);
     assert!(host_b.status().await.iroh_peers_connected >= 1);
+
+    say(&ws_a, "live");
+    say(&ws_b, "b's own");
+    // Several rounds of have/want and of live pushes, both ways.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let texts = |ws: &Workspace| -> Vec<String> {
+        ws.messages("general", None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect()
+    };
+    assert_eq!(texts(&ws_b), ["b's own"], "A's room is not B's");
+    assert_eq!(
+        texts(&ws_a),
+        ["before the session", "live"],
+        "and B's is not A's"
+    );
 
     host_b.stop().await;
     host_a.stop().await;

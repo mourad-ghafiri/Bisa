@@ -1350,7 +1350,8 @@ async fn events(
                     // post does: the same frames, so the owner's window
                     // shows it, counts it and previews it as it arrives.
                     StoreEvent::ConversationAppended { scope, event, .. }
-                    | StoreEvent::RemoteMessageArrived { scope, event, .. } => {
+                    | StoreEvent::RemoteMessageArrived { scope, event, .. }
+                    | StoreEvent::RemoteFactArrived { scope, event } => {
                         let snippet = snippet_of(&event);
                         let unread = st
                             .engine

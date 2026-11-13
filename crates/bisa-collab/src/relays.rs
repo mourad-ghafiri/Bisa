@@ -41,6 +41,12 @@ const CONNECT_WAIT: Duration = Duration::from_secs(5);
 const FETCH_WAIT: Duration = Duration::from_secs(10);
 /// The first retry after a drop; the relay layer grows it from here.
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
+/// How many wraps the bus holds for a reader that has not taken them yet.
+const BUS: usize = 1024;
+/// How long handing a wrap on waits for the slowest reader to make room
+/// before it goes on regardless — a reader that is stuck must not stop the
+/// pool, and one that only lags is told so and asks for everything again.
+const PACE_WAIT: Duration = Duration::from_secs(30);
 /// How many wrap ids the pool remembers, so a catch-up never hands the same
 /// wrap on twice. Bounded: a long-running node forgets the oldest.
 const SEEN_WRAPS: usize = 4096;
@@ -204,10 +210,23 @@ pub struct Relays {
     incoming: broadcast::Sender<Incoming>,
     seen: Mutex<SeenWraps>,
     inbound: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// One reshaping of the pool at a time: two at once each read the list
+    /// as it stood before the other, and a relay one of them added stayed
+    /// connected and on no list.
+    reshaping: Mutex<()>,
+    /// How many wraps may wait on the bus before handing on pauses.
+    high_water: usize,
 }
 
 fn relay_filter(me: PublicKey) -> Filter {
     Filter::new().kind(Kind::GiftWrap).pubkey(me)
+}
+
+/// Whether two addresses are one relay — the core's one rule
+/// ([`bisa_core::same_relay`]), so the pool, the setting and the screens
+/// agree on it.
+fn same(a: &str, b: &str) -> bool {
+    bisa_core::same_relay(a, b)
 }
 
 impl Relays {
@@ -216,11 +235,17 @@ impl Relays {
     /// own and its row says so. Returns once every relay was given
     /// [`CONNECT_WAIT`] to connect.
     pub async fn start(keys: Keys, urls: &[String]) -> Arc<Self> {
+        Self::start_with_bus(keys, urls, BUS).await
+    }
+
+    /// [`Self::start`] with a bus of `bus` wraps — a test's door to a burst
+    /// larger than the bus without a thousand wraps.
+    pub(crate) async fn start_with_bus(keys: Keys, urls: &[String], bus: usize) -> Arc<Self> {
         // Before the client exists: its first `wss://` connection needs the
         // process's crypto provider, and panics without one.
         crate::tls::ensure_crypto_provider();
         let client = Client::new();
-        let (incoming, _) = broadcast::channel(1024);
+        let (incoming, _) = broadcast::channel(bus);
         let pool = Arc::new(Self {
             keys,
             client,
@@ -228,6 +253,8 @@ impl Relays {
             incoming,
             seen: Mutex::new(SeenWraps::default()),
             inbound: Mutex::new(None),
+            reshaping: Mutex::new(()),
+            high_water: (bus * 3 / 4).max(1),
         });
         pool.set_relays(urls).await;
         let task = {
@@ -266,23 +293,32 @@ impl Relays {
     /// new ones added and connected, the rest left as they are. The live
     /// subscription is renewed so a new relay hears wraps at once.
     pub async fn set_relays(&self, urls: &[String]) {
+        let _one_at_a_time = self.reshaping.lock().await;
+        // One row a relay, in the spelling it was first given: two spellings
+        // of one address are one connection underneath.
         let wanted: Vec<String> = urls
             .iter()
             .map(|u| u.trim().to_string())
             .filter(|u| !u.is_empty())
             .fold(Vec::new(), |mut acc, u| {
-                if !acc.contains(&u) {
+                if !acc.iter().any(|a| same(a, &u)) {
                     acc.push(u);
                 }
                 acc
             });
         let current = self.urls.lock().await.clone();
-        for gone in current.iter().filter(|u| !wanted.contains(u)) {
+        for gone in current
+            .iter()
+            .filter(|u| !wanted.iter().any(|w| same(w, u)))
+        {
             if let Err(e) = self.client.remove_relay(gone.as_str()).force().await {
                 tracing::debug!("removing relay {gone}: {e}");
             }
         }
-        for url in wanted.iter().filter(|u| !current.contains(u)) {
+        for url in wanted
+            .iter()
+            .filter(|u| !current.iter().any(|c| same(c, u)))
+        {
             let added = self
                 .client
                 .add_relay(url.as_str())
@@ -310,8 +346,16 @@ impl Relays {
         self.resubscribe().await;
     }
 
+    /// The live subscription: wraps to this key as they are published. It
+    /// asks only for the window a wrap's stamp can fall in — the stamp is
+    /// set up to two days back — so renewing it, at every reshaping and
+    /// every reconnect, no longer brings a relay's whole store again.
+    /// History is the catch-up's ([`Self::catch_up`]).
     async fn resubscribe(&self) {
-        let filter = relay_filter(self.keys.public_key());
+        let window = Timestamp::now()
+            .as_secs()
+            .saturating_sub(WRAP_TIMESTAMP_SLACK_SECS);
+        let filter = relay_filter(self.keys.public_key()).since(Timestamp::from_secs(window));
         if let Err(e) = self
             .client
             .subscribe(filter)
@@ -330,7 +374,7 @@ impl Relays {
             .map(|url| {
                 let relay = relays
                     .iter()
-                    .find(|(u, _)| u.to_string() == url)
+                    .find(|(u, _)| same(&u.to_string(), &url))
                     .map(|(_, r)| r);
                 match relay {
                     Some(r) => {
@@ -467,18 +511,35 @@ impl Relays {
     }
 
     /// Everything addressed to this key, unwrapped: live wraps as they
-    /// arrive and the ones a catch-up finds. A slow reader that lags is
-    /// told so by the channel; the next catch-up brings what it missed.
+    /// arrive and the ones a catch-up finds. Handing a wrap on waits for the
+    /// slowest reader to make room, so a burst larger than the bus loses
+    /// nothing; a reader that lagged all the same is told so by the channel,
+    /// and what it missed is handed on again only once the pool is asked to
+    /// forget what it has seen ([`Self::forget_seen`]) — a wrap is noted
+    /// when it is handed on, and no catch-up brings a noted one by itself.
     pub fn subscribe(&self) -> broadcast::Receiver<Incoming> {
         self.incoming.subscribe()
+    }
+
+    /// Forget every wrap this pool has handed on, so the next catch-up
+    /// hands each one on again — for a reader that lagged, or one that
+    /// started after wraps were already handed to the others. Safe for
+    /// readers that take a fact once by its id and a word by its time.
+    pub async fn forget_seen(&self) {
+        *self.seen.lock().await = SeenWraps::default();
     }
 
     /// Reconcile (NIP-77, when a relay speaks it) and fetch every wrap to
     /// this key since `since` (unix seconds; `None` = everything), handing
     /// each unseen one on. Called on a timer by whoever owns the pool.
-    pub async fn catch_up(&self, since: Option<u64>) {
+    ///
+    /// Answers whether a fetch landed: a relay was connected and answered.
+    /// A caller that keeps a cursor moves it only then — moved after a
+    /// fetch that reached nobody, an outage longer than the window lost
+    /// what was published in it.
+    pub async fn catch_up(&self, since: Option<u64>) -> bool {
         if self.count().await == 0 {
-            return;
+            return false;
         }
         let filter = relay_filter(self.keys.public_key());
         if let Err(e) = self.client.sync(filter.clone()).await {
@@ -504,12 +565,32 @@ impl Relays {
                         self.take_wrap(&ev).await;
                     } // LCOV_EXCL_LINE: the filter asks for gift wraps alone; by construction
                 }
+                // The relay layer answers a fetch no relay could do with
+                // nothing, never with an error: a fetch landed only when a
+                // relay was there to ask.
+                self.connected_count().await > 0
             }
             // LCOV_EXCL_START: the relay layer answers a fetch a relay could not do in its output, never as an error; by construction
             Err(e) => {
                 let relays = self.count().await;
-                tracing::debug!(relays, "catch-up fetch failed across the pool: {e}")
+                tracing::debug!(relays, "catch-up fetch failed across the pool: {e}");
+                false
             } // LCOV_EXCL_STOP
+        }
+    }
+
+    /// Wait for the slowest reader to make room on the bus, up to
+    /// [`PACE_WAIT`]. A catch-up unwraps faster than a reader applies — a
+    /// fact is a disk write — and the bus drops its oldest wrap for a reader
+    /// that falls a bus behind: noted as handed on, it was lost to that
+    /// reader for the life of the process.
+    async fn make_room(&self) {
+        let deadline = tokio::time::Instant::now() + PACE_WAIT;
+        while self.incoming.len() >= self.high_water
+            && self.incoming.receiver_count() > 0
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
 
@@ -523,6 +604,7 @@ impl Relays {
             Ok(Incoming::Other) => {}
             // LCOV_EXCL_STOP
             Ok(incoming) => {
+                self.make_room().await;
                 // Nobody subscribed yet is not an error: the id is forgotten,
                 // so the next catch-up hands the wrap to the reader that came
                 // late — a node starting with wraps waiting for it on the relay.
@@ -574,7 +656,9 @@ mod tests {
             .expect("heard in time")
             .expect("channel open");
         match got {
-            Incoming::Control { sender, control } => {
+            Incoming::Control {
+                sender, control, ..
+            } => {
                 assert_eq!(sender, alice.public_key());
                 assert_eq!(control, Control::Waiting);
             }
@@ -885,5 +969,129 @@ mod tests {
         ));
         bob.stop().await;
         alice.stop().await;
+    }
+
+    /// A burst larger than the bus loses nothing: handing a wrap on waits
+    /// for the slowest reader to make room. Forty wraps wait on the relay
+    /// for a pool whose bus holds eight and whose reader takes its time —
+    /// a fact is a disk write. Unpaced, the bus dropped the oldest for that
+    /// reader, and each was noted as handed on: lost for the life of the pool.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_burst_larger_than_the_bus_loses_nothing() {
+        let (_relay, url) = local_relay().await;
+        let alice = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        let bob_keys = Keys::generate();
+        for _ in 0..40 {
+            let wrap =
+                wrap_control(alice.keys(), bob_keys.public_key(), &Control::Waiting).unwrap();
+            alice.publish(&wrap).await.expect("published");
+        }
+        let bob = Relays::start_with_bus(bob_keys, &[], 8).await;
+        let mut heard = bob.subscribe();
+        bob.set_relays(std::slice::from_ref(&url)).await;
+        let reader = tokio::spawn(async move {
+            let (mut got, mut lagged) = (0usize, 0u64);
+            loop {
+                match tokio::time::timeout(Duration::from_secs(3), heard.recv()).await {
+                    Ok(Ok(_)) => {
+                        got += 1;
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    Ok(Err(broadcast::error::RecvError::Lagged(n))) => lagged += n,
+                    _ => break,
+                }
+            }
+            (got, lagged)
+        });
+        assert!(bob.catch_up(None).await, "a relay answered");
+        let (got, lagged) = reader.await.unwrap();
+        assert_eq!(lagged, 0, "the reader never fell a bus behind");
+        assert_eq!(got, 40, "every wrap was handed on");
+        bob.stop().await;
+        alice.stop().await;
+    }
+
+    /// A reader that started late, or lagged, is handed everything again
+    /// once the pool forgets what it has seen; until then a catch-up brings
+    /// nothing a second time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_pool_that_forgets_what_it_has_seen_hands_everything_on_again() {
+        let (_relay, url) = local_relay().await;
+        let alice = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        let bob_keys = Keys::generate();
+        for _ in 0..3 {
+            let wrap =
+                wrap_control(alice.keys(), bob_keys.public_key(), &Control::Waiting).unwrap();
+            alice.publish(&wrap).await.expect("published");
+        }
+        let bob = Relays::start(bob_keys, &[]).await;
+        let mut first = bob.subscribe();
+        bob.set_relays(std::slice::from_ref(&url)).await;
+        bob.catch_up(None).await;
+        let drain = |rx: &mut broadcast::Receiver<Incoming>| {
+            let mut n = 0;
+            while rx.try_recv().is_ok() {
+                n += 1;
+            }
+            n
+        };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(drain(&mut first), 3);
+        let mut late = bob.subscribe();
+        bob.catch_up(None).await;
+        assert_eq!(drain(&mut late), 0, "noted as handed on: not brought again");
+        bob.forget_seen().await;
+        bob.catch_up(None).await;
+        assert_eq!(
+            drain(&mut late),
+            3,
+            "everything, once it is asked to forget"
+        );
+        bob.stop().await;
+        alice.stop().await;
+    }
+
+    /// A relay is one relay whatever its spelling: typed in capitals it
+    /// meets its health row — the relay layer keeps a host in lowercase, and
+    /// matched letter for letter the row read *never tried* over a live
+    /// connection — and a second spelling of it is no second row, nor a
+    /// removal of the relay from under the first.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_relay_typed_in_capitals_meets_its_health_row() {
+        let (_relay, url) = local_relay().await;
+        let typed = url.replacen("ws://127.0.0.1", "WS://LOCALHOST", 1);
+        let local = url.replacen("127.0.0.1", "localhost", 1);
+        let pool = Relays::start(Keys::generate(), std::slice::from_ref(&typed)).await;
+        let health = pool.health().await;
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].url, typed, "the spelling a person typed is shown");
+        assert!(health[0].connected, "{:?}", health[0]);
+        assert_eq!(pool.connected_count().await, 1);
+
+        pool.set_relays(&[typed.clone(), format!("{local}/"), local.clone()])
+            .await;
+        assert_eq!(pool.urls().await, vec![typed.clone()], "one row a relay");
+        // The other spelling alone: the same relay, kept connected.
+        pool.set_relays(std::slice::from_ref(&local)).await;
+        let health = pool.health().await;
+        assert_eq!(health.len(), 1);
+        assert!(health[0].connected, "{:?}", health[0]);
+        pool.stop().await;
+    }
+
+    /// A catch-up says whether a fetch landed: no relay configured, or none
+    /// that answers, is no fetch — and a caller's cursor stays where it was.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_catch_up_that_fetched_nothing_says_so() {
+        let none = Relays::start(Keys::generate(), &[]).await;
+        assert!(!none.catch_up(None).await);
+        none.stop().await;
+        let dead = Relays::start(Keys::generate(), &["ws://127.0.0.1:1".to_string()]).await;
+        assert!(!dead.catch_up(None).await, "nobody was there to ask");
+        dead.stop().await;
+        let (_relay, url) = local_relay().await;
+        let live = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        assert!(live.catch_up(Some(1)).await);
+        live.stop().await;
     }
 }

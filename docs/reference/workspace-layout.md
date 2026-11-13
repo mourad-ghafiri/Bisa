@@ -77,7 +77,7 @@ rebuilt from the files. The one place a workspace directory name is joined is `b
     <process>/<process>.<period>.jsonl   one folder per process family — node/, cli/, mcp/, desktop/ — their own words about themselves, one JSON line each (errors only by default; `logging.*`); the oldest past `logging.keep_files` removed
     crashes/<process>.<stamp>.<pid>.json one report per abnormal end — a panic with its backtrace, a run that ended without a goodbye, the desktop's node exiting — with the last lines before it; fifty kept
     runs/<process>.<pid>.json            a run's marker while it runs, gone with its goodbye; one left by a dead process is the next start's crash report
-  quarantine/<stamp>/<relative-path>  a file an open could not read, moved aside whole with its path — the member file, a settings layer, a snapshot — never deleted; named in Settings › Node and by `bisa workspace check`, restored by hand
+  quarantine/<stamp>/<relative-path>  a file an open could not read, moved aside whole with its path — the member file, the invitations, the held list, a settings layer, a snapshot — never deleted; named in Settings › Node and by `bisa workspace check`, restored by hand
   run/
     node.sock                  the daemon's unix socket, mode 0600
     engine.lock                one engine per workspace: an exclusive flock holding the engine's PID (`bisa paths --json` names the holder without taking it)
@@ -115,8 +115,9 @@ Bootstrap on open, in order: the owner member, the General Agent and the Workflo
 ensured on presence of its file, so a workspace with an unreadable definition elsewhere still opens
 with something that answers. The owner key alone can refuse an open. A goal snapshot or a run
 written by a shape of the code from before 0.1.0 is refused by name when read and skipped by name by
-every list and the rebuild; a `members.json`, a `general` snapshot or a settings layer the open
-cannot read is moved under `quarantine/` and made again, a `governance.json` it cannot read is read
+every list and the rebuild; a `members.json`, an `invites.json`, a `held.json`, a `general` snapshot
+or a settings layer the open cannot read is moved under `quarantine/` and made again or started
+empty, a `governance.json` it cannot read is read
 as the owner's alone — each named on `GET /workspace` and by `bisa workspace check`; a run, a work
 item or a journal fact filed in the older goal-only shape is unreadable; there is no conversion.
 From 0.1.0 a record only grows ([Compatibility](compatibility.md)).

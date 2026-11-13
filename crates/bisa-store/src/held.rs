@@ -47,7 +47,7 @@ pub struct HeldMessage {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-struct HeldFile {
+pub(crate) struct HeldFile {
     held: Vec<HeldMessage>,
 }
 
@@ -102,6 +102,56 @@ impl Workspace {
         };
         self.write_held(&file)?;
         Ok(row)
+    }
+
+    /// Say again why a held message is held — the classifier's word on a
+    /// row that waits for it — and never hold one that is not held. A row
+    /// the owner let through or refused while it was being read is settled,
+    /// and theirs: a verdict that lands after finds nothing under the id and
+    /// changes nothing. Made again here, a refused message was held once
+    /// more, and one let through was heard twice. `None` when nothing is
+    /// held under that id.
+    pub fn restate_held(
+        &self,
+        event_id: &str,
+        reason: HeldReason,
+    ) -> Result<Option<HeldMessage>, StoreError> {
+        let _one_writer = self.held_writer();
+        let mut file = self.read_held()?;
+        let Some(row) = file.held.iter_mut().find(|h| h.event_id == event_id) else {
+            return Ok(None);
+        };
+        row.reason = reason;
+        let row = row.clone();
+        self.write_held(&file)?;
+        Ok(Some(row))
+    }
+
+    /// Called at open: a held list that is there and does not parse is
+    /// moved under `quarantine/` and named, and the list starts again
+    /// empty. Left where it was it failed every hold — so a message from
+    /// outside was never read and never heard — and every removal and every
+    /// leave at the step that drops a person's held rows. **What it held
+    /// back is held no longer**: the problem says so, and names the moved
+    /// file, which lists the messages for the owner to judge by hand.
+    pub(crate) fn repair_held_at_open(&self) -> Result<(), StoreError> {
+        if let Err(StoreError::Unreadable { path, reason, .. }) = self.read_held() {
+            let to = self
+                .paths
+                .quarantine(std::path::Path::new(&path), now_secs())?;
+            self.record_problem(crate::problems::WorkspaceProblem::new(
+                crate::problems::ProblemKind::Quarantined,
+                path.clone(),
+                bisa_core::text!(
+                    "error-store-problem-held-moved",
+                    path = path,
+                    reason = reason,
+                    to = to.display().to_string()
+                ),
+                Some(&to),
+            ));
+        }
+        Ok(())
     }
 
     /// Let a held message through; `None` when nothing was held under that id.
@@ -282,5 +332,36 @@ mod tests {
                 "{unreadable:?}"
             );
         }
+    }
+
+    /// A verdict restates a row that waits for it and never makes one. The
+    /// owner's word on a message still being read — let through, or refused
+    /// — takes the row; the verdict that lands after finds none, and holds
+    /// nothing again.
+    #[test]
+    fn a_verdict_restates_a_row_that_waits_and_never_makes_one() {
+        let (_dir, ws) = ws();
+        let bob = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        let harmful = HeldReason::Harmful {
+            why: "asks for a token".into(),
+        };
+        let held = ws
+            .hold_message("e1", "general", bob.clone(), HeldReason::Pending)
+            .unwrap();
+        let restated = ws
+            .restate_held("e1", harmful.clone())
+            .unwrap()
+            .expect("the row that waits");
+        assert_eq!(restated.reason, harmful);
+        assert_eq!(restated.held_at, held.held_at, "the same row, said again");
+        assert_eq!(ws.held_messages().unwrap(), vec![restated]);
+
+        ws.remove_held("e1").unwrap().expect("the owner's word");
+        assert_eq!(ws.restate_held("e1", harmful.clone()).unwrap(), None);
+        assert!(
+            ws.held_messages().unwrap().is_empty(),
+            "the owner's word stands"
+        );
+        assert_eq!(ws.restate_held("never-held", harmful).unwrap(), None);
     }
 }

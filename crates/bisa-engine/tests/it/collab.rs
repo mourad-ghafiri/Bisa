@@ -16,7 +16,7 @@ use bisa_engine::collab::{
 use bisa_engine::{Engine, EngineConfig, EnginePayload};
 use bisa_harness::mock::MockAdapter;
 use bisa_harness::{HarnessCatalog, LifecycleEvent, Outcome, ProgressEvent, SessionEvent};
-use bisa_store::{Admission, HeldReason, MemoryKeyStore, NewAgent, PostOrigin, Workspace};
+use bisa_store::{Admission, HeldReason, MemoryKeyStore, NewAgent, Workspace};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -143,15 +143,30 @@ fn rig_with_body(
         Tags::default(),
     )
     .unwrap();
-    ws2.post_message(&scope, body, None, &mentions, &[], None, PostOrigin::Asked)
-        .unwrap();
-    let event: nostr::event::Event =
-        std::fs::read_to_string(ws2.paths().conversation_log(&scope).unwrap())
-            .unwrap()
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str(l).unwrap())
-            .unwrap();
+    // What their node signs: their key, the coordinate of the workspace the
+    // words are said in — this one — and a `p` tag per person or agent named.
+    let event: nostr::event::Event = {
+        use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+        let mut tags = vec![Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:{scope}",
+                bisa_core::kind::KIND_CHANNEL,
+                ws.owner_keys().public_key().to_hex()
+            ),
+        ])
+        .unwrap()];
+        for m in &mentions {
+            tags.push(Tag::parse(["p", m.as_hex()]).unwrap());
+        }
+        EventBuilder::new(
+            Kind::from(bisa_core::kind::KIND_MESSAGE),
+            serde_json::to_string(&body).unwrap(),
+        )
+        .tags(tags)
+        .finalize(ws2.owner_keys())
+        .unwrap()
+    };
 
     let mut catalog = HarnessCatalog::new();
     let adapter = saying("mock-classifier", verdict);
@@ -535,9 +550,18 @@ async fn the_owner_s_word_on_a_claim_that_waited_admits_or_refuses() {
     let (invite, code) = create_invite(&inner, MemberRole::Member, vec![], None).unwrap();
     let dana = PrincipalId::new(nostr::key::Keys::generate().public_key().to_hex()).unwrap();
     let claimed = ws
-        .claim_invite(&hash_secret(&code.secret), &dana, Some("Dana".into()), true)
+        .claim_and_admit(
+            &hash_secret(&code.secret),
+            &dana,
+            Some("Dana".into()),
+            None,
+            true,
+        )
         .unwrap();
-    assert!(claimed.waits);
+    assert!(
+        matches!(claimed, bisa_store::ClaimOutcome::Waiting { .. }),
+        "{claimed:?}"
+    );
     let settled = settle_invite(&inner, invite.id, true).unwrap();
     assert!(matches!(settled.state, InviteState::Accepted { ref by, .. } if *by == dana));
     assert_eq!(ws.member_role(&dana).unwrap(), Some(MemberRole::Member));
@@ -549,7 +573,7 @@ async fn the_owner_s_word_on_a_claim_that_waited_admits_or_refuses() {
     let shared = vec![bisa_core::ChannelId::new(&r.scope).unwrap()];
     let (invite, code) = create_invite(&inner, MemberRole::Guest, shared, None).unwrap();
     let eve = PrincipalId::new(nostr::key::Keys::generate().public_key().to_hex()).unwrap();
-    ws.claim_invite(&hash_secret(&code.secret), &eve, None, true)
+    ws.claim_and_admit(&hash_secret(&code.secret), &eve, None, None, true)
         .unwrap();
     let refused = settle_invite(&inner, invite.id, false).unwrap();
     assert!(matches!(refused.state, InviteState::Refused { ref by, .. } if *by == eve));

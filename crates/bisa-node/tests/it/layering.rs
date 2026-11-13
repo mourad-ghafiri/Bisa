@@ -66,10 +66,12 @@ const WRITER_VERBS: &[&str] = &[
     "reconcile",
     "record",
     "remove",
-    // `rename_conversation`, `revoke_invite`, `settle_invite`,
-    // `start_queued_run`, `unroster_human_everywhere`.
+    // `rename_conversation`, `revoke_invite`, `start_queued_run`,
+    // `unroster_human_everywhere`.
     "rename",
     "requeue",
+    // `restate_held`: a verdict on a held message that waits for it.
+    "restate",
     "retract",
     "revoke",
     "rotate",
@@ -104,8 +106,11 @@ const IRREGULAR_WRITERS: &[&str] = &[
     // `stage_crash_before_goal_recorded_run` is a test's door: it writes the
     // run a crash would have left.
     "stage_crash_before_goal_recorded_run",
-    // `admit_claimed` adds the member a claimed invite names.
-    "admit_claimed",
+    // `admit_request` admits the person a waiting claim names, and
+    // `refuse_request` turns them down — a write, where `refuse_*` elsewhere
+    // is the answer a delete would give.
+    "admit_request",
+    "refuse_request",
     // `drop_held_of` lets a removed person's held messages go.
     "drop_held_of",
 ];

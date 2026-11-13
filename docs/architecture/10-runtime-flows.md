@@ -514,10 +514,12 @@ The owner makes an invitation (`engine/collab.rs::create_invite` → `store/invi
 record and the secret's hash; the code — link and text — is answered once). The person pastes it:
 `POST /hosts/join` → the CLI's `Pump` merges the code's relays into `sync.relays`, and
 `bisa_guest::Guests::join` records the membership as `requested` and sends `join` wrapped to the
-host over the pool. The host's pump (`net/host.rs::on_control`) claims it —
-`store/invites.rs::claim_invite`, constant time, single use — and admits (`admit_claimed`: a
-member at the invitation's role, rostered on its channels) or records a request for the Inbox
-under `collab.join = ask`. The store says `PeopleChanged { Joined }`; the pump welcomes the person
+host over the pool. The host's pump (`net/host.rs::on_control`) hands it to the store's one
+admission — `store/invites.rs::claim_and_admit`, whole under the people's writer: the code found in
+constant time, spent, and its claimer made a member at the invitation's role and put on its
+channels (the code put back when the member cannot be written), or the claim recorded as a request
+for the Inbox under `collab.join = ask`. Somebody who is a member already claims nothing and is
+welcomed again. The store says `PeopleChanged { Joined }`; the pump welcomes the person
 with the card, the role, the directory and the channels they reach, then their backlog, each fact
 wrapped to them alone; the guest session applies the welcome (`guest/session.rs::on_control`) and
 the *Hosted by …* section appears.

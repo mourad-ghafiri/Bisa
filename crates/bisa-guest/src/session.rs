@@ -562,9 +562,9 @@ impl GuestSession {
     /// the directory names and this node lacks — for the router to send.
     pub fn on_incoming(&self, incoming: &Incoming) -> Result<Vec<Control>, GuestError> {
         match incoming {
-            Incoming::Control { sender, control } if *sender == self.host => {
-                self.on_control(control)
-            }
+            Incoming::Control {
+                sender, control, ..
+            } if *sender == self.host => self.on_control(control),
             Incoming::Gep { sender, event } if *sender == self.host => {
                 self.on_fact(event)?;
                 Ok(Vec::new())
@@ -826,7 +826,7 @@ impl Guests {
                     Ok(incoming) => this.route(&incoming).await,
                     // LCOV_EXCL_START the pool's stream lagged or closed under the router; a race
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("guest inbound lagged by {n}; the next catch-up brings it");
+                        tracing::warn!("guest inbound lagged by {n}: those wraps were noted as handed on and are lost to this reader until the pool forgets what it has seen");
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                     // LCOV_EXCL_STOP
@@ -977,6 +977,7 @@ mod tests {
                     Incoming::Control {
                         sender,
                         control: Control::Join { .. },
+                        ..
                     } if sender == guest => {
                         let (_, alice) = alice_face();
                         let welcome = Control::Welcome {
@@ -1008,6 +1009,7 @@ mod tests {
                     Incoming::Control {
                         sender,
                         control: Control::WantFace { sha256 },
+                        ..
                     } if sender == guest => {
                         let (png, alice) = alice_face();
                         heard.locked().push(Control::WantFace {
@@ -1028,6 +1030,7 @@ mod tests {
                     Incoming::Control {
                         sender,
                         control: control @ Control::Profile { .. },
+                        ..
                     } if sender == guest => heard.locked().push(control),
                     _ => {}
                 }
@@ -1128,6 +1131,7 @@ mod tests {
             .on_incoming(&Incoming::Control {
                 sender: host.public_key(),
                 control: Control::Face { face: lying },
+                at: 0,
             })
             .unwrap()
             .is_empty());
@@ -1138,6 +1142,7 @@ mod tests {
                 control: Control::MembersChanged {
                     members: session.members().unwrap(),
                 },
+                at: 0,
             })
             .unwrap();
         assert!(again.is_empty(), "nothing to ask: {again:?}");
@@ -1263,6 +1268,7 @@ mod tests {
                 Incoming::Control {
                     control: Control::Leave,
                     sender,
+                    ..
                 } => {
                     assert_eq!(sender, guest_keys.public_key());
                     break;
@@ -1321,6 +1327,7 @@ mod tests {
                 control: Control::Refused {
                     reason: "expired".into(),
                 },
+                at: 0,
             })
             .unwrap();
         assert_eq!(
@@ -1344,6 +1351,7 @@ mod tests {
                     members: vec![],
                     channels: vec![],
                 },
+                at: 0,
             })
             .unwrap();
         assert_eq!(session.hosted().unwrap().unwrap().role, MemberRole::Guest);
@@ -1353,6 +1361,7 @@ mod tests {
                 control: Control::Removed {
                     reason: Some("done".into()),
                 },
+                at: 0,
             })
             .unwrap();
         assert_eq!(
@@ -1426,6 +1435,7 @@ mod tests {
                 control: Control::Refused {
                     reason: "this invite code is unknown or was already used".into(),
                 },
+                at: 0,
             })
             .unwrap();
         assert_eq!(
@@ -1442,6 +1452,7 @@ mod tests {
             .on_incoming(&Incoming::Control {
                 sender: host.public_key(),
                 control: Control::Removed { reason: None },
+                at: 0,
             })
             .unwrap();
         assert_eq!(
@@ -1511,6 +1522,7 @@ mod tests {
             .on_incoming(&Incoming::Control {
                 sender: other.public_key(),
                 control: Control::Leave,
+                at: 0,
             })
             .unwrap()
             .is_empty());
@@ -1634,6 +1646,7 @@ mod tests {
             .on_incoming(&Incoming::Control {
                 sender: host,
                 control: Control::Leave,
+                at: 0,
             })
             .unwrap()
             .is_empty());
@@ -1647,6 +1660,7 @@ mod tests {
                 control: Control::MembersChanged {
                     members: session.members().unwrap(),
                 },
+                at: 0,
             })
             .await;
         guests.announce_profile().await;

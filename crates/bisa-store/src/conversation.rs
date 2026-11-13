@@ -207,7 +207,7 @@ impl Workspace {
     /// conversations, not a thread, and its messages live in one of those.
     pub fn resolve_scope(&self, scope: &str) -> Result<ScopeRef, StoreError> {
         if let Ok(id) = ChannelId::new(scope) {
-            if let Some((channel, ev)) = self.snapshots.get::<bisa_core::Channel>(
+            if let Some((channel, _)) = self.snapshots.get::<bisa_core::Channel>(
                 Paths::NS_CHANNELS,
                 KIND_CHANNEL,
                 id.as_str(),
@@ -215,7 +215,12 @@ impl Workspace {
                 return Ok(ScopeRef {
                     id: scope.to_string(),
                     kind: ScopeKind::Channel,
-                    coordinate: format!("{KIND_CHANNEL}:{}:{scope}", ev.pubkey.to_hex()),
+                    // The owner's key, whoever signed the record: a room an
+                    // admin on another node wrote is this workspace's room.
+                    coordinate: format!(
+                        "{KIND_CHANNEL}:{}:{scope}",
+                        self.owner.public_key().to_hex()
+                    ),
                     audience: EventAudience::from(&channel.audience),
                 });
             }

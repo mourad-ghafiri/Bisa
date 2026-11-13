@@ -48,9 +48,23 @@ each record beside the `secret_hash` of its code, and that hash lives in the sto
 `Invite` itself never carries it. The secret is minted once and exists only in the
 code the person carries — the link `bisa://join/<nprofile>/<secret>` or the text
 `<nprofile>:<secret>` (`bisa-collab/invite_code.rs`). A claim is single-use, expiring and
-constant-time (`store/invites.rs::claim_invite`); `collab.join = admit` admits on a valid code,
+constant-time (`store/invites.rs::claim_and_admit`); `collab.join = admit` admits on a valid code,
 `ask` records a `Requested` claim for the owner's Inbox, and `collab.default_role` says what an
 invitation offers unless the owner picks.
+
+**One writer, one admission, one removal.** `members.json` and `invites.json` are read, changed
+and written under the people's one writer (`Workspace::people_writes`), taken before the held
+list's and the roster's and never under them. A code is claimed by `claim_and_admit`, whole: the
+code is spent first and its claimer admitted — a member at its role, their name added to each of
+its channels' rosters as that roster stands — and put back to *pending* when the member cannot be
+written, so a stop between the two leaves a used code and nobody admitted, never a member beside a
+live code. Somebody who is a member already claims nothing: they are answered by what they are —
+their node asked because it lost what it held — and the code stands for whoever it was made for. A
+claimer hears *waiting* again on a code that waits for the owner. A person is removed by
+`remove_person`, the owner's act and a person's own leave alike: the row first — from there ingest
+refuses them, and a verdict landing on a message of theirs finds nobody to hold it for — then what
+is held of theirs, then their places on rosters, each step safe to ask again. What already stands
+— the role somebody holds, the profile they have — is no change: nothing is written, nobody is told.
 
 ---
 
@@ -63,9 +77,29 @@ control vocabulary, the invite code, and the relay pool. Relays see kind-1059 ci
 recipient pubkey. The pool (`Relays`) is one `nostr_sdk::Client` with reconnecting relays, a
 health row per relay, a check before a relay is added, a live subscription for wraps to this key
 and a periodic catch-up (NIP-77 where the relay speaks it, a since-window `REQ` otherwise). The
-window's cursor is the process's alone (`Host::last_catchup`): the first catch-up after a start asks
-for everything, so a restart costs one full read of this key's wraps from every relay — safe, and
-the price of a durable cursor not yet paid.
+live subscription asks only for the window a wrap's stamp can fall in (`WRAP_TIMESTAMP_SLACK_SECS`):
+renewed at every reshaping and reconnect, it no longer brings a relay's whole store again — history
+is the catch-up's. The window's cursor is the process's alone (`Host::last_catchup`) and moves only
+when a fetch landed — a relay was there to answer (`Relays::catch_up` says so): the first catch-up
+after a start asks for everything, so a restart costs one full read of this key's wraps from every
+relay, the price of a durable cursor not yet paid.
+
+**A word carries its time, and a burst loses nothing.** `Incoming::Control` carries `at`, the
+rumor's own `created_at` — NIP-59 tweaks the seal's stamp and the wrap's, never the rumor's, and the
+seal signs it — so a receiver can tell an old word from the newest when a relay hands them back in
+any order (the receivers' rule is theirs: the guest's session and the host's pump). Handing a wrap
+on waits for the slowest reader to make room on the bus (`Relays::make_room`, bounded): a catch-up
+unwraps faster than a reader applies, and a wrap dropped for a lagging reader was already noted as
+handed on — lost to it for the life of the process, whatever a later catch-up fetched. A reader
+that lagged all the same, or started late, has the pool forget what it has seen
+(`Relays::forget_seen`) and is handed everything again.
+
+**One relay, whatever its spelling.** `collab_settings::canonical_relay_url` — scheme and host in
+lowercase, a default port and a lone trailing slash left out — is what the pool, the settings'
+list and the command line compare by (`same_relay`); the spelling a person typed is what is stored
+and shown. Compared letter for letter, `wss://Relay.Example.com` connected and read *never tried*,
+and two spellings of one relay were two rows over one connection. The pool is reshaped by one
+caller at a time.
 
 **Every real relay is TLS, and the process has one crypto provider for it.** A relay URL is `wss://` anywhere, or `ws://` on this machine alone (`collab_settings::is_relay_url`, the one rule the setting's write, the panel's field and an invite's relays are held to — a plaintext relay elsewhere is refused where it is written and not adopted from an invite, said in the log). The websocket stack
 under `nostr-sdk` builds its TLS client with `rustls::ClientConfig::builder()` — the process-wide
@@ -143,7 +177,16 @@ which admits a hosted member's own key for the human kinds — `MESSAGE`, `REACT
 `DECISION` — and `CHANNEL` for an admin, refuses every other kind with *a hosted member writes as a
 human only*, refuses an attestation from any owner but this node's (*an agent of another node
 never writes here — its person may*), and checks reach and `PostInChannels` on every conversation
-fact. Nothing in the net crate decides admission. A person's `DECISION` is **filed by its gate's
+fact. A person's fact must name **this** workspace: its coordinate, `33405:<owner>:<scope>`, carries
+the owner's key, and one that names another workspace is refused for good. Two nodes may host each
+other; what one's person says in their own `general` is relayed to the other as its host, sealed by
+the same key that is a member there — and read by the scope's id alone it landed in the other
+workspace's `general`, read by its classifier and relayed to its people. A person's message is a
+plain post — never a membership event, an agent's reasoning or the platform's own sentence — and
+their `DECISION` kind carries a decision and nothing else, on a goal or a run this node holds. A
+person's reaction and retraction are said as they land (`RemoteFactArrived`), relayed at once and
+drawn in the owner's open thread. The one check the pump makes before the ladder: a person's seal
+carries that person's own fact, and nobody else's. A person's `DECISION` is **filed by its gate's
 home**: its `a` tag names the journal the gate hangs off — a goal's, or a run of the workspace's
 (`33413:<pk>:<RunId>`, [09](09-protocol-gep.md#the-kind-registry)) — the gate's governance policy
 decides it there, and it lands on that journal and in the index's `approvals` under that goal or
@@ -218,7 +261,7 @@ workspace, an engine, a harness or the node. The wire shapes it reads — `Hoste
 | C1 | A hosted member's node writes only a human's acts: its own key, the human kinds, a channel when an admin; every other kind is refused by name | `store/ingest.rs` (role admission); `tests/it/studio.rs` (`cross_workspace_message_ingest`) |
 | C2 | An agent of another node never writes here, whatever it carries: an attestation is admitted only from this node's owner | `store/ingest.rs`; `tests/it/studio.rs` |
 | C3 | A person receives exactly what their role reaches, wrapped to them alone; a guest sees only the channels it is rostered on | `net/truth.rs::reaches_fact`, `net/host.rs::reachers_of`; `tests/it/host.rs` |
-| C4 | An invite secret is stored hashed, claimed once, in constant time, and expires | `store/invites.rs`; its tests and `tests/it/host.rs` |
+| C4 | An invite secret is stored hashed, claimed once, in constant time, and expires — once under any race: the invitations and the members have one writer | `store/invites.rs::claim_and_admit`; its tests (`two_claims_of_one_code_at_once_admit_one`, `an_invitation_made_while_a_claim_lands_leaves_the_code_spent`) and `tests/it/host.rs` |
 | C5 | A message from outside reaches an agent only after the classifier's *safe*, or the owner's release — and never once its author is no longer a member, whenever that happened | `engine/collab.rs`, `store/held.rs` (one writer of the held list); `tests/it/collab.rs`; the unit test `a_release_and_a_verdict_at_once_lose_neither` in `store/held.rs` |
 | C6 | An agent woken by an outsider asks for every tool beyond read-only unless the owner said otherwise | `engine/security.rs`, `engine/inputs.rs`; `tests/it/collab.rs` |
 | C7 | What leaves the machine is redacted before it is signed | `engine/messaging.rs`, `guest/session.rs`; the guest's unit test `a_guest_joins_is_welcomed_posts_a_redacted_message_and_refuses_an_unreached_channel` in `crates/bisa-guest/src/session.rs` |

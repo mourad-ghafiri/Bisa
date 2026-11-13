@@ -31,8 +31,17 @@ pub enum Incoming {
     /// differ from the inner event's own author when a host relays another
     /// member's fact.
     Gep { sender: PublicKey, event: Event },
-    /// A control message; `sender` is the seal's verified author.
-    Control { sender: PublicKey, control: Control },
+    /// A control message; `sender` is the seal's verified author, and `at`
+    /// when they said it — the rumor's own time, unix seconds. NIP-59
+    /// tweaks the seal's stamp and the wrap's, never the rumor's, and the
+    /// seal's signature covers it: the one clock a word carries, by which a
+    /// receiver tells an old word from the newest when a relay hands them
+    /// back in any order.
+    Control {
+        sender: PublicKey,
+        control: Control,
+        at: u64,
+    },
     /// Something else (a plain NIP-17 DM, an unknown rumor kind) — ignored.
     Other,
 }
@@ -93,6 +102,7 @@ pub fn unwrap_incoming(keys: &Keys, gift_wrap: &Event) -> Result<Incoming, Colla
             Ok(control) => Ok(Incoming::Control {
                 sender: unwrapped.sender,
                 control,
+                at: unwrapped.rumor.created_at.as_secs(),
             }),
             // LCOV_EXCL_START: an envelope the wire did not make; out by decision
             Err(_) => Ok(Incoming::Other),
@@ -166,7 +176,9 @@ mod tests {
         };
         let wrap = wrap_control(&bob, alice.public_key(), &c).unwrap();
         match unwrap_incoming(&alice, &wrap).unwrap() {
-            Incoming::Control { sender, control } => {
+            Incoming::Control {
+                sender, control, ..
+            } => {
                 assert_eq!(sender, bob.public_key());
                 assert_eq!(control, c);
             }
@@ -181,5 +193,25 @@ mod tests {
         let eve = Keys::generate();
         let wrap = wrap_for_member(&alice, bob.public_key(), &signed_gep_event(&alice)).unwrap();
         assert!(unwrap_incoming(&eve, &wrap).is_err());
+    }
+
+    /// A word carries the time it was said: the rumor's own, which the
+    /// wrap's tweaked stamp hides from a relay and a receiver reads back.
+    #[test]
+    fn a_word_carries_the_time_it_was_said() {
+        let alice = Keys::generate();
+        let bob = Keys::generate();
+        let before = nostr::types::Timestamp::now().as_secs();
+        let wrap = wrap_control(&alice, bob.public_key(), &Control::Leave).unwrap();
+        let after = nostr::types::Timestamp::now().as_secs();
+        match unwrap_incoming(&bob, &wrap).unwrap() {
+            Incoming::Control { at, .. } => {
+                assert!(
+                    (before..=after).contains(&at),
+                    "{before} <= {at} <= {after}"
+                )
+            }
+            other => panic!("a word: {other:?}"),
+        }
     }
 }

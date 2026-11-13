@@ -49,7 +49,7 @@ pub fn add_member(
 }
 
 pub fn remove_member(inner: &Arc<Inner>, pubkey: &PrincipalId) -> Result<(), EngineError> {
-    Ok(inner.ws.remove_member(pubkey)?)
+    Ok(inner.ws.remove_person(pubkey)?)
 }
 
 /// Install one catalog entry and everything it needs. Idempotent: what is

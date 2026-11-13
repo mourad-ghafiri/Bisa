@@ -91,6 +91,43 @@ pub fn is_relay_url(url: &str) -> bool {
     }
 }
 
+/// A relay's address in the one form two spellings of it share: the scheme
+/// and the host in lowercase, a default port and a lone trailing slash left
+/// out, the path and the query as written. What "the same relay" is decided
+/// by — in the pool, in the list a setting holds, in a screen's *already
+/// configured* — while the spelling a person typed is what is stored and
+/// shown. `None` for what is no relay URL ([`is_relay_url`]).
+///
+/// Compared by spelling, `wss://Relay.Example.com` connected and read
+/// *never tried* — the relay layer keeps a host in lowercase — and
+/// `wss://a.example` beside `wss://a.example/` was two rows over one
+/// connection, where removing one took the relay from under the other.
+pub fn canonical_relay_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    if !is_relay_url(url) {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    let mut out = format!("{}://{}", parsed.scheme(), parsed.host_str()?);
+    if let Some(port) = parsed.port() {
+        out.push_str(&format!(":{port}"));
+    }
+    out.push_str(parsed.path().trim_end_matches('/'));
+    if let Some(query) = parsed.query() {
+        out.push_str(&format!("?{query}"));
+    }
+    Some(out)
+}
+
+/// Whether two addresses are one relay ([`canonical_relay_url`]); two
+/// strings that are no relay URL are the same only letter for letter.
+pub fn same_relay(a: &str, b: &str) -> bool {
+    match (canonical_relay_url(a), canonical_relay_url(b)) {
+        (Some(a), Some(b)) => a == b,
+        _ => a.trim() == b.trim(),
+    }
+}
+
 /// A direct peer entered by hand: which member, their endpoint, where.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -108,7 +145,8 @@ pub struct ManualPeer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncSettings {
     pub enabled: bool,
-    /// The relay URLs that passed [`is_relay_url`], deduplicated, in order.
+    /// The relay URLs that passed [`is_relay_url`], one per relay
+    /// ([`same_relay`]) in the spelling it was first given, in order.
     pub relays: Vec<String>,
     pub interval_secs: u64,
     pub publish_relay_list: bool,
@@ -240,7 +278,7 @@ impl SyncSettings {
                 let Some(url) = v.as_str().map(str::trim) else {
                     continue;
                 };
-                if is_relay_url(url) && !relays.iter().any(|r| r == url) {
+                if is_relay_url(url) && !relays.iter().any(|r| same_relay(r, url)) {
                     relays.push(url.to_string());
                 }
             }
@@ -545,5 +583,61 @@ mod tests {
             json!("wss://one.example"),
         )]));
         assert!(settings.relays.is_empty());
+    }
+
+    /// Two spellings of one relay are one relay: the host's case, a default
+    /// port, a lone trailing slash. A path, a port of its own and the scheme
+    /// are the relay's; what is no relay URL has no canonical form.
+    #[test]
+    fn two_spellings_of_one_relay_are_one_relay() {
+        let one = canonical_relay_url("wss://relay.example").unwrap();
+        for spelling in [
+            "wss://Relay.Example",
+            "WSS://relay.example/",
+            "wss://relay.example:443",
+            "  wss://relay.example  ",
+        ] {
+            assert_eq!(
+                canonical_relay_url(spelling).as_deref(),
+                Some(&*one),
+                "{spelling}"
+            );
+            assert!(same_relay(spelling, "wss://relay.example"), "{spelling}");
+        }
+        for another in [
+            "wss://relay.example:7777",
+            "wss://relay.example/nostr",
+            "wss://other.example",
+            "ws://127.0.0.1:7777",
+        ] {
+            assert!(!same_relay(another, "wss://relay.example"), "{another}");
+        }
+        assert_eq!(
+            canonical_relay_url("wss://relay.example/nostr/?k=1").as_deref(),
+            Some("wss://relay.example/nostr?k=1")
+        );
+        assert_eq!(canonical_relay_url("https://relay.example"), None);
+        assert_eq!(
+            canonical_relay_url("ws://relay.example"),
+            None,
+            "plaintext elsewhere"
+        );
+        assert!(same_relay("not a url", " not a url "));
+        assert!(!same_relay("not a url", "wss://relay.example"));
+
+        // The list a setting holds: one row a relay, in its first spelling.
+        let resolved = [Resolved {
+            key: keys::SYNC_RELAYS.into(),
+            value: serde_json::json!([
+                "wss://Relay.Example",
+                "wss://relay.example/",
+                "wss://other.example"
+            ]),
+            origin: crate::settings::Origin::Machine,
+        }];
+        assert_eq!(
+            SyncSettings::from_resolved(&resolved).relays,
+            ["wss://Relay.Example", "wss://other.example"]
+        );
     }
 }

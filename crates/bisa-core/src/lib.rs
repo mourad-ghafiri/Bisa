@@ -115,8 +115,8 @@ pub use channel::{
     MembershipEvent, RosterPolicy,
 };
 pub use collab_settings::{
-    is_relay_url, CollabSettings, CollaborationSecurity, JoinPolicy, ManualPeer, OutsiderTools,
-    SyncSettings,
+    canonical_relay_url, is_relay_url, same_relay, CollabSettings, CollaborationSecurity,
+    JoinPolicy, ManualPeer, OutsiderTools, SyncSettings,
 };
 pub use connector::{
     is_media_type, AccountAuth, AuthScheme, ChallengeEncoding, Connector, ConnectorAccount,

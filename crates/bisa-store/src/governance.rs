@@ -313,7 +313,8 @@ impl Workspace {
     ///
     /// 1. An **explicitly configured** policy is authoritative.
     /// 2. On the default `Owner` policy, the humans of the goal's assignee
-    ///    union may decide **in addition to** the owner — except for
+    ///    union whose role may decide gates — a member, an admin, never a
+    ///    guest — may decide **in addition to** the owner — except for
     ///    `Publish`, which never defers to an assignment
     ///    ([`Gate::defers_to_assignment`]): approving it spends the owner's
     ///    credentials.
@@ -336,7 +337,13 @@ impl Workspace {
         let Some(goal_id) = goal else {
             return Ok(false);
         };
-        Ok(self.assignee_approvers(goal_id).contains(signer))
+        // An assignment hands the gate to somebody whose role may decide
+        // gates: a guest decides none, assigned or not, and neither does
+        // anybody who is no member.
+        let may_decide = self
+            .member_role(signer)?
+            .is_some_and(|r| r.may(bisa_core::Permission::DecideGates));
+        Ok(may_decide && self.assignee_approvers(goal_id).contains(signer))
     }
 
     /// May `signer` decide `gate` under the stored policy alone?
@@ -443,6 +450,12 @@ mod tests {
     fn an_assigned_human_may_decide_every_gate_but_publish() {
         let (_dir, ws) = ws();
         let human = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        ws.add_member(
+            human.clone(),
+            bisa_core::MemberRole::Member,
+            crate::members::Admission::default(),
+        )
+        .unwrap();
         let goal = ws.create_goal(NewGoal::captured("delegated")).unwrap();
         ws.set_goal_assignees(goal.id, vec![bisa_core::Assignee::Human(human.clone())])
             .unwrap();
@@ -458,6 +471,44 @@ mod tests {
         assert!(!ws
             .gate_policy_allows_for(Gate::Approval, &human, Some(goal.id))
             .unwrap());
+    }
+
+    /// An assignment hands a goal's gates to somebody whose role may decide
+    /// gates. A guest decides none, assigned or not, and neither does
+    /// somebody who is no member: the assignee walk went by the assignment
+    /// alone, past the matrix that says a guest never decides.
+    #[test]
+    fn a_guest_assigned_a_goal_decides_no_gate() {
+        let (_dir, ws) = ws();
+        let key = || PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        let (guest, stranger, member) = (key(), key(), key());
+        for (who, role) in [
+            (&guest, bisa_core::MemberRole::Guest),
+            (&member, bisa_core::MemberRole::Member),
+        ] {
+            ws.add_member(who.clone(), role, crate::members::Admission::default())
+                .unwrap();
+        }
+        let goal = ws.create_goal(NewGoal::captured("delegated")).unwrap();
+        ws.set_goal_assignees(
+            goal.id,
+            [&guest, &stranger, &member]
+                .map(|p| bisa_core::Assignee::Human(p.clone()))
+                .to_vec(),
+        )
+        .unwrap();
+        for gate in [Gate::Approval, Gate::Escalation] {
+            for nobody in [&guest, &stranger] {
+                assert!(
+                    !ws.gate_policy_allows_for(gate, nobody, Some(goal.id))
+                        .unwrap(),
+                    "{gate}: an assignment gives no gate to one whose role decides none"
+                );
+            }
+            assert!(ws
+                .gate_policy_allows_for(gate, &member, Some(goal.id))
+                .unwrap());
+        }
     }
 
     #[test]

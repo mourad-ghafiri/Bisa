@@ -68,6 +68,9 @@ impl InviteCode {
             .is_some_and(|head| head.eq_ignore_ascii_case(INVITE_LINK_PREFIX));
         let (nprofile, secret) = if let Some(rest) = link.then(|| &code[INVITE_LINK_PREFIX.len()..])
         {
+            // What a browser, a chat client or a link shortener hangs on a
+            // link — `?utm=…`, `#top` — is no part of the code.
+            let rest = rest.split(['?', '#']).next().unwrap_or(rest);
             let rest = rest.trim_end_matches('/');
             rest.split_once('/').ok_or_else(|| {
                 CollabError::InviteCode("a link is bisa://join/<nprofile>/<secret>".into())
@@ -79,8 +82,13 @@ impl InviteCode {
         if secret.is_empty() || !secret.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(CollabError::InviteCode("the secret is not hex".into()));
         }
-        let profile = Nip19Profile::from_bech32(nprofile)
-            .map_err(|e| CollabError::InviteCode(format!("bad nprofile: {e}")))?;
+        // In words a person can act on: the decoder's own error names a
+        // checksum and a character position, which is nothing they pasted.
+        let profile = Nip19Profile::from_bech32(nprofile).map_err(|_| {
+            CollabError::InviteCode(
+                "the part before the secret is not a host's address (nprofile1…) — copy the invitation again, whole".into(),
+            )
+        })?;
         Ok(Self {
             host: PrincipalId::new(profile.public_key.to_hex())
                 .map_err(|e| CollabError::InviteCode(e.to_string()))?,
@@ -140,13 +148,32 @@ mod tests {
 
     #[test]
     fn a_code_that_is_not_one_is_refused_in_words() {
-        assert!(InviteCode::parse("hello").is_err());
-        assert!(InviteCode::parse("bisa://join/").is_err());
-        assert!(InviteCode::parse("nprofile1qqs:notHEX").is_err());
+        let refused = |code: &str| InviteCode::parse(code).unwrap_err().to_string();
+        assert!(refused("hello").contains("<nprofile>:<secret>"));
+        assert!(refused("bisa://join/").contains("bisa://join/<nprofile>/<secret>"));
+        assert!(refused("nprofile1qqs:notHEX").contains("not hex"));
         let host = Keys::generate();
         let code = InviteCode::new(host.public_key(), &[], "ab".repeat(32));
         assert!(code.link().unwrap().contains("/abab"));
-        assert!(InviteCode::parse("bisa://join/nprofile1garbage/abcd").is_err());
+        // A host part that is no address is said in words a person can act
+        // on — never the decoder's own error.
+        let garbage = refused("bisa://join/nprofile1garbage/abcd");
+        assert!(garbage.contains("not a host's address"), "{garbage}");
+        assert!(!garbage.to_lowercase().contains("checksum"), "{garbage}");
+    }
+
+    /// What a browser or a chat client hangs on a link is no part of the
+    /// code: a query, a fragment, a trailing slash. Read as part of the
+    /// secret, the link was refused as *not hex*.
+    #[test]
+    fn a_link_with_a_query_or_a_fragment_is_still_its_code() {
+        let host = Keys::generate();
+        let code = InviteCode::new(host.public_key(), &[], "ab".repeat(32));
+        let link = code.link().unwrap();
+        for hung in ["?utm_source=chat", "#top", "/?x=1#y", "/"] {
+            let parsed = InviteCode::parse(&format!("{link}{hung}")).unwrap();
+            assert_eq!(parsed, code, "{hung}");
+        }
     }
 
     /// A clipboard or a chat client may recase a link's prefix; the desktop

@@ -77,7 +77,10 @@ sender, so a wrap cannot be replayed as somebody else's, and a host may relay an
 fact with its own seal on the wrap. Ingest re-verifies the inner signature, dedupes by id,
 **admits by role** (this owner's key and its attested agents write anything; a hosted member's own
 key writes the human kinds — `3407`, `3408`, `7`, `3401` — and `33405` when an admin; an agent of
-another node never), checks reach on a conversation fact, and applies: journal append verbatim,
+another node never), holds a person's fact to **this** workspace — the owner's key in its `a`
+coordinate; a fact of another workspace is refused — and to its kind (a `3401` carries a decision,
+on a goal or a run this node holds; a person's `3407` is a post, never a membership event), checks
+reach on a conversation fact, and applies: journal append verbatim,
 snapshot latest-wins on `(created_at, revision)`. A run snapshot is admitted only when every
 approval step it records as done has a qualifying journaled decision locally, and never changes
 scope — a goal's run stays its goal's, a run in the workspace stays the workspace's; a goal snapshot

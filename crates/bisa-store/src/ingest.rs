@@ -72,14 +72,24 @@ fn tag_value<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
     })
 }
 
-/// Parse any `<kind>:<pubkey>:<d>` coordinate from the `a` tag.
-fn scope_coord(event: &Event) -> Option<(u16, String)> {
+/// Parse any `<kind>:<pubkey>:<d>` coordinate from the `a` tag: the kind,
+/// the workspace it names — its owner's key — and the id.
+fn scope_coord(event: &Event) -> Option<(u16, String, String)> {
     let coord = tag_value(event, "a")?;
     let mut parts = coord.splitn(3, ':');
     let k: u16 = parts.next()?.parse().ok()?;
-    let _pubkey = parts.next()?;
+    let owner = parts.next()?;
     let d = parts.next()?;
-    Some((k, d.to_string()))
+    Some((k, owner.to_string(), d.to_string()))
+}
+
+/// What a person's fact that names another workspace is refused with: the
+/// first letters of the key its coordinate names.
+fn of_another_workspace(named: &str) -> IngestOutcome {
+    reject(format!(
+        "a fact of another workspace — its coordinate names {}, not this one",
+        named.get(..8).unwrap_or(named)
+    ))
 }
 
 /// Parse a journal's address from the `a` tag: a goal's
@@ -115,8 +125,11 @@ fn hosted_may_write(role: bisa_core::MemberRole, wire_kind: u16) -> bool {
 
 /// Why a received message could never be posted, if it could not: the
 /// refusals a local post answers ([`Workspace::post_message`]), held for a
-/// received one too.
-fn unpostable(event: &Event) -> Option<String> {
+/// received one too — and, for a person on another node (`hosted`), the
+/// lines that are the platform's own to write: a membership event, a post
+/// wearing an agent's reasoning, a post said to be the platform's sentence.
+/// A person's message is a post: words, and the chips they carry.
+fn unpostable(event: &Event, hosted: bool) -> Option<String> {
     let body: bisa_core::MessageBody = match serde_json::from_str(&event.content) {
         Ok(body) => body,
         Err(e) => return Some(format!("message content is not a body: {e}")),
@@ -124,15 +137,21 @@ fn unpostable(event: &Event) -> Option<String> {
     if let Err(e) = body.validate() {
         return Some(e.to_string());
     }
+    let platforms_own =
+        "a person's message is a post — the platform's own lines are not theirs to write";
     let bisa_core::MessageBody::Post {
         text,
         context,
         artifacts,
-        ..
+        thinking,
+        said,
     } = &body
     else {
-        return None;
+        return hosted.then(|| platforms_own.to_string());
     };
+    if hosted && (thinking.is_some() || said.is_some()) {
+        return Some(platforms_own.to_string());
+    }
     let carries_a_file = event
         .tags
         .iter()
@@ -440,7 +459,7 @@ impl Workspace {
         if kind::is_addressable(wire_kind) {
             self.ingest_snapshot(event, wire_kind)
         } else {
-            self.ingest_journal(event, wire_kind)
+            self.ingest_journal(event, wire_kind, hosted.is_some())
         }
     }
 
@@ -452,9 +471,16 @@ impl Workspace {
         event: &Event,
         hosted: Option<bisa_core::MemberRole>,
     ) -> Result<IngestOutcome, StoreError> {
-        let Some((_, scope_id)) = scope_coord(event) else {
+        let Some((_, named, scope_id)) = scope_coord(event) else {
             return Ok(reject("conversation fact has no scope `a` tag"));
         };
+        // A person's fact is said in the workspace its coordinate names.
+        // One that names another — their own room of the same id — is not
+        // this workspace's, however well its scope reads here: for good.
+        if hosted.is_some() && named != self.owner_principal().as_hex() {
+            self.mark_seen(event)?;
+            return Ok(of_another_workspace(&named));
+        }
         let scope = match self.resolve_scope(&scope_id) {
             Ok(s) => s,
             Err(_) => return Ok(reject(format!("unknown scope {scope_id} (yet)"))),
@@ -489,7 +515,7 @@ impl Workspace {
         // its bounds, a post of nothing — is refused for good: marked seen,
         // it is not offered again at every catch-up.
         if event.kind.as_u16() == kind::KIND_MESSAGE {
-            if let Some(why) = unpostable(event) {
+            if let Some(why) = unpostable(event, hosted.is_some()) {
                 self.mark_seen(event)?;
                 return Ok(reject(why));
             }
@@ -509,6 +535,13 @@ impl Workspace {
                     audience: scope.audience.clone(),
                     author,
                     role,
+                });
+            } else {
+                // A reaction, a retraction: said as what it is — for the
+                // pump to relay and a window to draw — never as a message.
+                self.emit_store_event(crate::workspace::StoreEvent::RemoteFactArrived {
+                    scope: scope.id.clone(),
+                    event: event.clone(),
                 });
             }
         }
@@ -711,7 +744,12 @@ impl Workspace {
         }
     }
 
-    fn ingest_journal(&self, event: &Event, wire_kind: u16) -> Result<IngestOutcome, StoreError> {
+    fn ingest_journal(
+        &self,
+        event: &Event,
+        wire_kind: u16,
+        hosted: bool,
+    ) -> Result<IngestOutcome, StoreError> {
         let Some(addr) = journal_addr_of(event) else {
             return Ok(reject(format!(
                 "journal kind {wire_kind} has no goal or run `a` tag"
@@ -721,6 +759,33 @@ impl Workspace {
             Ok(je) => je,
             Err(reason) => return Ok(reject(format!("undecodable: {reason}"))),
         };
+        // A fact is what its kind says. No node writes one under another
+        // kind's number, and the admission above went by the number: a
+        // person's key, admitted for the decision kind, wrote any fact by
+        // wearing it. For good, whoever signed it.
+        if je.payload.event_kind().wire_kind() != wire_kind {
+            self.mark_seen(event)?;
+            return Ok(reject(format!(
+                "the fact a kind {wire_kind} event carries is not what kind {wire_kind} is"
+            )));
+        }
+        // A person's journal fact is a decision — the one journal kind the
+        // ladder admits them for — in this workspace, on a home this node
+        // holds: a journal waits for its goal only when its writer is this
+        // workspace on another machine, and nobody else makes its folder.
+        if hosted {
+            if addr.author_pubkey_hex != self.owner_principal().as_hex() {
+                self.mark_seen(event)?;
+                return Ok(of_another_workspace(&addr.author_pubkey_hex));
+            }
+            if !self.home_indexed(&addr.home)? {
+                self.mark_seen(event)?;
+                return Ok(reject(format!(
+                    "a person decides on a goal or a run this node holds — {} is one this node does not hold",
+                    addr.home
+                )));
+            }
+        }
         // A Decision only enters the journal if its signer may decide that
         // gate. Not marked seen: if governance later admits the signer, a
         // re-sync retry succeeds.
@@ -1535,6 +1600,7 @@ mod tests {
                 | StoreEvent::ConversationSnapshot { .. }
                 | StoreEvent::ReadMarkerSet { .. } => {}
                 StoreEvent::RemoteMessageArrived { .. }
+                | StoreEvent::RemoteFactArrived { .. }
                 | StoreEvent::RemoteDrawingArrived { .. }
                 | StoreEvent::RemoteChannelArrived { .. }
                 | StoreEvent::PeopleChanged { .. }
@@ -3158,25 +3224,359 @@ mod tests {
             host.ingest_remote_event(&long).unwrap(),
             IngestOutcome::Duplicate
         );
-        // A join or a leave is a message with nothing to weigh but its shape.
-        let joined = said(bisa_core::MessageBody::Membership(
-            bisa_core::MembershipEvent {
-                channel: bisa_core::ChannelId::general(),
-                member: bisa_core::Member::Agent(bisa_core::AgentId::general()),
-                change: bisa_core::MembershipChange::Joined,
-                cause: bisa_core::MembershipCause::Enabled,
-                at: 1,
-            },
-        ));
-        assert!(matches!(
-            host.ingest_remote_event(&joined).unwrap(),
-            IngestOutcome::AppliedConversation { .. }
-        ));
         assert!(matches!(
             host.ingest_remote_event(&said(bisa_core::MessageBody::post("hello")))
                 .unwrap(),
             IngestOutcome::AppliedConversation { .. }
         ));
-        assert_eq!(host.messages("general", None, 10).unwrap().len(), 2);
+        assert_eq!(host.messages("general", None, 10).unwrap().len(), 1);
+    }
+
+    // --- what a person on another node may write ---
+
+    /// A fact as a person's own node signs it: their key, the scope's
+    /// coordinate naming `owner`'s workspace.
+    fn said_in(
+        member: &Workspace,
+        owner: &Workspace,
+        scope: &str,
+        wire_kind: u16,
+        content: &str,
+        target: Option<&str>,
+    ) -> Event {
+        let mut tags = vec![Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:{scope}",
+                kind::KIND_CHANNEL,
+                owner.owner_keys().public_key().to_hex()
+            ),
+        ])
+        .unwrap()];
+        if let Some(id) = target {
+            tags.push(Tag::parse(["e", id]).unwrap());
+        }
+        EventBuilder::new(Kind::from(wire_kind), content)
+            .tags(tags)
+            .finalize(member.owner_keys())
+            .unwrap()
+    }
+
+    fn post_of(text: &str) -> String {
+        serde_json::to_string(&bisa_core::MessageBody::post(text)).unwrap()
+    }
+
+    /// A fact's coordinate names the workspace it was said in. A person's
+    /// fact that names another — their own, said in a room of their own
+    /// that happens to share this one's id — is not this workspace's:
+    /// refused, for good. Read by its scope's id alone, what a person said
+    /// in their own `general` landed in the `general` of every workspace
+    /// that hosts them and whose owner they host in turn — read by its
+    /// classifier, heard by its agents, relayed to its people.
+    #[test]
+    fn a_fact_addressed_to_another_workspace_is_refused_here() {
+        let (_d, host) = ws();
+        let (_dm, member) = hosted(&host, MemberRole::Member);
+        let theirs = said_in(
+            &member,
+            &member,
+            "general",
+            kind::KIND_MESSAGE,
+            &post_of("in my own room"),
+            None,
+        );
+        refused(
+            host.ingest_remote_event(&theirs).unwrap(),
+            "another workspace",
+        );
+        assert_eq!(
+            host.ingest_remote_event(&theirs).unwrap(),
+            IngestOutcome::Duplicate,
+            "refused for good"
+        );
+        assert!(host.messages("general", None, 10).unwrap().is_empty());
+
+        let here = said_in(
+            &member,
+            &host,
+            "general",
+            kind::KIND_MESSAGE,
+            &post_of("in yours"),
+            None,
+        );
+        assert!(matches!(
+            host.ingest_remote_event(&here).unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+        assert_eq!(host.messages("general", None, 10).unwrap().len(), 1);
+    }
+
+    /// A room is addressed by its workspace's owner whoever wrote its
+    /// record. Built from the record's signer, a room an admin on another
+    /// node wrote was addressed by the admin: the owner's own posts there
+    /// named another workspace.
+    #[test]
+    fn a_room_an_admin_wrote_is_still_addressed_by_its_owner() {
+        let (_d, host) = ws();
+        staffed(&host);
+        let (_da, admin) = hosted(&host, MemberRole::Admin);
+        let blue = channel_record(
+            &admin,
+            "blue",
+            1,
+            standing("blue", serde_json::json!({"policy": "listed"})),
+        );
+        host.ingest_remote_event(&blue).unwrap();
+        let owner = host.owner_keys().public_key().to_hex();
+        assert_eq!(
+            host.resolve_scope("blue").unwrap().coordinate,
+            format!("{}:{owner}:blue", kind::KIND_CHANNEL)
+        );
+        // And the admin's own word there, named as the owner's room, lands.
+        let said = said_in(
+            &admin,
+            &host,
+            "blue",
+            kind::KIND_MESSAGE,
+            &post_of("hello"),
+            None,
+        );
+        assert!(matches!(
+            host.ingest_remote_event(&said).unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+    }
+
+    /// A person's message is a post — words, with the chips they carry. The
+    /// platform's own lines are not theirs to write: a membership event, a
+    /// post wearing an agent's reasoning, a post said to be the platform's
+    /// sentence. Each is refused for good.
+    #[test]
+    fn a_person_cannot_post_the_platforms_own_line() {
+        let (_d, host) = ws();
+        let (_dm, member) = hosted(&host, MemberRole::Member);
+        let said = |body: &bisa_core::MessageBody| {
+            said_in(
+                &member,
+                &host,
+                "general",
+                kind::KIND_MESSAGE,
+                &serde_json::to_string(body).unwrap(),
+                None,
+            )
+        };
+        let joined = said(&bisa_core::MessageBody::Membership(
+            bisa_core::MembershipEvent {
+                channel: bisa_core::ChannelId::general(),
+                member: bisa_core::Member::Agent(bisa_core::AgentId::general()),
+                change: bisa_core::MembershipChange::Left,
+                cause: bisa_core::MembershipCause::Disabled,
+                at: 1,
+            },
+        ));
+        let mut thinking = bisa_core::MessageBody::post("words");
+        if let bisa_core::MessageBody::Post { thinking: t, .. } = &mut thinking {
+            *t = Some("an agent's reasoning".into());
+        }
+        let platform =
+            bisa_core::MessageBody::said(bisa_core::text!("error-store-invalid-not-digest"));
+        for line in [joined, said(&thinking), said(&platform)] {
+            refused(
+                host.ingest_remote_event(&line).unwrap(),
+                "a person's message",
+            );
+            assert_eq!(
+                host.ingest_remote_event(&line).unwrap(),
+                IngestOutcome::Duplicate
+            );
+        }
+        assert!(host.messages("general", None, 10).unwrap().is_empty());
+
+        let mut chips = bisa_core::MessageBody::post("see this");
+        if let bisa_core::MessageBody::Post { context, .. } = &mut chips {
+            context.push(bisa_core::ContextRef::Terminal {
+                session: "t1".into(),
+                tail: "cargo test".into(),
+            });
+        }
+        assert!(matches!(
+            host.ingest_remote_event(&said(&chips)).unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+    }
+
+    /// A person's reaction, and their taking a message back, are said when
+    /// they land, as their message is — for the pump to relay and a window
+    /// to draw. Applied in silence, the others heard them a round later and
+    /// the owner's open thread not at all. Neither is anything an agent is
+    /// woken by: they are said as what they are, never as a message.
+    #[test]
+    fn a_persons_reaction_and_retraction_are_said_when_they_land() {
+        let (_d, host) = ws();
+        let (_dm, member) = hosted(&host, MemberRole::Member);
+        let message = said_in(
+            &member,
+            &host,
+            "general",
+            kind::KIND_MESSAGE,
+            &post_of("hello"),
+            None,
+        );
+        host.ingest_remote_event(&message).unwrap();
+        let mut rx = host.subscribe_store_events();
+        let id = message.id.to_hex();
+        let reaction = said_in(
+            &member,
+            &host,
+            "general",
+            kind::KIND_REACTION,
+            "👍",
+            Some(&id),
+        );
+        let retraction = said_in(
+            &member,
+            &host,
+            "general",
+            kind::KIND_RETRACTION,
+            "",
+            Some(&id),
+        );
+        for fact in [&reaction, &retraction] {
+            assert!(matches!(
+                host.ingest_remote_event(fact).unwrap(),
+                IngestOutcome::AppliedConversation { .. }
+            ));
+        }
+        let mut said = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            match ev {
+                StoreEvent::RemoteFactArrived { scope, event } => {
+                    said.push((scope, event.id.to_hex()))
+                }
+                StoreEvent::RemoteMessageArrived { .. } => panic!("no message arrived"),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            said,
+            vec![
+                ("general".to_string(), reaction.id.to_hex()),
+                ("general".to_string(), retraction.id.to_hex())
+            ]
+        );
+    }
+
+    /// The decision kind carries a decision. A person's key is admitted for
+    /// it as a human's act — and for that act alone: another journal fact
+    /// under the kind's number is refused, whoever signs it, since no node
+    /// writes one. Held to governance only when the payload *was* a
+    /// decision, a guest wrote any fact on any goal by numbering it 3401.
+    #[test]
+    fn a_decision_kind_that_carries_anything_else_is_refused() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let (goal_id, _run, journal, goal_snapshot, _) = started_goal(&ws2);
+        ws1.ingest_remote_event(&goal_snapshot).unwrap();
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        let lines = || {
+            std::fs::read_to_string(ws1.paths().goal(goal_id).journal())
+                .unwrap()
+                .lines()
+                .count()
+        };
+        let before = lines();
+        let not_a_decision = journal
+            .iter()
+            .find(|ev| ev.kind.as_u16() != kind::KIND_DECISION)
+            .expect("a fact of another kind");
+        let (_d3, guest) = hosted(&ws1, MemberRole::Guest);
+        for signer in [guest.owner_keys(), ws2.owner_keys()] {
+            let forged = EventBuilder::new(
+                Kind::from(kind::KIND_DECISION),
+                not_a_decision.content.clone(),
+            )
+            .tags(not_a_decision.tags.iter().cloned())
+            .finalize(signer)
+            .unwrap();
+            refused(
+                ws1.ingest_remote_event(&forged).unwrap(),
+                "is not what kind",
+            );
+            assert_eq!(
+                ws1.ingest_remote_event(&forged).unwrap(),
+                IngestOutcome::Duplicate,
+                "refused for good"
+            );
+        }
+        assert_eq!(lines(), before, "nothing was journaled");
+    }
+
+    /// A person's decision is filed on a home this node holds, in this
+    /// workspace. One that names a goal nobody holds makes no folder for it
+    /// — a journal waits for its goal only when its writer is this
+    /// workspace on another machine — and one that names another
+    /// workspace's goal is not this one's.
+    #[test]
+    fn a_persons_decision_on_a_goal_nobody_holds_makes_no_folder() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let (goal_id, run_id, journal, goal_snapshot, _) = started_goal(&ws2);
+        ws1.ingest_remote_event(&goal_snapshot).unwrap();
+        for ev in &journal {
+            ws1.ingest_remote_event(ev).unwrap();
+        }
+        ws1.set_gate_policy(Gate::Approval, crate::governance::GatePolicy::Members)
+            .unwrap();
+        let dec = ws2
+            .record_decision(
+                &Home::Goal { goal: goal_id },
+                Gate::Approval,
+                true,
+                &approval_subject(run_id, &sid("ship")),
+                None,
+                None,
+            )
+            .unwrap();
+        let (journal2, _) = raw_events(&ws2, goal_id);
+        let owners = journal2.iter().find(|ev| ev.id.to_hex() == dec.0).unwrap();
+        let (_d3, bob) = hosted(&ws1, MemberRole::Member);
+        let owner = ws1.owner_keys().public_key().to_hex();
+        let decision_on = |coordinate: String| {
+            EventBuilder::new(owners.kind, owners.content.clone())
+                .tags([Tag::parse(["a", &coordinate]).unwrap()])
+                .finalize(bob.owner_keys())
+                .unwrap()
+        };
+
+        let nowhere = GoalId::from_ulid(crate::workspace::mint_ulid());
+        let unheld = decision_on(format!("{}:{owner}:{nowhere}", kind::KIND_GOAL));
+        refused(
+            ws1.ingest_remote_event(&unheld).unwrap(),
+            "this node does not hold",
+        );
+        assert!(
+            !ws1.paths().goal(nowhere).dir().exists(),
+            "no folder is made for a goal nobody holds"
+        );
+
+        let elsewhere = decision_on(format!(
+            "{}:{}:{goal_id}",
+            kind::KIND_GOAL,
+            bob.owner_keys().public_key().to_hex()
+        ));
+        refused(
+            ws1.ingest_remote_event(&elsewhere).unwrap(),
+            "another workspace",
+        );
+
+        let here = decision_on(format!("{}:{owner}:{goal_id}", kind::KIND_GOAL));
+        assert_eq!(
+            ws1.ingest_remote_event(&here).unwrap(),
+            IngestOutcome::AppliedJournal {
+                home: Home::Goal { goal: goal_id }
+            }
+        );
     }
 }

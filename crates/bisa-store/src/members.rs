@@ -73,6 +73,16 @@ impl Workspace {
         }
     }
 
+    /// Whether the member file names `pubkey` — the file's word, whatever
+    /// the mirror says.
+    pub(crate) fn read_member_file_has(&self, pubkey: &PrincipalId) -> Result<bool, StoreError> {
+        Ok(self
+            .read_member_file()?
+            .members
+            .iter()
+            .any(|m| m.pubkey == *pubkey))
+    }
+
     fn write_member_file(&self, file: &MemberFile) -> Result<(), StoreError> {
         crate::paths::write_atomic(
             &self.paths.members_file(),
@@ -87,6 +97,26 @@ impl Workspace {
             m.label.as_deref(),
             m.added_at,
         )
+    }
+
+    /// The mirror made to say what the file says, whole: every row the file
+    /// names and none it does not. What reads the mirror — `is_member`, and
+    /// through it a roster, a direct channel and a mention — must not go on
+    /// answering for people a file moved aside at open used to name.
+    fn mirror_members(&self, members: &[WorkspaceMember]) -> Result<(), StoreError> {
+        let idx = self.idx();
+        idx.in_transaction(|| {
+            idx.clear_members()?;
+            for m in members {
+                idx.upsert_member(
+                    m.pubkey.as_hex(),
+                    m.role.as_str(),
+                    m.label.as_deref(),
+                    m.added_at,
+                )?;
+            }
+            Ok(())
+        })
     }
 
     /// Called at `open()`: the workspace owner identity is always a member.
@@ -108,69 +138,111 @@ impl Workspace {
             });
             self.write_member_file(&file)?;
         }
-        for m in &file.members {
-            self.index_member(m)?;
-        }
-        Ok(())
+        self.mirror_members(&file.members)
     }
 
-    /// Admit (or re-state) a hosted member at a role. Idempotent; the owner's
-    /// row is immutable and nobody else may be made owner. A row already
-    /// there keeps who invited it and what it said it was unless the
-    /// admission says otherwise.
+    fn say(&self, pubkey: &PrincipalId, change: crate::workspace::PeopleChange) {
+        self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
+            pubkey: pubkey.clone(),
+            change,
+        });
+    }
+
+    /// Admit a hosted member at a role, or re-state one who is here. The
+    /// owner's row is immutable and nobody else may be made owner. A row
+    /// already there keeps who invited it and what it said it was unless the
+    /// admission says otherwise — and says what moved: a role as a role
+    /// change, a name or a face as a profile change, nothing when nothing
+    /// did. *Joined* is said once, for the admission that made the row.
     pub fn add_member(
         &self,
         pubkey: PrincipalId,
         role: MemberRole,
         admission: Admission,
     ) -> Result<(), StoreError> {
+        let _one_writer = self.people_writer();
+        if let Some(change) = self.add_member_locked(&pubkey, role, admission)? {
+            self.say(&pubkey, change);
+        }
+        Ok(())
+    }
+
+    /// [`Self::add_member`] under the people's writer, answering what to say
+    /// once the caller's last write is done.
+    pub(crate) fn add_member_locked(
+        &self,
+        pubkey: &PrincipalId,
+        role: MemberRole,
+        admission: Admission,
+    ) -> Result<Option<crate::workspace::PeopleChange>, StoreError> {
+        use crate::workspace::PeopleChange;
         let mut file = self.read_member_file()?;
-        check_member_change(&file.members, &pubkey, Some(role))?;
-        if role == MemberRole::Owner && pubkey != self.owner_principal() {
+        check_member_change(&file.members, pubkey, Some(role))?;
+        if role == MemberRole::Owner && *pubkey != self.owner_principal() {
             // LCOV_EXCL_START: the core refuses a second owner first (`check_member_change`); this holds when the file has no owner row yet
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-workspace-has-exactly-one-owner-own-keypair"
             )));
             // LCOV_EXCL_STOP
         }
-        match file.members.iter_mut().find(|m| m.pubkey == pubkey) {
+        // A person is a human on another node; one of this workspace's own
+        // agents, admitted as one, would be relayed to and listed as a face.
+        if role.is_hosted() && self.idx().agent_id_for_pubkey(pubkey.as_hex())?.is_some() {
+            return Err(StoreError::Invalid(bisa_core::text!(
+                "error-store-invalid-key-of-agent-not-person",
+                pubkey = pubkey.to_string()
+            )));
+        }
+        // The one rule every label passes, an invitation's and one typed by
+        // the owner among them.
+        let label = bisa_core::clean_label(admission.label);
+        let said = match file.members.iter_mut().find(|m| m.pubkey == *pubkey) {
             Some(existing) => {
+                let before = existing.clone();
                 existing.role = role;
-                existing.label = admission.label.or(existing.label.take());
+                existing.label = label.or(existing.label.take());
                 existing.photo = admission.photo.or(existing.photo.take());
                 existing.invited_by = admission.invited_by.or(existing.invited_by.take());
                 existing.client = admission.client.or(existing.client.take());
+                if *existing == before {
+                    return Ok(None);
+                }
+                if existing.role != before.role {
+                    PeopleChange::RoleChanged { role }
+                } else {
+                    PeopleChange::ProfileChanged
+                }
             }
-            None => file.members.push(WorkspaceMember {
-                pubkey: pubkey.clone(),
-                role,
-                label: admission.label,
-                photo: admission.photo,
-                invited_by: admission.invited_by,
-                client: admission.client,
-                added_at: now_secs(),
-            }),
-        }
+            None => {
+                file.members.push(WorkspaceMember {
+                    pubkey: pubkey.clone(),
+                    role,
+                    label,
+                    photo: admission.photo,
+                    invited_by: admission.invited_by,
+                    client: admission.client,
+                    added_at: now_secs(),
+                });
+                PeopleChange::Joined { role }
+            }
+        };
         self.write_member_file(&file)?;
-        if let Some(row) = file.members.iter().find(|m| m.pubkey == pubkey) {
+        if let Some(row) = file.members.iter().find(|m| m.pubkey == *pubkey) {
             self.index_member(row)?;
         } // LCOV_EXCL_LINE: the row was written just above
-        if role.is_hosted() {
-            self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
-                pubkey,
-                change: crate::workspace::PeopleChange::Joined { role },
-            });
-        }
-        Ok(())
+        Ok(role.is_hosted().then_some(said))
     }
 
     /// Change a hosted member's role. The owner's cannot change; a role is
     /// never the owner's; an unknown person is a refusal, not a creation.
+    /// The role they already hold is no change: nothing is written and
+    /// nobody is told.
     pub fn set_role(
         &self,
         pubkey: &PrincipalId,
         role: MemberRole,
     ) -> Result<WorkspaceMember, StoreError> {
+        let _one_writer = self.people_writer();
         let mut file = self.read_member_file()?;
         check_member_change(&file.members, pubkey, Some(role))?;
         if role == MemberRole::Owner {
@@ -190,14 +262,14 @@ impl Workspace {
                     pubkey = pubkey.to_string()
                 ))
             })?;
+        if row.role == role {
+            return Ok(row.clone());
+        }
         row.role = role;
         let row = row.clone();
         self.write_member_file(&file)?;
         self.index_member(&row)?;
-        self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
-            pubkey: pubkey.clone(),
-            change: crate::workspace::PeopleChange::RoleChanged { role },
-        });
+        self.say(pubkey, crate::workspace::PeopleChange::RoleChanged { role });
         Ok(row)
     }
 
@@ -206,14 +278,16 @@ impl Workspace {
     /// node, the owner's row. Each part is kept when `None` and cleared when
     /// `Some(None)`. One write, one `ProfileChanged` — the owner's row too,
     /// since the pump carries the owner's profile to every host it is a
-    /// guest of. An unknown person is a refusal, not a creation; the role
-    /// never moves here.
+    /// guest of — and neither when the profile said is the one that stands.
+    /// An unknown person is a refusal, not a creation; the role never moves
+    /// here.
     pub fn set_member_profile(
         &self,
         pubkey: &PrincipalId,
         label: Option<Option<String>>,
         photo: Option<Option<AttachmentRef>>,
     ) -> Result<WorkspaceMember, StoreError> {
+        let _one_writer = self.people_writer();
         let mut file = self.read_member_file()?;
         let row = file
             .members
@@ -225,34 +299,78 @@ impl Workspace {
                     pubkey = pubkey.to_string()
                 ))
             })?;
+        let before = row.clone();
         if let Some(label) = label {
             row.label = bisa_core::clean_label(label);
         }
         if let Some(photo) = photo {
             row.photo = photo;
         }
+        if *row == before {
+            return Ok(before);
+        }
         let row = row.clone();
         self.write_member_file(&file)?;
         self.index_member(&row)?;
-        self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
-            pubkey: pubkey.clone(),
-            change: crate::workspace::PeopleChange::ProfileChanged,
-        });
+        self.say(pubkey, crate::workspace::PeopleChange::ProfileChanged);
         Ok(row)
     }
 
-    /// Remove a member. The workspace owner can never be removed.
+    /// Take one member's row away — the file's, then the mirror's. The
+    /// workspace owner can never be removed. Removing a person whole — their
+    /// held messages and their places on rosters with the row — is
+    /// [`Self::remove_person`].
     pub fn remove_member(&self, pubkey: &PrincipalId) -> Result<(), StoreError> {
+        let _one_writer = self.people_writer();
+        if self.remove_member_locked(pubkey)? {
+            self.say(pubkey, crate::workspace::PeopleChange::Left);
+        }
+        Ok(())
+    }
+
+    /// [`Self::remove_member`] under the people's writer: whether a row was
+    /// there to take — the file's or the mirror's. Each is taken when it is
+    /// there, so a removal whose mirror write failed is finished, and said,
+    /// by the next one.
+    fn remove_member_locked(&self, pubkey: &PrincipalId) -> Result<bool, StoreError> {
         let mut file = self.read_member_file()?;
         check_member_change(&file.members, pubkey, None)?;
-        let was = file.members.len();
-        file.members.retain(|m| m.pubkey != *pubkey);
-        self.write_member_file(&file)?;
-        self.idx().delete_member(pubkey.as_hex())?;
-        if file.members.len() != was {
-            self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
-                pubkey: pubkey.clone(),
-                change: crate::workspace::PeopleChange::Left,
+        let in_file = file.members.iter().any(|m| m.pubkey == *pubkey);
+        let in_mirror = self.idx().is_member(pubkey.as_hex())?;
+        if in_file {
+            file.members.retain(|m| m.pubkey != *pubkey);
+            self.write_member_file(&file)?;
+        }
+        if in_mirror {
+            self.idx().delete_member(pubkey.as_hex())?;
+        }
+        Ok(in_file || in_mirror)
+    }
+
+    /// Remove a person, whole: their row, what is held of theirs, their
+    /// places on rosters. The one removal — the owner's and a person's own
+    /// leave alike.
+    ///
+    /// **The row goes first.** From then on ingest refuses them, a roster
+    /// takes no new add of their name, and a verdict landing meanwhile on a
+    /// message of theirs finds nobody to hold it for. *Left* is said there,
+    /// once: the person is out from that moment, whatever a later step does.
+    /// Each step is safe to run again, so a removal stopped midway — a held
+    /// list that would not read — is finished by asking again, and says
+    /// nothing twice. Somebody who is not here, with nothing left of theirs,
+    /// is nobody to remove.
+    pub fn remove_person(&self, pubkey: &PrincipalId) -> Result<(), StoreError> {
+        let _one_writer = self.people_writer();
+        let was_member = self.remove_member_locked(pubkey)?;
+        if was_member {
+            self.say(pubkey, crate::workspace::PeopleChange::Left);
+        }
+        let held = self.drop_held_of(pubkey)?;
+        let rooms = self.unroster_human_everywhere(pubkey)?;
+        if !was_member && held == 0 && rooms == 0 {
+            return Err(StoreError::DefinitionNotFound {
+                kind: "person",
+                id: pubkey.to_string(),
             });
         }
         Ok(())
@@ -303,17 +421,18 @@ impl Workspace {
     }
 
     pub(crate) fn reindex_members(&self) -> Result<(), StoreError> {
-        for m in &self.read_member_file_or_quarantine()?.members {
-            self.index_member(m)?;
-        }
-        Ok(())
+        let file = self.read_member_file_or_quarantine()?;
+        self.mirror_members(&file.members)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::held::HeldReason;
     use crate::identity::MemoryKeyStore;
+    use crate::workspace::{PeopleChange, StoreEvent};
+    use bisa_core::{RosterPolicy, Tags};
     use nostr::key::Keys;
 
     fn ws() -> (tempfile::TempDir, Workspace) {
@@ -336,21 +455,31 @@ mod tests {
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].role, MemberRole::Owner);
         assert_eq!(ws.member_role(&owner).unwrap(), Some(MemberRole::Owner));
-        assert!(ws.remove_member(&owner).is_err());
-        for role in MemberRole::HOSTED {
-            assert!(
-                ws.add_member(owner.clone(), role, Admission::default())
-                    .is_err(),
-                "the owner cannot be demoted to {role}"
-            );
-            assert!(ws.set_role(&owner, role).is_err());
+        let immutable = "cannot be removed or demoted";
+        for removal in [ws.remove_member(&owner), ws.remove_person(&owner)] {
+            let refused = removal.unwrap_err();
+            assert!(refused.to_string().contains(immutable), "{refused}");
         }
+        for role in MemberRole::HOSTED {
+            let refused = ws
+                .add_member(owner.clone(), role, Admission::default())
+                .unwrap_err();
+            assert!(
+                refused.to_string().contains(immutable),
+                "the owner cannot be demoted to {role}: {refused}"
+            );
+            let refused = ws.set_role(&owner, role).unwrap_err();
+            assert!(refused.to_string().contains(immutable), "{refused}");
+        }
+        let second = ws
+            .add_member(pk(), MemberRole::Owner, Admission::default())
+            .unwrap_err();
         assert!(
-            ws.add_member(pk(), MemberRole::Owner, Admission::default())
-                .is_err(),
-            "one owner"
+            second.to_string().contains("exactly one owner"),
+            "one owner: {second}"
         );
         assert!(ws.people().unwrap().is_empty());
+        assert_eq!(ws.members().unwrap().len(), 1, "nothing was written");
     }
 
     #[test]
@@ -406,11 +535,13 @@ mod tests {
 
         let promoted = ws.set_role(&bob, MemberRole::Admin).unwrap();
         assert_eq!(promoted.role, MemberRole::Admin);
+        let stranger = ws.set_role(&pk(), MemberRole::Guest).unwrap_err();
         assert!(
-            ws.set_role(&pk(), MemberRole::Guest).is_err(),
-            "not a member"
+            stranger.to_string().contains("is not a member"),
+            "{stranger}"
         );
-        assert!(ws.set_role(&bob, MemberRole::Owner).is_err());
+        let second = ws.set_role(&bob, MemberRole::Owner).unwrap_err();
+        assert!(second.to_string().contains("exactly one owner"), "{second}");
 
         ws.remove_member(&bob).unwrap();
         assert!(!ws.is_member(&bob).unwrap());
@@ -471,9 +602,13 @@ mod tests {
             "the owner stays first"
         );
         // A stranger has no row to set.
-        assert!(ws
+        let stranger = ws
             .set_member_profile(&pk(), Some(Some("x".into())), None)
-            .is_err());
+            .unwrap_err();
+        assert!(
+            stranger.to_string().contains("is not a member"),
+            "{stranger}"
+        );
         // A person's face brought at admission is kept and re-stated.
         let alice = pk();
         ws.add_member(
@@ -516,5 +651,311 @@ mod tests {
             matches!(unreadable, Err(StoreError::Io { .. })),
             "{unreadable:?}"
         );
+    }
+
+    // --- one writer for the people ---
+
+    /// A member's own node says who they are while the owner removes them:
+    /// each is a read of the file, a change and a write. With two writers at
+    /// once the profile wrote the file as it had read it — the person in it
+    /// — over the removal: removed, told so, and a member again.
+    #[test]
+    fn a_profile_and_a_removal_at_once_never_bring_the_person_back() {
+        let (_dir, ws) = ws();
+        for round in 0..40 {
+            let bob = pk();
+            ws.add_member(bob.clone(), MemberRole::Member, Admission::default())
+                .unwrap();
+            let together = std::sync::Barrier::new(2);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    together.wait();
+                    ws.remove_member(&bob).unwrap();
+                });
+                s.spawn(|| {
+                    together.wait();
+                    // Refused when the removal came first; either way the
+                    // person is gone once both are done.
+                    ws.set_member_profile(&bob, Some(Some("Bob".into())), None)
+                        .ok();
+                });
+            });
+            assert_eq!(
+                ws.member(&bob).unwrap(),
+                None,
+                "round {round}: the file has them back"
+            );
+            assert!(
+                !ws.is_member(&bob).unwrap(),
+                "round {round}: the mirror has them back"
+            );
+        }
+    }
+
+    /// A role is changed while somebody else is admitted: both stand.
+    #[test]
+    fn a_role_change_and_an_admission_at_once_keep_both() {
+        let (_dir, ws) = ws();
+        for round in 0..40 {
+            let (alice, carol) = (pk(), pk());
+            ws.add_member(alice.clone(), MemberRole::Member, Admission::default())
+                .unwrap();
+            let together = std::sync::Barrier::new(2);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    together.wait();
+                    ws.set_role(&alice, MemberRole::Admin).unwrap();
+                });
+                s.spawn(|| {
+                    together.wait();
+                    ws.add_member(carol.clone(), MemberRole::Guest, Admission::default())
+                        .unwrap();
+                });
+            });
+            assert_eq!(
+                ws.member_role(&alice).unwrap(),
+                Some(MemberRole::Admin),
+                "round {round}: the role change was lost"
+            );
+            assert_eq!(
+                ws.member_role(&carol).unwrap(),
+                Some(MemberRole::Guest),
+                "round {round}: the admission was lost"
+            );
+        }
+    }
+
+    /// What was said about one person since the receiver was last drained.
+    fn said_of(
+        events: &mut tokio::sync::broadcast::Receiver<StoreEvent>,
+        who: &PrincipalId,
+    ) -> Vec<PeopleChange> {
+        let mut said = Vec::new();
+        while let Ok(ev) = events.try_recv() {
+            if let StoreEvent::PeopleChanged { pubkey, change } = ev {
+                if pubkey == *who {
+                    said.push(change);
+                }
+            }
+        }
+        said
+    }
+
+    /// One removal, whole: the row, what is held of theirs, their places on
+    /// rosters — the row first. Stopped at its second step by a held list
+    /// that will not read, the person is out already and *left* is said;
+    /// asked again once the list reads, the rest is done and nothing is said
+    /// twice; asked a third time, there is nobody to remove.
+    #[test]
+    fn a_removal_stopped_midway_finishes_when_asked_again_and_is_said_once() {
+        let (_dir, ws) = ws();
+        let bob = pk();
+        ws.add_member(bob.clone(), MemberRole::Guest, Admission::default())
+            .unwrap();
+        let design = ws
+            .create_channel("design", None, RosterPolicy::default(), Tags::default())
+            .unwrap();
+        ws.set_roster_humans(&design.id, vec![bob.clone()]).unwrap();
+        ws.hold_message("e1", "design", bob.clone(), HeldReason::Pending)
+            .unwrap();
+        let held = ws.paths.held_file();
+        let sound = std::fs::read(&held).unwrap();
+        std::fs::write(&held, b"{ not json").unwrap();
+        let mut events = ws.subscribe_store_events();
+
+        let stopped = ws.remove_person(&bob).unwrap_err();
+        assert!(
+            matches!(
+                stopped,
+                StoreError::Unreadable {
+                    what: "held messages",
+                    ..
+                }
+            ),
+            "{stopped:?}"
+        );
+        assert_eq!(ws.member(&bob).unwrap(), None, "out from the first step");
+        assert!(!ws.is_member(&bob).unwrap());
+        assert!(
+            ws.get_channel(&design.id).unwrap().roster.lists_human(&bob),
+            "the step after the one that stopped was not reached"
+        );
+
+        std::fs::write(&held, &sound).unwrap();
+        ws.remove_person(&bob).unwrap();
+        assert!(ws.held_messages().unwrap().is_empty());
+        assert!(!ws.get_channel(&design.id).unwrap().roster.lists_human(&bob));
+        assert_eq!(
+            said_of(&mut events, &bob),
+            vec![PeopleChange::Left],
+            "said once, at the step that took the row"
+        );
+
+        for nobody in [bob, pk()] {
+            let refused = ws.remove_person(&nobody).unwrap_err();
+            assert!(
+                matches!(
+                    refused,
+                    StoreError::DefinitionNotFound { kind: "person", .. }
+                ),
+                "{refused:?}"
+            );
+        }
+        assert!(said_of(&mut events, &ws.owner_principal()).is_empty());
+    }
+
+    /// A removal whose mirror write failed left the file without the person
+    /// and the mirror with them — and nothing said. The next removal takes
+    /// the mirror's row and says *left*: the person is told.
+    #[test]
+    fn a_row_the_mirror_alone_still_holds_is_taken_and_said_by_the_next_removal() {
+        let (_dir, ws) = ws();
+        let bob = pk();
+        ws.add_member(bob.clone(), MemberRole::Member, Admission::default())
+            .unwrap();
+        // The file without the row, the mirror with it: what a failed
+        // mirror write leaves.
+        let mut file = ws.read_member_file().unwrap();
+        file.members.retain(|m| m.pubkey != bob);
+        ws.write_member_file(&file).unwrap();
+        assert!(ws.is_member(&bob).unwrap());
+        let mut events = ws.subscribe_store_events();
+        ws.remove_person(&bob).unwrap();
+        assert!(!ws.is_member(&bob).unwrap());
+        assert_eq!(said_of(&mut events, &bob), vec![PeopleChange::Left]);
+    }
+
+    /// What already stands is no change: the role a person holds, the
+    /// profile they have, an admission that says nothing new — nothing is
+    /// written and nobody is told. Each used to write the file and tell
+    /// everyone the directory. A re-statement that does move something says
+    /// what moved, and never *joined* a second time.
+    #[test]
+    fn what_already_stands_is_no_change_and_a_restatement_says_what_moved() {
+        let (_dir, ws) = ws();
+        let bob = pk();
+        ws.add_member(
+            bob.clone(),
+            MemberRole::Member,
+            Admission {
+                label: Some("Bob".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut events = ws.subscribe_store_events();
+        let before = std::fs::metadata(ws.paths.members_file())
+            .unwrap()
+            .modified()
+            .unwrap();
+        let file_before = std::fs::read(ws.paths.members_file()).unwrap();
+
+        assert_eq!(
+            ws.set_role(&bob, MemberRole::Member).unwrap().role,
+            MemberRole::Member
+        );
+        ws.set_member_profile(&bob, Some(Some(" Bob ".into())), None)
+            .unwrap();
+        ws.set_member_profile(&bob, None, Some(None)).unwrap();
+        ws.add_member(bob.clone(), MemberRole::Member, Admission::default())
+            .unwrap();
+        assert!(said_of(&mut events, &bob).is_empty(), "nobody was told");
+        assert_eq!(std::fs::read(ws.paths.members_file()).unwrap(), file_before);
+        assert_eq!(
+            std::fs::metadata(ws.paths.members_file())
+                .unwrap()
+                .modified()
+                .unwrap(),
+            before,
+            "nothing was written"
+        );
+
+        ws.add_member(bob.clone(), MemberRole::Admin, Admission::default())
+            .unwrap();
+        ws.add_member(
+            bob.clone(),
+            MemberRole::Admin,
+            Admission {
+                label: Some("Robert".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            said_of(&mut events, &bob),
+            vec![
+                PeopleChange::RoleChanged {
+                    role: MemberRole::Admin
+                },
+                PeopleChange::ProfileChanged
+            ]
+        );
+    }
+
+    /// A label given at an admission passes the one rule every label does:
+    /// short, printable, or none.
+    #[test]
+    fn a_label_given_at_admission_passes_the_one_rule() {
+        let (_dir, ws) = ws();
+        let (bob, carol) = (pk(), pk());
+        ws.add_member(
+            bob.clone(),
+            MemberRole::Guest,
+            Admission {
+                label: Some(format!("Bob\u{7}{}", "x".repeat(200))),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let label = ws.member(&bob).unwrap().unwrap().label.unwrap();
+        assert_eq!(label.chars().count(), bisa_core::MAX_LABEL_CHARS);
+        assert!(label.starts_with("Bobx"), "{label}");
+        ws.add_member(
+            carol.clone(),
+            MemberRole::Guest,
+            Admission {
+                label: Some("   ".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ws.member(&carol).unwrap().unwrap().label, None);
+    }
+
+    /// A person is a human on another node. One of this workspace's own
+    /// agents is not one: admitted, it was relayed to as a person and
+    /// listed with a face in everybody's directory.
+    #[test]
+    fn one_of_this_workspaces_own_agents_is_no_person() {
+        let (_dir, ws) = ws();
+        let agent = ws.get_agent(&bisa_core::AgentId::general()).unwrap().pubkey;
+        for role in MemberRole::HOSTED {
+            let refused = ws
+                .add_member(agent.clone(), role, Admission::default())
+                .unwrap_err();
+            assert!(refused.to_string().contains("own agents"), "{refused}");
+        }
+        assert_eq!(ws.member(&agent).unwrap(), None);
+        assert!(ws.people().unwrap().is_empty());
+    }
+
+    /// A writer that fell over while it held the people's lock does not stop
+    /// the next: the files are whatever its last write left, and the next
+    /// write reads them again.
+    #[test]
+    fn a_writer_that_fell_over_does_not_stop_the_next() {
+        let (_dir, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        let held = ws.clone();
+        let panicked = std::thread::spawn(move || {
+            let _writer = held.people_writer();
+            panic!("a writer that fell over");
+        })
+        .join();
+        assert!(panicked.is_err());
+        let bob = pk();
+        ws.add_member(bob.clone(), MemberRole::Guest, Admission::default())
+            .unwrap();
+        assert!(ws.is_member(&bob).unwrap());
     }
 }

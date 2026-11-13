@@ -89,7 +89,7 @@ pub use index::{
     WorkItemRow, WorkflowRow, SCHEMA, SCHEMA_VERSION,
 };
 pub use ingest::{remote_goal_admissible, run_snapshot_admissible, IngestOutcome};
-pub use invites::Claimed;
+pub use invites::{ClaimFailure, ClaimOutcome};
 pub use journal::{EventLog, JournalAddr, JsonlEventLog};
 pub use listening::{ListenerRuntime, ProjectMemory};
 pub use mcp::NewMcp;

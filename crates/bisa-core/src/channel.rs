@@ -192,6 +192,19 @@ impl RosterPolicy {
         }
     }
 
+    /// Put `person` on the list, once. `Everyone` lists nobody by name, so
+    /// there is no list to put them on — `general` is everyone's already.
+    pub fn add_human(&mut self, person: &PrincipalId) {
+        match self {
+            RosterPolicy::Everyone => {}
+            RosterPolicy::Listed { humans, .. } => {
+                if !humans.contains(person) {
+                    humans.push(person.clone());
+                }
+            }
+        }
+    }
+
     /// Whether this roster puts `person` in the room by name.
     pub fn lists_human(&self, person: &PrincipalId) -> bool {
         self.humans().contains(person)
@@ -493,6 +506,24 @@ mod tests {
         assert_eq!(roster.humans(), std::slice::from_ref(&grace));
         let mut everyone = RosterPolicy::Everyone;
         everyone.drop_human(&grace);
+        assert_eq!(everyone, RosterPolicy::Everyone);
+    }
+
+    #[test]
+    fn a_person_is_put_on_a_listed_roster_once_and_everyone_keeps_no_list() {
+        let key = |c: char| PrincipalId::new(c.to_string().repeat(64)).unwrap();
+        let (ada, grace) = (key('a'), key('b'));
+        let mut roster = RosterPolicy::Listed {
+            agents: vec![],
+            teams: vec![],
+            humans: vec![ada.clone()],
+        };
+        roster.add_human(&grace);
+        roster.add_human(&grace);
+        roster.add_human(&ada);
+        assert_eq!(roster.humans(), [ada.clone(), grace.clone()]);
+        let mut everyone = RosterPolicy::Everyone;
+        everyone.add_human(&grace);
         assert_eq!(everyone, RosterPolicy::Everyone);
     }
 

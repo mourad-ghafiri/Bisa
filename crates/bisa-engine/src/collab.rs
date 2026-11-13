@@ -23,8 +23,8 @@ use crate::events::{EngineEvent, EnginePayload};
 use crate::{EngineError, Inner};
 use bisa_collab::{hash_secret, mint_secret, InviteCode};
 use bisa_core::{
-    reaches, ChannelId, CollabSettings, Invite, InviteId, InviteState, MemberRole, MessageBody,
-    PrincipalId, SyncSettings, WorkspaceMember,
+    reaches, ChannelId, CollabSettings, Invite, InviteId, MemberRole, MessageBody, PrincipalId,
+    SyncSettings, WorkspaceMember,
 };
 use bisa_security::classify::MessageSubject;
 use bisa_security::ClassifierVerdict;
@@ -345,24 +345,14 @@ pub fn revoke_invite(inner: &Arc<Inner>, id: InviteId) -> Result<Invite, EngineE
 }
 
 /// The owner's word on a claim that waited: admit the person at the
-/// invite's role and channels, or refuse them. The host's pump tells them.
+/// invite's role and channels, or refuse them — the store's one admission,
+/// whole under the people's writer. The host's pump tells them.
 pub fn settle_invite(inner: &Arc<Inner>, id: InviteId, admit: bool) -> Result<Invite, EngineError> {
-    let invite = inner.ws.invite(id)?;
-    let (by, label) = match &invite.state {
-        InviteState::Requested { by, label, .. } => (by.clone(), label.clone()),
-        other => {
-            return Err(EngineError::Invalid(bisa_core::text!(
-                "error-engine-invalid-invite-not-waiting-you",
-                id = id.to_string(),
-                a0 = (other.as_str()).to_string()
-            )))
-        }
-    };
-    let settled = inner.ws.settle_invite(id, admit)?;
-    if admit {
-        inner.ws.admit_claimed(&settled, &by, label, None)?;
-    }
-    Ok(settled)
+    Ok(if admit {
+        inner.ws.admit_request(id)?.0
+    } else {
+        inner.ws.refuse_request(id)?
+    })
 }
 
 // -- people --------------------------------------------------------------
@@ -375,17 +365,12 @@ pub fn set_role(
     Ok(inner.ws.set_role(pubkey, role)?)
 }
 
-/// Remove a person: off every roster, their held messages dropped, their
-/// row gone. What they already hold of this workspace cannot be un-sent.
+/// Remove a person: their row gone, their held messages dropped, off every
+/// roster — the store's one removal, the row first, so a verdict landing
+/// meanwhile (`keep_held`) finds nobody to hold a message for. What they
+/// already hold of this workspace cannot be un-sent.
 pub fn remove_person(inner: &Arc<Inner>, pubkey: &PrincipalId) -> Result<(), EngineError> {
-    // The member row goes first, the held rows after: a verdict landing in
-    // between (`keep_held`) reads the membership again after it holds, and a
-    // row held for a person already gone is dropped there — whichever side
-    // of `drop_held_of` it landed on.
-    inner.ws.remove_member(pubkey)?;
-    inner.ws.drop_held_of(pubkey)?;
-    inner.ws.unroster_human_everywhere(pubkey)?;
-    Ok(())
+    Ok(inner.ws.remove_person(pubkey)?)
 }
 
 /// The owner's own profile — their label, their face — as `PUT /workspace/me`

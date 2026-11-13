@@ -34,7 +34,7 @@ use bisa_core::kind::KIND_CHANNEL;
 use bisa_core::{
     clean_label, CollabSettings, InviteState, JoinPolicy, MemberRole, Permission, PrincipalId,
 };
-use bisa_store::{IngestOutcome, PeopleChange, StoreEvent, Workspace};
+use bisa_store::{ClaimFailure, ClaimOutcome, IngestOutcome, PeopleChange, StoreEvent, Workspace};
 use nostr::event::Event;
 use nostr::key::{Keys, PublicKey};
 use nostr::types::Timestamp;
@@ -221,7 +221,7 @@ impl Host {
                         // LCOV_EXCL_START: the pool's bus lagging or closing under the reader; a race no test can time
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!(
-                                "host inbound lagged by {n}; the next catch-up brings it"
+                                "host inbound lagged by {n}: those wraps were noted as handed on and are lost to this reader until the pool forgets what it has seen"
                             );
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -425,6 +425,11 @@ fn face_held(inner: &Inner, sha256: &str) -> Option<Face> {
     let bytes = inner.ws.attachment_bytes(sha256).ok().flatten()?;
     bisa_core::is_face(&bytes).then(|| Face::from_bytes(&bytes))
 }
+
+/// What a joiner reads when their code was good and the host could not
+/// write the admission: the code is theirs to try again.
+const NOT_ADMITTED: &str =
+    "the host could not admit you just now — the code is still good; try it again";
 
 fn known_client(client: &str) -> Option<String> {
     [CLIENT_DESKTOP, CLIENT_MOBILE, CLIENT_CLI]
@@ -637,12 +642,16 @@ async fn flush_outbox(inner: &Arc<Inner>) {
     }
 }
 
+/// One catch-up from where the last one that landed left off. The cursor
+/// moves only when a relay was there to answer: moved after a fetch that
+/// reached nobody, an outage longer than the window lost what was published
+/// in it.
 async fn catch_up(inner: &Arc<Inner>) {
     let last = inner.last_catchup.load(Ordering::Relaxed);
-    inner.relays.catch_up((last != 0).then_some(last)).await;
-    inner
-        .last_catchup
-        .store(Timestamp::now().as_secs(), Ordering::Relaxed);
+    let asked_at = Timestamp::now().as_secs();
+    if inner.relays.catch_up((last != 0).then_some(last)).await {
+        inner.last_catchup.store(asked_at, Ordering::Relaxed);
+    }
 }
 
 /// A channel was made, changed, rostered or deleted: everyone's reach may
@@ -661,7 +670,9 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
         // relays facts by its own pump, never by echo.
         StoreEvent::RemoteDrawingArrived { .. } => {} // LCOV_EXCL_LINE: the pump does nothing with a drawing; out by decision
         StoreEvent::ConversationAppended { event, .. }
-        | StoreEvent::RemoteMessageArrived { event, .. } => relay_fact(inner, &event).await,
+        | StoreEvent::RemoteMessageArrived { event, .. }
+        // A person's reaction or retraction, relayed as it lands.
+        | StoreEvent::RemoteFactArrived { event, .. } => relay_fact(inner, &event).await,
         StoreEvent::ConversationSnapshot { kind, .. } if kind == KIND_CHANNEL => {
             tell_everyone_their_channels(inner).await;
         }
@@ -756,6 +767,18 @@ pub(crate) async fn on_incoming(inner: &Arc<Inner>, incoming: &Incoming) {
                 return;
                 // LCOV_EXCL_STOP
             }
+            // A person's seal carries that person's own fact. Only the host
+            // relays what somebody else wrote; taken under a member's seal,
+            // another author's fact was judged by its author alone — the
+            // owner's own words, sealed back by a workspace that hosts them,
+            // among them.
+            if event.pubkey != *sender {
+                tracing::debug!(
+                    "a fact by {} under {sender}'s seal — a person relays nobody's fact but their own; ignored",
+                    event.pubkey
+                );
+                return;
+            }
             let ws = Arc::clone(&inner.ws);
             let event_id = event.id.to_hex();
             let event = event.clone();
@@ -791,7 +814,9 @@ pub(crate) async fn on_incoming(inner: &Arc<Inner>, incoming: &Incoming) {
                 } // LCOV_EXCL_STOP
             }
         }
-        Incoming::Control { sender, control } => on_control(inner, *sender, control).await,
+        Incoming::Control {
+            sender, control, ..
+        } => on_control(inner, *sender, control).await,
         Incoming::Other => {} // LCOV_EXCL_LINE: an envelope the wire did not make; out by decision
     }
 }
@@ -818,47 +843,53 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
             let collab = CollabSettings::from_resolved(&settings);
             let label = clean_label(label.clone());
             let waits = collab.join == JoinPolicy::Ask;
-            match inner
-                .ws
-                .claim_invite(&hash_secret(secret), &person, label.clone(), waits)
-            {
-                Ok(claimed) if claimed.waits => {
+            // The store's one admission, whole under the people's writer.
+            match inner.ws.claim_and_admit(
+                &hash_secret(secret),
+                &person,
+                label,
+                known_client(client),
+                waits,
+            ) {
+                Ok(ClaimOutcome::Admitted { member, .. }) => {
+                    tracing::info!("admitted {sender} as {}", member.role.as_str());
+                    // The welcome rides the store's `PeopleChanged`.
+                }
+                Ok(ClaimOutcome::Waiting { .. }) => {
                     tracing::info!("{sender} asked to join; the owner admits by hand");
                     send_control(inner, sender, &Control::Waiting).await;
                 }
-                Ok(claimed) => {
-                    match inner.ws.admit_claimed(
-                        &claimed.invite,
-                        &person,
-                        label,
-                        known_client(client),
-                    ) {
-                        Ok(member) => {
-                            tracing::info!("admitted {sender} as {}", member.role.as_str());
-                            // The welcome rides the store's `PeopleChanged`.
-                        }
-                        // LCOV_EXCL_START: a claim the store took is one it admits; by construction
-                        Err(e) => {
-                            tracing::warn!("admitting {sender}: {e}");
-                            send_control(
-                                inner,
-                                sender,
-                                &Control::Refused {
-                                    reason: e.to_string(),
-                                },
-                            )
-                            .await;
-                            // LCOV_EXCL_STOP
-                        }
+                // A member's own node claims only when it lost what it held
+                // of this workspace: they are told where they stand again,
+                // and the code is kept for whoever it was made for. The
+                // owner's own key is no person of its workspace: nothing.
+                Ok(ClaimOutcome::AlreadyMember { member }) => {
+                    if !member.role.is_hosted() {
+                        return;
                     }
+                    tracing::info!("{sender} is a member already; welcomed again");
+                    welcome(inner, &person, member.role).await;
                 }
-                Err(refusal) => {
+                Err(ClaimFailure::Refused(refusal)) => {
                     tracing::info!("join from {sender} refused: {refusal}");
                     send_control(
                         inner,
                         sender,
                         &Control::Refused {
                             reason: refusal.to_string(),
+                        },
+                    )
+                    .await;
+                }
+                // The host's own trouble is the host's to read: what it
+                // names — a file on this disk — is nothing a joiner is sent.
+                Err(ClaimFailure::NotAdmitted(e)) => {
+                    tracing::warn!("{sender} held a good code and could not be admitted: {e}");
+                    send_control(
+                        inner,
+                        sender,
+                        &Control::Refused {
+                            reason: NOT_ADMITTED.into(),
                         },
                     )
                     .await;
@@ -871,17 +902,13 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                 return;
                 // LCOV_EXCL_STOP
             }
-            let ws = &inner.ws;
-            if let Err(e) = ws
-                .unroster_human_everywhere(&person)
-                .and_then(|_| ws.drop_held_of(&person))
-                .and_then(|_| ws.remove_member(&person))
-            {
-                // LCOV_EXCL_START: the members file unwritable; a disk arm
-                tracing::warn!("removing {sender} who left: {e}");
+            // The store's one removal: the row first, then what is held of
+            // theirs and their places on rosters.
+            match inner.ws.remove_person(&person) {
+                Ok(()) => tracing::info!("{sender} left"),
+                // LCOV_EXCL_START: the people's files unwritable under a leave; a disk arm
+                Err(e) => tracing::warn!("removing {sender} who left: {e}"),
                 // LCOV_EXCL_STOP
-            } else {
-                tracing::info!("{sender} left");
             }
         }
         Control::OpenDm { participants } => {
@@ -1021,6 +1048,126 @@ mod tests {
             "nobody was admitted by a profile"
         );
         assert!(ws.people().unwrap().is_empty());
+        host.stop().await;
+    }
+
+    /// The owner's own key claiming one of its own codes — a link pasted
+    /// into the node that made it — claims nothing: the code stands, and the
+    /// owner is no person of their own workspace.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_owners_own_claim_of_their_own_code_claims_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Arc::new(
+            Workspace::open_with_keystore(
+                dir.path(),
+                Box::new(bisa_store::MemoryKeyStore::default()),
+            )
+            .unwrap(),
+        );
+        let relays = Relays::start(ws.owner_keys().clone(), &[]).await;
+        let host = Host::start(
+            Arc::clone(&ws),
+            relays,
+            NetConfig {
+                relays: vec![],
+                sync_interval_secs: 1,
+                publish_relay_list: false,
+                iroh: false,
+                ..NetConfig::default()
+            },
+            dir.path().to_path_buf(),
+        )
+        .await
+        .unwrap();
+        let secret = "ab".repeat(16);
+        ws.create_invite(MemberRole::Member, vec![], None, 3600, hash_secret(&secret))
+            .unwrap();
+        on_control(
+            &host.inner,
+            ws.owner_keys().public_key(),
+            &Control::Join {
+                secret,
+                label: None,
+                client: "desktop".into(),
+            },
+        )
+        .await;
+        assert_eq!(ws.invites().unwrap()[0].state, InviteState::Pending);
+        assert!(ws.people().unwrap().is_empty());
+        host.stop().await;
+    }
+
+    /// A person's seal carries that person's own fact, and nobody else's:
+    /// the owner's own words, handed back under a member's seal, land
+    /// nowhere — a fact is relayed by its workspace's host alone.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_person_relays_nobodys_fact_but_their_own() {
+        use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Arc::new(
+            Workspace::open_with_keystore(
+                dir.path(),
+                Box::new(bisa_store::MemoryKeyStore::default()),
+            )
+            .unwrap(),
+        );
+        let relays = Relays::start(ws.owner_keys().clone(), &[]).await;
+        let host = Host::start(
+            Arc::clone(&ws),
+            relays,
+            NetConfig {
+                relays: vec![],
+                sync_interval_secs: 3600,
+                publish_relay_list: false,
+                iroh: false,
+                ..NetConfig::default()
+            },
+            dir.path().to_path_buf(),
+        )
+        .await
+        .unwrap();
+        let bob = Keys::generate();
+        ws.add_member(
+            PrincipalId::new(bob.public_key().to_hex()).unwrap(),
+            MemberRole::Member,
+            bisa_store::Admission::default(),
+        )
+        .unwrap();
+        let said = |keys: &Keys, text: &str| {
+            EventBuilder::new(
+                Kind::from(bisa_core::kind::KIND_MESSAGE),
+                serde_json::to_string(&bisa_core::MessageBody::post(text)).unwrap(),
+            )
+            .tags([Tag::parse([
+                "a",
+                &format!(
+                    "{KIND_CHANNEL}:{}:general",
+                    ws.owner_keys().public_key().to_hex()
+                ),
+            ])
+            .unwrap()])
+            .finalize(keys)
+            .unwrap()
+        };
+        let owners = said(ws.owner_keys(), "the owner's own words, handed back");
+        let bobs = said(&bob, "bob's own");
+        for event in [owners, bobs] {
+            on_incoming(
+                &host.inner,
+                &Incoming::Gep {
+                    sender: bob.public_key(),
+                    event,
+                },
+            )
+            .await;
+        }
+        let texts: Vec<String> = ws
+            .messages("general", None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect();
+        assert_eq!(texts, ["bob's own"]);
         host.stop().await;
     }
 }

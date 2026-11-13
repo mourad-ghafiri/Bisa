@@ -806,10 +806,11 @@ async fn the_doors_refuse_a_word_that_is_no_role_an_id_that_is_no_invite_and_set
     let parsed = bisa_collab::InviteCode::parse(v["code"].as_str().unwrap()).unwrap();
     let dana = pid(&nostr::key::Keys::generate().public_key().to_hex());
     node.ws
-        .claim_invite(
+        .claim_and_admit(
             &bisa_collab::hash_secret(&parsed.secret),
             &dana,
             Some("Dana".into()),
+            None,
             true,
         )
         .unwrap();
@@ -823,6 +824,23 @@ async fn the_doors_refuse_a_word_that_is_no_role_an_id_that_is_no_invite_and_set
         Some(MemberRole::Member)
     );
 
+    // Removing somebody who is not here is *not found*, never *removed*:
+    // a stranger, and Dana a second time.
+    let stranger = pid(&nostr::key::Keys::generate().public_key().to_hex());
+    let (code, v) = node
+        .req("DELETE", &format!("/workspace/people/{stranger}"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req("DELETE", &format!("/workspace/people/{dana}"), None)
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(node.ws.member_role(&dana).unwrap(), None);
+    let (code, v) = node
+        .req("DELETE", &format!("/workspace/people/{dana}"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+
     // And one turned down.
     node.post("/channels", json!({"name": "design"})).await;
     let v = node
@@ -835,7 +853,13 @@ async fn the_doors_refuse_a_word_that_is_no_role_an_id_that_is_no_invite_and_set
     let parsed = bisa_collab::InviteCode::parse(v["code"].as_str().unwrap()).unwrap();
     let eve = pid(&nostr::key::Keys::generate().public_key().to_hex());
     node.ws
-        .claim_invite(&bisa_collab::hash_secret(&parsed.secret), &eve, None, true)
+        .claim_and_admit(
+            &bisa_collab::hash_secret(&parsed.secret),
+            &eve,
+            None,
+            None,
+            true,
+        )
         .unwrap();
     let (code, v) = node
         .req("POST", &format!("/workspace/invites/{id}/refuse"), None)

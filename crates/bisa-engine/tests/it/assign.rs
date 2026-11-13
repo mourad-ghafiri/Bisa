@@ -518,6 +518,12 @@ fn a_project_human_may_decide_the_goals_gates() {
     let project_human = human();
     let ancestor_human = human();
     let stranger = human();
+    // An assignment hands a gate to somebody whose role may decide gates:
+    // the people assigned are members of the workspace.
+    for person in [&project_human, &ancestor_human] {
+        ws.add_member(person.clone(), MemberRole::Member, Admission::default())
+            .unwrap();
+    }
 
     ws.set_goal_assignees(ancestor.id, vec![Assignee::Human(ancestor_human.clone())])
         .unwrap();
@@ -581,12 +587,14 @@ fn an_explicit_policy_is_never_widened_by_an_assignment() {
     let goal = ws
         .create_goal(bisa_store::NewGoal::captured("narrow"))
         .unwrap();
+    // An assignee, like a listed pubkey, counts only while it is a member
+    // whose role may decide gates.
     let assignee = human();
-    // A listed pubkey counts only while it is a member whose role may
-    // decide gates.
     let listed = human();
-    ws.add_member(listed.clone(), MemberRole::Member, Admission::default())
-        .unwrap();
+    for person in [&assignee, &listed] {
+        ws.add_member(person.clone(), MemberRole::Member, Admission::default())
+            .unwrap();
+    }
     ws.set_goal_assignees(goal.id, vec![Assignee::Human(assignee.clone())])
         .unwrap();
 

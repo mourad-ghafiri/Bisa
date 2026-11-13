@@ -8,6 +8,79 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The people of a workspace have one writer.** `members.json` and `invites.json` were each read,
+  changed and written with no lock. A member's profile arriving as the owner removed them brought
+  the person back — removed, told so, and a member again; a role changed while somebody else was
+  admitted lost one of the two; an invitation made while a claim landed wrote the claimed code back
+  as pending, and it admitted a second person. Both files are written under one lock now, taken
+  before the held list's and the roster's.
+
+- **A code is claimed in one move.** The host marked a code used and admitted its claimer in a
+  second step: a failure between the two left a used code and nobody admitted, answered with the
+  store's own error — a path on the host's disk in it — and no way to try again. The code is spent
+  and its claimer admitted whole, the code put back when the member cannot be written, and a
+  failure is said in words. Somebody who is a member already claims nothing — an admin who pasted
+  a guest's link became a guest — and is welcomed again; a second claim while the first waits on
+  the owner is told *waiting*, where it was told *refused*.
+
+- **A removal is whole, and there is one.** The owner's removal and a person's own leave were
+  composed apart, in opposite orders: a step that failed kept a member who had left, and a removal
+  run again never told them. One removal takes the row first, then what is held of theirs, then
+  their places on rosters, each step safe to ask again. Removing somebody who is not here answers
+  *not found* — `bisa workspace remove` and `DELETE /workspace/people/{pubkey}` (404) — where it
+  answered *removed*.
+
+- **An invitations file or a held list that does not read is moved aside at open**, as the member
+  file is, and named in Settings › Node and by `bisa workspace check`. Left where it was, each
+  failed for good: no invitation could be made and every claim was refused; no message from outside
+  could be held, and nobody could leave or be removed.
+
+- **Two workspaces that host each other keep their rooms apart.** A fact names the workspace it
+  was said in, and nothing read that half of its address: what a person said in their own `general`
+  landed in the `general` of a workspace that hosted them and whose owner they hosted — read by its
+  classifier, heard by its agents, relayed to its people. A person's fact that names another
+  workspace is refused; a room is addressed by its owner whoever wrote its record; and a person's
+  seal carries that person's own fact alone. The direct link carries attachments only for now: its
+  fact sync was this crossing.
+
+- **What a person on another node may write is held to what the docs said.** A hosted person's
+  decision kind carried any journal fact — a guest could write a note, a withdrawal or a detachment
+  on any goal, and a folder was made for a goal that did not exist; it carries a decision now, on a
+  goal or a run this node holds. A person's message is a post: a membership event, an agent's
+  reasoning or the platform's own sentence under their key is refused. A guest assigned a goal
+  decides none of its gates, and neither does an assignee who is no member (an assignment used to
+  be enough).
+
+- **A person's reaction or retraction is told as it lands** — relayed to the others at once and
+  drawn in the owner's open thread, where the others heard it a round later and the owner at the
+  next reload.
+
+- **A burst of messages larger than the relay pool's buffer is no longer lost.** After a restart
+  the pool reads everything the relays kept; unwrapped faster than a reader could apply, the
+  oldest were dropped for that reader and — already noted as handed on — never brought again
+  while the node ran. Handing on now waits for the reader, the live subscription asks only for
+  the recent window so a reconnect no longer replays a relay's whole store, and the catch-up's
+  cursor moves only when a relay actually answered.
+
+- **A relay is one relay whatever its spelling.** `wss://Relay.Example.com` connected and read
+  *never tried*; `wss://a.example` beside `wss://a.example/` was two rows over one connection, and
+  removing one took the relay from under the other. `bisa relay add` and `remove` compare the same
+  way.
+
+- **An invitation link with something hung on it still works** — a `?query` or a `#fragment` a
+  chat client or a browser added was read as part of the secret and refused as *not hex*; a host
+  part that is no address is said in words, not as the decoder's error.
+
+- **People, smaller.** The index's copy of the members is replaced whole at open — after a broken
+  member file was moved aside it went on answering *a member* for the people that file had named;
+  a label on an invitation, or typed under *Admit by key*, is cleaned as any other (64 characters,
+  printable); a role or a profile set to what it already is writes nothing and tells nobody; one of
+  the workspace's own agents cannot be admitted as a person; a guest is put on an invitation's
+  channels without undoing a roster edit made at the same moment; a verdict on a held message
+  never holds again one the owner already answered (`restate_held`, the store's half).
+
 ## [0.8.0] - 2026-11-13
 
 ### Security

@@ -2697,6 +2697,13 @@ impl Index {
         Ok(())
     }
 
+    /// Empty the mirror — one half of replacing it whole from the file
+    /// (`Workspace::mirror_members`), in the caller's transaction.
+    pub fn clear_members(&self) -> Result<(), StoreError> {
+        self.conn.execute("DELETE FROM members", [])?;
+        Ok(())
+    }
+
     pub fn delete_member(&self, pubkey: &str) -> Result<(), StoreError> {
         self.conn
             .execute("DELETE FROM members WHERE pubkey = ?1", params![pubkey])?;

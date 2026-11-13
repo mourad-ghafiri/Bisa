@@ -687,10 +687,12 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         "{withdrawn}"
     );
     host.refused(&["workspace", "revoke", "not-an-id"]);
-    // Bob left: a role names nobody; a removal of somebody gone is a removal.
+    // Bob left: a role names nobody, and so does a removal — there is
+    // nobody to remove, and the verb says so rather than *removed*.
     let nobody = host.bisa(&["workspace", "role", &bob, "member"]);
     assert!(!nobody.status.success(), "{}", said_by(&nobody));
-    host.ok(&["workspace", "remove", &bob]);
+    let gone = host.refused(&["workspace", "remove", &bob]);
+    assert!(gone.contains("not found"), "{gone}");
     // The relays, read and tried from the settings alone.
     let listed = host.json(&["relay", "list"]);
     assert_eq!(listed["enabled"], true, "{listed}");

@@ -90,7 +90,8 @@ pub async fn relay_add(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
         bail!(bisa_core::text!("cli-net-relay-ws-wss-url"));
     }
     let mut relays = sync_settings(&ctx.workspace()?)?.relays;
-    let added = !relays.contains(&url);
+    // One row a relay, whatever its spelling.
+    let added = !relays.iter().any(|r| bisa_core::same_relay(r, &url));
     if added {
         relays.push(url.clone());
         write_relays(ctx, &relays).await?;
@@ -107,7 +108,7 @@ pub async fn relay_add(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
 pub async fn relay_remove(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
     let mut relays = sync_settings(&ctx.workspace()?)?.relays;
     let before = relays.len();
-    relays.retain(|r| r != url.trim());
+    relays.retain(|r| !bisa_core::same_relay(r, url));
     let removed = relays.len() != before;
     if removed {
         write_relays(ctx, &relays).await?;
@@ -651,7 +652,7 @@ pub async fn join(ctx: &Ctx, out: &Out, code: &str, label: Option<String>) -> Re
         }
         let mut relays = settings.relays;
         for r in &parsed.relays {
-            if is_relay_url(r) && !relays.contains(r) {
+            if is_relay_url(r) && !relays.iter().any(|have| bisa_core::same_relay(have, r)) {
                 relays.push(r.clone());
             } else if !is_relay_url(r) {
                 // An invite names where to meet; one that is no relay URL
@@ -1071,7 +1072,7 @@ impl CollabDoors for Pump {
                 .relays;
             let mut grew = false;
             for r in &parsed.relays {
-                if is_relay_url(r) && !relays.contains(r) {
+                if is_relay_url(r) && !relays.iter().any(|have| bisa_core::same_relay(have, r)) {
                     relays.push(r.clone());
                     grew = true;
                 } else if !is_relay_url(r) {

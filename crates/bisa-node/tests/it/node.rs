@@ -13257,6 +13257,42 @@ async fn a_guests_message_and_an_admins_channel_reach_the_owners_event_stream() 
     );
     assert_eq!(frame["payload"]["unread_count"], json!(1), "{frame}");
 
+    // Their reaction to it is said as it lands too: a frame of its kind,
+    // for the open thread to draw — it reached the owner's window at the
+    // next reload, where a local reaction reached it at once.
+    let reacted = EventBuilder::new(Kind::from(bisa_core::kind::KIND_REACTION), "👍")
+        .tags([
+            Tag::parse([
+                "a",
+                &format!(
+                    "{}:{}:general",
+                    bisa_core::kind::KIND_CHANNEL,
+                    node.ws.owner_keys().public_key().to_hex()
+                ),
+            ])
+            .unwrap(),
+            Tag::parse(["e", &said.id.to_hex()]).unwrap(),
+        ])
+        .finalize(admin.owner_keys())
+        .unwrap();
+    let heard = sse_frame_with(
+        node.socket.clone(),
+        vec![format!("\"event_id\":\"{}\"", reacted.id.to_hex())],
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    node.ws.ingest_remote_event(&reacted).unwrap();
+    let line = tokio::time::timeout(Duration::from_secs(10), heard)
+        .await
+        .expect("a frame for the guest's reaction")
+        .unwrap()
+        .expect("the stream ended");
+    let frame: Value = serde_json::from_str(line.trim_start_matches("data:").trim()).expect(&line);
+    assert_eq!(
+        frame["payload"]["kind"],
+        json!(bisa_core::kind::KIND_REACTION),
+        "{frame}"
+    );
+
     admin
         .create_channel(
             "blue",

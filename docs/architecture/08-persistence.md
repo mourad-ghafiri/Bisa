@@ -136,7 +136,10 @@ open; every other file this build cannot read is quarantined or skipped, and nam
 is signed by the old one, and the file is written atomically from now on (a temporary hard-linked
 into place), so it is never torn again by a crash. Everything else: `members.json` and the
 `general` channel's snapshot are moved under `quarantine/<unix stamp>/<relative path>` and made
-again; `governance.json` is read as the owner's alone, closed on every gate, until it is fixed or
+again; `invites.json` and `held.json` are moved there too and their lists start empty — left where
+they were, no invitation could be made and no message from outside held, for good; what a moved
+held list held back is held no longer, and its problem says so and names the moved file;
+`governance.json` is read as the owner's alone, closed on every gate, until it is fixed or
 written again (`set_gate_policy` quarantines the torn file first); a settings layer costs its
 values and is named once — `settings()` resolves from the readable layers, so the engine, the pump
 and the logger still boot — and a write to that scope quarantines it and writes a fresh layer;
@@ -147,7 +150,8 @@ error per run. A snapshot a write would replace and cannot read is quarantined o
 `error`, kept for the process and answered on `GET /workspace` as `problems` — the desktop's
 Settings › Node lists them with where each file went, the footer's node overlay counts them — and
 `bisa workspace check` (`check.rs`) reads every file the same way ahead of an open, without the
-lock or the index: the owner key, the member file, governance, the settings layers, every snapshot
+lock or the index: the owner key, the member file, the invitations, the held list, governance, the
+settings layers, every snapshot
 under a `state/` folder, every line log's tail, and the quarantine. A quarantine moves a file and
 never deletes one.
 

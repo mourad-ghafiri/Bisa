@@ -68,6 +68,8 @@ pub fn check_files(paths: &Paths) -> Result<Vec<Finding>, StoreError> {
     }
     owner_key(paths, &mut findings);
     parsed_as::<crate::members::MemberFile>(&paths.members_file(), "member file", &mut findings);
+    parsed_as::<crate::invites::InviteFile>(&paths.invites_file(), "invitations", &mut findings);
+    parsed_as::<crate::held::HeldFile>(&paths.held_file(), "held messages", &mut findings);
     parsed_as::<crate::governance::Governance>(
         &paths.governance_file(),
         "governance document",

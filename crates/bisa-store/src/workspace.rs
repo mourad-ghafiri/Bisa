@@ -180,6 +180,15 @@ pub enum StoreEvent {
         author: bisa_core::PrincipalId,
         role: bisa_core::MemberRole,
     },
+    /// A person on another node reacted to a message, or took one back
+    /// (14-collaboration): applied to the log like any other, and said here
+    /// so the host relays it to the others who reach it and a window draws
+    /// it — as it lands, not a round later. Not a message: no agent is woken
+    /// by one, and nothing reads it before it is shown. Never re-published.
+    RemoteFactArrived {
+        scope: String,
+        event: nostr::event::Event,
+    },
     /// A channel's record written elsewhere — by an admin on another node,
     /// by this workspace on another machine — landed and stands. Said so the
     /// node tells its windows and the host tells each person the rooms they
@@ -281,9 +290,21 @@ pub struct Workspace {
     /// under it. One lock for both, since a team's edit reads the agents it
     /// names and an agent's removal reads the teams that name it: two edits
     /// at once each wrote the record as it stood before the other, and the
-    /// later write took the earlier one's change with it. Outermost — never
-    /// taken while the index or the run writer is held; readers take none.
+    /// later write took the earlier one's change with it. Never taken while
+    /// the index or the run writer is held; readers take none. The people's
+    /// writer alone is taken before it ([`Self::people_writes`]).
     pub(crate) roster_writes: Mutex<()>,
+    /// The people's one writer: `members.json` and `invites.json` are each
+    /// read, changed and written — a person admitted, their role or their
+    /// profile changed, removed; an invitation made, claimed, settled,
+    /// withdrawn — under it. One lock for both files, since a claim spends
+    /// an invitation and writes a member in one move: two at once each wrote
+    /// a file as it stood before the other, and a role change, an admission
+    /// or a spent code was lost. **Outermost of the three it may nest**:
+    /// people, then the held list's, then the roster's — an admission puts a
+    /// guest on rosters, a removal drops held rows and roster names — and
+    /// nothing under those two ever takes this one.
+    pub(crate) people_writes: Mutex<()>,
     /// What the runtime around this store can launch — the harness ids,
     /// which of them take an effort and, per harness, the models it lists.
     /// The engine fills it at boot and again when a model list is refreshed;
@@ -401,6 +422,7 @@ impl Workspace {
             drawings_writes: Mutex::new(()),
             addons_writes: Mutex::new(()),
             roster_writes: Mutex::new(()),
+            people_writes: Mutex::new(()),
             known_runtime: RwLock::new(KnownRuntime::default()),
             paths,
             identity,
@@ -419,12 +441,18 @@ impl Workspace {
         // **The owner key alone stops an open.** Every other file this build
         // cannot read is quarantined or skipped and named in
         // [`Self::problems`]: a torn member file is moved aside and the
-        // owner is a member again, a governance document is read as the
+        // owner is a member again, the invitations and the held list are
+        // moved aside and start empty, a governance document is read as the
         // owner's alone until it is fixed, a `general` channel is made again,
         // a settings layer costs its values and not the resolution, and a
         // rebuild skips the records it cannot read. A crash never costs the
         // workspace, and never asks for the folder to be deleted.
         ws.ensure_owner_member()?;
+        // The people's other two lists, read as the next write would read
+        // them: one that does not parse is moved aside and named, never left
+        // to refuse every invitation, every claim and every hold for good.
+        ws.repair_invites_at_open()?;
+        ws.repair_held_at_open()?;
         if rebuild {
             ws.rebuild_index_observed(observer)?;
         }
@@ -462,6 +490,19 @@ impl Workspace {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    /// The people's one writer ([`Self::people_writes`]), held for the read,
+    /// the judgement and the write of the members' file or the invitations'.
+    /// A poisoned lock is taken over: the files are whatever the last write
+    /// left, and the next write reads them again.
+    pub(crate) fn people_writer(&self) -> MutexGuard<'_, ()> {
+        self.people_writes.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "the people's write lock was poisoned; continuing with the files as they stand"
+            );
+            poisoned.into_inner()
+        })
     }
 
     /// The roster's one writer ([`Self::roster_writes`]), held for the read,

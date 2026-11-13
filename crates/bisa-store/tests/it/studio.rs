@@ -466,6 +466,27 @@ fn raw_snapshot(ws: &Workspace, ns: &str, kind: u16, d: &str) -> nostr::event::E
     .unwrap()
 }
 
+/// A post as a person's own node signs it: their key, and the coordinate of
+/// the workspace it is said in (`bisa-guest`'s `GuestSession::build_fact`).
+fn said_in(member: &Workspace, owner: &Workspace, scope: &str, text: &str) -> nostr::event::Event {
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+    EventBuilder::new(
+        Kind::from(bisa_core::kind::KIND_MESSAGE),
+        serde_json::to_string(&MessageBody::post(text)).unwrap(),
+    )
+    .tags([Tag::parse([
+        "a",
+        &format!(
+            "{}:{}:{scope}",
+            bisa_core::kind::KIND_CHANNEL,
+            owner.owner_keys().public_key().to_hex()
+        ),
+    ])
+    .unwrap()])
+    .finalize(member.owner_keys())
+    .unwrap()
+}
+
 #[test]
 fn cross_workspace_message_ingest() {
     let (_d1, ws1) = ws();
@@ -480,9 +501,14 @@ fn cross_workspace_message_ingest() {
     let channel = ws2
         .create_channel("shared", None, RosterPolicy::default(), Tags::default())
         .unwrap();
+    // What ws2's person says in **ws1's** room, as their node signs it: the
+    // coordinate names the workspace it is said in.
+    let events = [said_in(&ws2, &ws1, channel.id.as_str(), "from ws2")];
+    // The same words said in their own room of the same id are another
+    // workspace's: never this one's, however well the id reads here.
     ws2.post_message(
         channel.id.as_str(),
-        MessageBody::post("from ws2"),
+        MessageBody::post("in my own room"),
         None,
         &[],
         &[],
@@ -490,7 +516,9 @@ fn cross_workspace_message_ingest() {
         PostOrigin::Asked,
     )
     .unwrap();
-    let events = raw_conversation_events(&ws2, channel.id.as_str());
+    let own = raw_conversation_events(&ws2, channel.id.as_str())
+        .pop()
+        .unwrap();
     // Message before its channel: rejected, not seen, retried once the
     // channel snapshot arrives.
     assert!(matches!(
@@ -519,6 +547,16 @@ fn cross_workspace_message_ingest() {
         ws1.ingest_remote_event(&events[0]).unwrap(),
         IngestOutcome::Duplicate
     );
+    match ws1.ingest_remote_event(&own).unwrap() {
+        IngestOutcome::Rejected { reason } => {
+            assert!(reason.contains("another workspace"), "{reason}")
+        }
+        other => panic!("a fact of ws2's own room is not ws1's: {other:?}"),
+    }
+    assert_eq!(
+        ws1.messages(channel.id.as_str(), None, 10).unwrap().len(),
+        1
+    );
     // A guest reaches a standing channel only by being on its roster; a
     // member reaches every one; a channel definition is a manager's word.
     let (_d3, ws3) = ws();
@@ -542,19 +580,7 @@ fn cross_workspace_message_ingest() {
         ws3.ingest_remote_event(&snap).unwrap(),
         IngestOutcome::AppliedConversation { .. }
     ));
-    ws3.post_message(
-        channel.id.as_str(),
-        MessageBody::post("from a guest"),
-        None,
-        &[],
-        &[],
-        None,
-        PostOrigin::Asked,
-    )
-    .unwrap();
-    let guest_post = raw_conversation_events(&ws3, channel.id.as_str())
-        .pop()
-        .unwrap();
+    let guest_post = said_in(&ws3, &ws1, channel.id.as_str(), "from a guest");
     match ws1.ingest_remote_event(&guest_post).unwrap() {
         IngestOutcome::Rejected { reason } => {
             assert!(reason.contains("does not reach"), "{reason}")
@@ -1162,6 +1188,9 @@ fn a_goals_staff_scope_is_its_own_else_its_nearest_ancestors() {
 fn team_assignment_is_stored_indexed_and_governing() {
     let (_d, ws) = ws();
     let human = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+    // An assignment hands a gate to somebody whose role may decide gates.
+    ws.add_member(human.clone(), MemberRole::Member, Admission::default())
+        .unwrap();
     let team = ws
         .create_team(
             "deciders",

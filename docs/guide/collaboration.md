@@ -50,7 +50,8 @@ roster — the **People** picker under the agents on a channel's edit dialog, or
 An invitation is a single-use code that admits at the role and channels it names, good for
 `collab.invite_ttl_hours` (a day by default). The secret is in the link and the code and nowhere
 else: the host keeps a hash. Withdraw a pending one from Settings › Workspace › People or
-`bisa workspace revoke <id>`. The same panel admits somebody **by key** — 64 hexadecimal
+`bisa workspace revoke <id>`. A code pasted by somebody who is a member already claims nothing:
+they are welcomed again as they are, and the code is still good for the person it was made for. The same panel admits somebody **by key** — 64 hexadecimal
 characters, nobody already here — and says under the field which of those a typed key fails.
 
 `collab.join` decides what a valid code does: `admit` (the default) admits at once; `ask` puts the
@@ -72,7 +73,9 @@ all** (each relay tried once on a throwaway connection, on or off), **Check** be
 **Remove**, **Reset to the defaults** when the list differs from them, and **Reconnect**. The
 list is the `sync.relays` setting at the machine scope (`bisa relay add|remove|list|check [url]` —
 `check` with no URL tries every configured relay), so a change reaches the running node at once.
-`sync.interval_secs` is the catch-up; `sync.publish_relay_list` says which relays this key reads,
+A relay is one relay whatever its spelling — capitals in the host, a trailing slash, the default
+port — so the same address typed twice is *already configured*, and its row shows its health as
+you typed it. `sync.interval_secs` is the catch-up; `sync.publish_relay_list` says which relays this key reads,
 so an invitation's hints stay findable.
 
 The footer's node read-out lists the same relays with their state, **Check relays** tries them
@@ -131,14 +134,16 @@ Three things read what crosses the wire:
   and on a guest's for what they send you — so a pasted token arrives as a placeholder.
 
 Governance decides gates: *Only me · Me and the admins · Me, the admins and the members · A list*.
-A guest never decides.
+A guest never decides — not even on a goal assigned to them: an assignment hands a goal's gates to
+a member or an admin, never to a guest or to somebody who is no member.
 
 ## Direct links
 
 `sync.iroh.enabled` (on by default) binds the direct QUIC transport on this node with no third
 party contacted (`sync.iroh.n0_relays` opts into n0's relay servers for NAT traversal). It carries
-attachment bytes and facts between nodes that host each other's key, authenticated by a signed
-hello; a peer entered by hand goes under `sync.iroh.peers` (`bisa relay peer-add <pubkey>
+attachment bytes between nodes that host each other's key, authenticated by a signed hello —
+messages travel by relay: a fact lands only in the workspace it was said in, and a guest's copy
+does not receive over the direct link yet; a peer entered by hand goes under `sync.iroh.peers` (`bisa relay peer-add <pubkey>
 <node-id> <ip:port>`). A guest replica reads over relays: an attachment on a hosted message shows
 its name and size, and its bytes stay on the host.
 

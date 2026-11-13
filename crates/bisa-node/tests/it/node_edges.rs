@@ -131,10 +131,11 @@ async fn a_join_that_waits_is_a_people_row_in_the_inbox() {
     let dana =
         bisa_core::PrincipalId::new(nostr::key::Keys::generate().public_key().to_hex()).unwrap();
     node.ws
-        .claim_invite(
+        .claim_and_admit(
             &bisa_collab::hash_secret(&parsed.secret),
             &dana,
             Some("Dana".into()),
+            None,
             true,
         )
         .unwrap();

@@ -69,7 +69,12 @@ pub(crate) struct Guest {
 }
 
 pub(crate) async fn start_guest(url: &str) -> Guest {
-    let keys = Keys::generate();
+    start_guest_as(Keys::generate(), url).await
+}
+
+/// A person's node holding nothing yet — theirs from the first day, or the
+/// node of somebody who lost what it held and kept their key.
+pub(crate) async fn start_guest_as(keys: Keys, url: &str) -> Guest {
     let relays = Relays::start(keys.clone(), std::slice::from_ref(&url.to_string())).await;
     let dir = tempfile::tempdir().unwrap();
     let faces = Arc::new(MemoryFaces::new());
@@ -550,8 +555,7 @@ async fn reach_follows_the_role_and_the_roster_and_a_person_s_fact_is_relayed_or
     .await;
 
     // --- a removal is said to the one removed, and the directory to the rest ---
-    ws_a.unroster_human_everywhere(&c_id).unwrap();
-    ws_a.remove_member(&c_id).unwrap();
+    ws_a.remove_person(&c_id).unwrap();
     let c7 = Arc::clone(&c);
     wait_for("Carol removed", move || {
         matches!(
@@ -628,15 +632,13 @@ async fn ask_mode_holds_a_claim_for_the_owner_and_a_refusal_reaches_the_joiner()
         .unwrap()
         .is_none());
 
-    // The owner admits: the engine's door does these two store calls.
-    let settled = ws_a.settle_invite(id, true).unwrap();
-    ws_a.admit_claimed(
-        &settled,
-        &pid(bob.keys.public_key()),
-        Some("Bob".into()),
-        Some("desktop".into()),
-    )
-    .unwrap();
+    // The owner admits: the store's one door, as the engine calls it.
+    let (settled, member) = ws_a.admit_request(id).unwrap();
+    assert!(matches!(
+        settled.state,
+        bisa_core::InviteState::Accepted { .. }
+    ));
+    assert_eq!(member.label.as_deref(), Some("Bob"), "the joiner's word");
     let b2 = Arc::clone(&b);
     wait_for("Bob welcomed after the owner's word", move || {
         b2.hosted()
@@ -659,7 +661,7 @@ async fn ask_mode_holds_a_claim_for_the_owner_and_a_refusal_reaches_the_joiner()
         .find(|i| matches!(i.state, bisa_core::InviteState::Requested { .. }))
         .unwrap()
         .id;
-    ws_a.settle_invite(id, false).unwrap();
+    ws_a.refuse_request(id).unwrap();
     let e2 = Arc::clone(&e);
     wait_for("Eve refused", move || {
         matches!(
@@ -718,5 +720,220 @@ async fn a_person_who_leaves_is_gone_and_a_relay_change_is_live() {
     assert!(status.relays[0].connected);
 
     host.stop().await;
+    bob.relays.stop().await;
+}
+
+/// A member's node that lost what it held of a workspace asks to join again,
+/// with whatever code its person has: they are told where they stand — a
+/// welcome, at the role they hold — and the code is kept for whoever it was
+/// made for. Taken, a guest's link pasted by an admin made them a guest; and
+/// a spent code answered *unknown or used* to somebody the host still counts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_who_joins_again_is_welcomed_as_they_are_and_spends_no_code() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let (_relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+
+    let bob = start_guest(&url).await;
+    let code = invite(&ws_a, &url, MemberRole::Admin, &[]);
+    let (_b, state) = bob
+        .guests
+        .join(&code, Some("Bob".into()), "desktop")
+        .await
+        .unwrap();
+    assert_eq!(state, HostedState::Member);
+    let b_id = pid(bob.keys.public_key());
+    let keys = bob.keys.clone();
+    bob.relays.stop().await;
+
+    // The same key on a node that holds nothing; a guest's code is what its
+    // person was sent.
+    let again = start_guest_as(keys, &url).await;
+    let for_someone_else = invite(&ws_a, &url, MemberRole::Guest, &[]);
+    let (b2, state) = again
+        .guests
+        .join(&for_someone_else, None, "desktop")
+        .await
+        .unwrap();
+    assert_eq!(state, HostedState::Member, "welcomed again");
+    assert_eq!(
+        b2.hosted().unwrap().unwrap().role,
+        MemberRole::Admin,
+        "as what they are"
+    );
+    assert_eq!(ws_a.member_role(&b_id).unwrap(), Some(MemberRole::Admin));
+    assert!(
+        ws_a.invites()
+            .unwrap()
+            .iter()
+            .any(|i| i.role == MemberRole::Guest && i.state == bisa_core::InviteState::Pending),
+        "the code is kept for whoever it was made for"
+    );
+    // And the spent one too is answered with their standing, not a refusal.
+    let (_, state) = again.guests.join(&code, None, "desktop").await.unwrap();
+    assert_eq!(state, HostedState::Member);
+
+    host.stop().await;
+    again.relays.stop().await;
+}
+
+/// Asking twice is asking once. A second join while the owner has not
+/// answered is told *waiting* again; told *refused* — as anybody else's
+/// claim of that code is — the person's own node wrote the refusal over a
+/// request that still stood in the owner's Inbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn asking_twice_while_the_owner_has_not_answered_is_still_waiting() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "1");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    ws_a.set_setting(
+        bisa_core::settings::Scope::Workspace,
+        None,
+        "collab.join",
+        serde_json::Value::String("ask".into()),
+    )
+    .unwrap();
+    let (_relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let bob = start_guest(&url).await;
+    let code = invite(&ws_a, &url, MemberRole::Member, &[]);
+    let (b, first) = bob.guests.join(&code, None, "cli").await.unwrap();
+    assert_eq!(first, HostedState::Requested);
+    let (_, second) = bob.guests.join(&code, None, "cli").await.unwrap();
+    assert_eq!(
+        second,
+        HostedState::Requested,
+        "still waiting, never refused"
+    );
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(
+        b.hosted().unwrap().unwrap().state,
+        HostedState::Requested,
+        "and no late refusal lands"
+    );
+    let waiting: Vec<_> = ws_a
+        .invites()
+        .unwrap()
+        .into_iter()
+        .filter(|i| matches!(i.state, bisa_core::InviteState::Requested { .. }))
+        .collect();
+    assert_eq!(waiting.len(), 1, "one request, as it stands");
+
+    ws_a.admit_request(waiting[0].id).unwrap();
+    let b2 = Arc::clone(&b);
+    wait_for("Bob welcomed after the owner's word", move || {
+        b2.hosted()
+            .ok()
+            .flatten()
+            .map(|h| h.state.is_member())
+            .unwrap_or(false)
+    })
+    .await;
+    host.stop().await;
+    bob.relays.stop().await;
+}
+
+/// A good code the host cannot admit — its member file will not read — is
+/// the host's trouble: the joiner is told to try again, in words that name
+/// nothing on the host's disk, and the code is as it was. Answered with the
+/// store's own error, a stranger read a path of the host's machine; and
+/// marked used first, the code was spent for nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_join_the_host_cannot_write_is_told_to_try_again_and_names_no_file() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let (_relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let bob = start_guest(&url).await;
+    let code = invite(&ws_a, &url, MemberRole::Member, &[]);
+
+    let members = ws_a.paths().members_file();
+    let sound = std::fs::read(&members).unwrap();
+    std::fs::write(&members, b"{ not json").unwrap();
+    let (b, state) = bob.guests.join(&code, None, "cli").await.unwrap();
+    let HostedState::Refused { reason } = &state else {
+        panic!("the host could not admit them: {state:?}");
+    };
+    assert!(reason.contains("try it again"), "{reason}");
+    assert!(
+        !reason.contains("members.json") && !reason.contains(&dir_a.path().display().to_string()),
+        "nothing of the host's disk is said to a joiner: {reason}"
+    );
+    std::fs::write(&members, &sound).unwrap();
+    assert_eq!(
+        ws_a.invites().unwrap()[0].state,
+        bisa_core::InviteState::Pending,
+        "the code is as it was"
+    );
+
+    let (_, state) = bob.guests.join(&code, None, "cli").await.unwrap();
+    assert_eq!(state, HostedState::Member, "and good the second time");
+    assert!(b.hosted().unwrap().unwrap().state.is_member());
+    host.stop().await;
+    bob.relays.stop().await;
+}
+
+/// A person's reaction reaches the others as it lands — relayed on the
+/// store's word, not found by the next round's read of every log. Here the
+/// rounds are an hour apart.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reaction_from_a_person_reaches_the_others_at_once() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let relays_a = Relays::start(
+        ws_a.owner_keys().clone(),
+        std::slice::from_ref(&url.to_string()),
+    )
+    .await;
+    let host = Host::start(
+        Arc::clone(&ws_a),
+        Arc::clone(&relays_a),
+        NetConfig {
+            relays: vec![url.clone()],
+            sync_interval_secs: 3600,
+            iroh: false,
+            ..NetConfig::default()
+        },
+        dir_a.path().to_path_buf(),
+    )
+    .await
+    .unwrap();
+    let bob = start_guest(&url).await;
+    let carol = start_guest(&url).await;
+    let (b, _) = bob
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+    let (c, _) = carol
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+    let id = post(&ws_a, "general", "shapes?");
+    let (b2, c2) = (Arc::clone(&b), Arc::clone(&c));
+    wait_for("the post on both", move || {
+        [&b2, &c2].iter().all(|g| {
+            g.messages("general", None, 10)
+                .map(|m| !m.is_empty())
+                .unwrap_or(false)
+        })
+    })
+    .await;
+    b.react(&id, "👍").await.unwrap();
+    let c3 = Arc::clone(&c);
+    wait_for("Bob's reaction on Carol", move || {
+        c3.messages("general", None, 10)
+            .map(|m| m.iter().any(|x| !x.reactions.is_empty()))
+            .unwrap_or(false)
+    })
+    .await;
+    host.stop().await;
+    carol.relays.stop().await;
     bob.relays.stop().await;
 }
