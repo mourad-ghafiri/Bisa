@@ -108,8 +108,12 @@ name and face reach your node the same way, and a host's face comes with the dir
 small square (the desktop scales it to 96 px, under 16 KiB) so it rides the same channel as the
 words; the bytes are asked for once and kept on your machine.
 
+A message you send while no relay answers is not lost: it stays in the thread, kept on your
+machine, and is sent on its own when a relay answers — in the order you wrote them.
+
 Leave from Settings › Workspace › People › *Workspaces you are in*, or `bisa workspace leave
-<host>`. The host is told; what you received stays on your machine, marked as left. The desktop
+<host>`. The host is told — and told again when it next speaks to you, if it did not hear the
+first time; what you received stays on your machine, marked as left. The desktop
 forgets the places you had in that workspace — its channels and direct messages — so no door
 returns to a conversation you can no longer reach; the same when a host removes you. It forgets
 only on memberships the node answered: a read of them that failed says nothing of who left, and

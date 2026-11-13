@@ -755,7 +755,12 @@ pub struct Pump {
     /// The `sync.*` settings as last read — the switch and the relay list
     /// every report and refusal answers from.
     cfg: tokio::sync::Mutex<NetConfig>,
-    host: tokio::sync::Mutex<Option<Host>>,
+    /// The host's pump, when the settings give it anyone to talk through.
+    /// Held only to read or swap the handle — never across a start, which
+    /// waits on relays while `GET /sync` waits on this.
+    host: tokio::sync::Mutex<Option<Arc<Host>>>,
+    /// One `sync.*` change applied at a time.
+    applying: tokio::sync::Mutex<()>,
     guests: Arc<Guests>,
     tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
@@ -777,54 +782,83 @@ fn pool_relays(cfg: &NetConfig) -> &[String] {
 
 impl Pump {
     /// Open the pool on the `sync.*` settings and start what they allow.
+    ///
+    /// **Every reader listens before a relay is contacted.** A relay
+    /// streams what it kept the moment the pool is given it, and the pool
+    /// hands each wrap on once: a reader attached after that never saw what
+    /// the others were handed. Started first, the host's pump took a
+    /// welcome, a removal and every message a host had said to this node
+    /// while it was off, ignored them — they were not for it — and the guest
+    /// sessions, opened after, never heard them. So: the pool with no relay,
+    /// the guest sessions and their router, the host's pump, then the relays
+    /// and the first pass.
     pub async fn start(
         engine: &bisa_engine::Engine,
         data_dir: &std::path::Path,
     ) -> Result<Arc<Self>> {
         let ws = Arc::clone(&engine.inner().ws);
         let cfg = NetConfig::from_workspace(&ws)?;
-        // Off by default: the pool opens with no relay, and nothing is
-        // contacted until the switch is turned on.
-        let relays = Relays::start(ws.owner_keys().clone(), pool_relays(&cfg)).await;
-        let host = if cfg.reaches_anyone() {
-            match Host::start(
-                Arc::clone(&ws),
-                Arc::clone(&relays),
-                cfg.clone(),
-                data_dir.to_path_buf(),
-            )
-            .await
-            {
-                Ok(h) => Some(h),
-                // LCOV_EXCL_START: the host pump failing to start; a disk arm
-                Err(e) => {
-                    tracing::warn!(target: "bisa_cli", "the host pump did not start: {e}");
-                    None
-                } // LCOV_EXCL_STOP
-            }
-        } else {
-            None
-        };
+        // Off by default: nothing is contacted until the switch is on.
+        let relays = Relays::start(ws.owner_keys().clone(), &[]).await;
         let guests = Guests::open(
             ws.owner_keys().clone(),
             data_dir,
             Arc::clone(&relays),
             Arc::new(WorkspaceFaces(Arc::clone(&ws))),
         )?;
+        let router = guests.spawn();
+        let host = if cfg.reaches_anyone() {
+            Self::start_host(&ws, &relays, &cfg, data_dir).await
+        } else {
+            None
+        };
+        match &host {
+            Some(h) => {
+                h.apply(&cfg).await;
+                h.catch_up_now().await;
+            }
+            None => relays.set_relays(pool_relays(&cfg)).await,
+        }
         let pump = Arc::new(Self {
             ws,
             engine: Arc::clone(engine.inner()),
             relays,
             cfg: tokio::sync::Mutex::new(cfg),
             host: tokio::sync::Mutex::new(host),
+            applying: tokio::sync::Mutex::new(()),
             guests,
             tasks: std::sync::Mutex::new(Vec::new()),
         });
-        let mut tasks = vec![pump.guests.spawn()];
+        let mut tasks = vec![router];
         tasks.push(pump.hear_engine(engine.events()));
         tasks.push(pump.hear_guests());
         *pump.tasks.locked() = tasks;
         Ok(pump)
+    }
+
+    /// The host's pump on the pool as it stands — its readers attached, its
+    /// first pass made over whatever relays the pool already holds.
+    async fn start_host(
+        ws: &Arc<Workspace>,
+        relays: &Arc<Relays>,
+        cfg: &NetConfig,
+        data_dir: &std::path::Path,
+    ) -> Option<Arc<Host>> {
+        match Host::start(
+            Arc::clone(ws),
+            Arc::clone(relays),
+            cfg.clone(),
+            data_dir.to_path_buf(),
+        )
+        .await
+        {
+            Ok(h) => Some(Arc::new(h)),
+            // LCOV_EXCL_START: the host pump failing to start; a disk arm
+            Err(e) => {
+                tracing::warn!(target: "bisa_cli", "the host pump did not start: {e}");
+                None
+            } // LCOV_EXCL_STOP
+        }
     }
 
     /// The engine's word the pump acts on: a `sync.*` write re-reads the
@@ -874,32 +908,30 @@ impl Pump {
                 return;
             } // LCOV_EXCL_STOP
         };
-        let mut host = self.host.lock().await;
+        let _one = self.applying.lock().await;
+        let running = self.host.lock().await.clone();
         if !cfg.reaches_anyone() {
-            if let Some(h) = host.take() {
+            if let Some(h) = self.host.lock().await.take() {
                 h.stop().await;
                 tracing::info!(target: "bisa_cli", "the host pump stopped: the wire is off");
             }
             self.relays.set_relays(pool_relays(&cfg)).await;
         } else {
-            match host.as_ref() {
+            match running {
                 Some(h) => h.apply(&cfg).await, // LCOV_EXCL_LINE the pump applying a setting; out by decision
                 None => {
-                    self.relays.set_relays(&cfg.relays).await;
-                    match Host::start(
-                        Arc::clone(&self.ws),
-                        Arc::clone(&self.relays),
-                        cfg.clone(),
-                        self.ws.root().to_path_buf(),
-                    )
-                    .await
-                    {
-                        Ok(h) => *host = Some(h),
-                        // LCOV_EXCL_START: the host pump failing to start; a disk arm
-                        Err(e) => {
-                            tracing::warn!(target: "bisa_cli", "the host pump did not start: {e}")
-                        } // LCOV_EXCL_STOP
-                    }
+                    // The pump's readers first, then the relays: what a
+                    // relay streams at the switch is for the host's side as
+                    // much as the guest's, and the pool hands it on once.
+                    // (No pump runs only while the pool holds no relay:
+                    // `reaches_anyone` is the switch and a relay.)
+                    let started =
+                        Self::start_host(&self.ws, &self.relays, &cfg, self.ws.root()).await;
+                    if let Some(h) = &started {
+                        *self.host.lock().await = Some(Arc::clone(h));
+                        h.apply(&cfg).await;
+                        h.catch_up_now().await;
+                    } // LCOV_EXCL_LINE: the host pump failing to start; a disk arm
                 }
             }
         }
@@ -1169,6 +1201,7 @@ impl CollabDoors for Pump {
                 id: posted.id,
                 scope: posted.scope,
                 redacted: posted.redacted,
+                queued: posted.queued,
             })
         })
     }
@@ -1189,6 +1222,7 @@ impl CollabDoors for Pump {
                 id: posted.id,
                 scope: posted.scope,
                 redacted: posted.redacted,
+                queued: posted.queued,
             })
         })
     }
@@ -1208,6 +1242,7 @@ impl CollabDoors for Pump {
                 id: posted.id,
                 scope: posted.scope,
                 redacted: posted.redacted,
+                queued: posted.queued,
             })
         })
     }

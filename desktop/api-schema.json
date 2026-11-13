@@ -26236,6 +26236,10 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0
+        },
+        "queued": {
+          "type": "boolean",
+          "description": "No relay took it yet: it is kept in this person's copy, shown as not\nsent, and sent on its own when a relay answers. Absent when it left."
         }
       },
       "required": [
@@ -27175,6 +27179,10 @@
         },
         "retracted": {
           "type": "boolean"
+        },
+        "unsent": {
+          "type": "boolean",
+          "description": "This person's own, and no relay has taken it yet: it is kept here and\nsent on its own when one answers."
         }
       },
       "required": [

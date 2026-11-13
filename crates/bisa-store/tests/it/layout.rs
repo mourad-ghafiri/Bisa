@@ -519,6 +519,14 @@ const DRAWN_ELSEWHERE: &[(&str, &str)] = &[
         "crates/bisa-guest: a joined workspace's replica",
     ),
     (
+        "hosts-forgotten/<host-pubkey>.<secs>",
+        "crates/bisa-guest/src/store.rs: a forgotten membership's replica, kept aside",
+    ),
+    (
+        "net_people.json",
+        "crates/bisa-net/src/told.rs: what the pump heard from and told each person",
+    ),
+    (
         "net_published.jsonl",
         "crates/bisa-net/src/host.rs: the host's pump ledger",
     ),

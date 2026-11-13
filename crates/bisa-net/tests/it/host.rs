@@ -749,7 +749,9 @@ async fn a_member_who_joins_again_is_welcomed_as_they_are_and_spends_no_code() {
     bob.relays.stop().await;
 
     // The same key on a node that holds nothing; a guest's code is what its
-    // person was sent.
+    // person was sent. A second later: a member's newest join stands, and
+    // one of the same second is the same word handed back.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     let again = start_guest_as(keys, &url).await;
     let for_someone_else = invite(&ws_a, &url, MemberRole::Guest, &[]);
     let (b2, state) = again

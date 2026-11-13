@@ -445,3 +445,202 @@ async fn a_persons_rooms_follow_an_admins_edit_and_a_delete_and_never_a_failed_r
     })
     .await;
 }
+
+fn every_second(url: &str) -> NetConfig {
+    NetConfig {
+        relays: vec![url.to_string()],
+        sync_interval_secs: 1,
+        publish_relay_list: false,
+        iroh: false,
+        ..NetConfig::default()
+    }
+}
+
+/// A change made while no pump ran — the wire off, a command with no node —
+/// was never said: the pump only spoke of what it saw happen. It now keeps
+/// what it last told each person, and says what differs when it starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_role_changed_while_the_pump_was_down_is_told_when_it_starts() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let (relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let (bob, carol) = (start_guest(&url).await, start_guest(&url).await);
+    let (b, state) = bob
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Guest, &[]), None, "cli")
+        .await
+        .unwrap();
+    assert_eq!(state, HostedState::Member);
+    let (c, state) = carol
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+    assert_eq!(state, HostedState::Member);
+    assert!(b.channels().unwrap().is_empty(), "a guest on no room yet");
+
+    host.stop().await;
+    ws_a.set_role(&pid(bob.keys.public_key()), MemberRole::Admin)
+        .unwrap();
+    ws_a.remove_person(&pid(carol.keys.public_key())).unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        b.hosted().unwrap().unwrap().role,
+        MemberRole::Guest,
+        "nobody said it"
+    );
+
+    let host = Host::start(
+        Arc::clone(&ws_a),
+        Arc::clone(&relays_a),
+        every_second(&url),
+        dir_a.path().to_path_buf(),
+    )
+    .await
+    .unwrap();
+    let b2 = Arc::clone(&b);
+    wait_for("the role, told at the start", move || {
+        b2.hosted().unwrap().unwrap().role == MemberRole::Admin
+    })
+    .await;
+    let b3 = Arc::clone(&b);
+    wait_for("the rooms the new role reaches", move || {
+        !b3.channels().unwrap().is_empty()
+    })
+    .await;
+    let c2 = Arc::clone(&c);
+    wait_for("the removal, told at the start", move || {
+        matches!(
+            c2.hosted().unwrap().unwrap().state,
+            HostedState::Removed { .. }
+        )
+    })
+    .await;
+    let b4 = Arc::clone(&b);
+    wait_for("a directory without the person removed", move || {
+        b4.members().unwrap().len() == 2
+    })
+    .await;
+    host.stop().await;
+    bob.relays.stop().await;
+    carol.relays.stop().await;
+}
+
+/// The host's words were sent once: one published while no relay took it
+/// was logged and gone. A person admitted waited for ever on a spent code;
+/// a removed one kept posting into nothing. What is owed is now said on
+/// every round until a relay takes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_word_no_relay_took_is_said_until_one_does() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let (_relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let (bob, carol) = (start_guest(&url).await, start_guest(&url).await);
+    let (b, _) = bob
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Guest, &[]), None, "cli")
+        .await
+        .unwrap();
+    let (c, _) = carol
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+
+    // The host's relay goes away; the people's nodes still listen on it.
+    host.apply(&every_second("ws://127.0.0.1:1")).await;
+    ws_a.set_role(&pid(bob.keys.public_key()), MemberRole::Member)
+        .unwrap();
+    ws_a.remove_person(&pid(carol.keys.public_key())).unwrap();
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(b.hosted().unwrap().unwrap().role, MemberRole::Guest);
+    assert!(c.hosted().unwrap().unwrap().state.is_member());
+
+    host.apply(&every_second(&url)).await;
+    let b2 = Arc::clone(&b);
+    wait_for("the role, said again", move || {
+        b2.hosted().unwrap().unwrap().role == MemberRole::Member
+    })
+    .await;
+    let c2 = Arc::clone(&c);
+    wait_for("the removal, said again", move || {
+        matches!(
+            c2.hosted().unwrap().unwrap().state,
+            HostedState::Removed { .. }
+        )
+    })
+    .await;
+    host.stop().await;
+    bob.relays.stop().await;
+    carol.relays.stop().await;
+}
+
+/// The ledger outlived what it recorded: facts delivered to somebody who
+/// then left, forgot the workspace and was invited again were *delivered*
+/// for good, so their new copy stayed empty. A removal forgets them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_person_invited_again_is_sent_the_history_again() {
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    let (_relays_a, host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let host_hex = ws_a.owner_keys().public_key().to_hex();
+    let bob = start_guest(&url).await;
+    let b_id = pid(bob.keys.public_key());
+    let (b, _) = bob
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+    post(&ws_a, "general", "before they left");
+    let b2 = Arc::clone(&b);
+    wait_for("the post in the first copy", move || {
+        b2.messages("general", None, 10)
+            .map(|m| m.len() == 1)
+            .unwrap_or(false)
+    })
+    .await;
+    drop(b);
+
+    bob.guests.leave(&host_hex).await.unwrap();
+    let (ws, id) = (Arc::clone(&ws_a), b_id.clone());
+    wait_for("the host hears the leave", move || {
+        ws.member(&id).unwrap().is_none()
+    })
+    .await;
+    let aside = bob.guests.forget(&host_hex).await.unwrap();
+    assert!(aside.join("conversations").join("general.jsonl").is_file());
+    let ledger = std::fs::read_to_string(dir_a.path().join("net_published.jsonl")).unwrap();
+    let forgot = format!("-{}", bob.keys.public_key().to_hex());
+    let (dir, line) = (dir_a.path().to_path_buf(), forgot.clone());
+    wait_for("the ledger forgets them", move || {
+        std::fs::read_to_string(dir.join("net_published.jsonl"))
+            .map(|l| l.lines().any(|l| l == line))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(ledger.contains(&bob.keys.public_key().to_hex()));
+
+    // A second later — a member's newest join stands — invited again.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let (b, state) = bob
+        .guests
+        .join(&invite(&ws_a, &url, MemberRole::Member, &[]), None, "cli")
+        .await
+        .unwrap();
+    assert_eq!(state, HostedState::Member);
+    let b2 = Arc::clone(&b);
+    wait_for("the history in the new copy", move || {
+        b2.messages("general", None, 10)
+            .map(|m| m.iter().any(|m| m.text == "before they left"))
+            .unwrap_or(false)
+    })
+    .await;
+    host.stop().await;
+    bob.relays.stop().await;
+}

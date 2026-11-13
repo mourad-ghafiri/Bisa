@@ -182,6 +182,7 @@ impl CollabDoors for FakeCollab {
                 artifacts: vec![],
                 reactions: vec![],
                 retracted: false,
+                unsent: false,
             }])
         })
     }
@@ -203,6 +204,7 @@ impl CollabDoors for FakeCollab {
                 id: "m2".into(),
                 scope,
                 redacted: 0,
+                queued: false,
             })
         })
     }
@@ -219,6 +221,7 @@ impl CollabDoors for FakeCollab {
                 id: "r1".into(),
                 scope: "general".into(),
                 redacted: 0,
+                queued: false,
             })
         })
     }
@@ -237,6 +240,7 @@ impl CollabDoors for FakeCollab {
                 id: "x1".into(),
                 scope: "general".into(),
                 redacted: 0,
+                queued: false,
             })
         })
     }

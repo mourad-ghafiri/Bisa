@@ -8,6 +8,12 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- **A membership that is over can be forgotten** (the guest crate's half: `Guests::forget`): its
+  session is closed and its replica moved whole to `hosts-forgotten/<host>.<secs>/`. The route, the
+  verb and the desktop's door follow.
+
 ### Fixed
 
 - **The people of a workspace have one writer.** `members.json` and `invites.json` were each read,
@@ -80,6 +86,51 @@ notes (`docs/contributing/release.md`).
   the workspace's own agents cannot be admitted as a person; a guest is put on an invitation's
   channels without undoing a roster edit made at the same moment; a verdict on a held message
   never holds again one the owner already answered (`restate_held`, the store's half).
+- **A guest's copy ends where the host's newest words say.** The host's words carried no time and
+  a relay hands them back in any order — every one it kept, after a restart: an old welcome seated
+  again somebody who had left or been removed, an old *waiting* unseated a member, an old role, list
+  of rooms or directory came back. Each word is now weighed against when the newest of its kind was
+  said (`heard.json` in the replica); a welcome applies part by part and never moves the day a
+  person joined; a word stamped more than a day ahead is dropped.
+- **A guest's message is not lost when no relay answers.** It was written into the copy, published
+  once, and answered as an error — standing in the thread as sent, never sent again. It is now kept
+  (`unsent.json`), answered with `queued`, shown as `unsent` (both new, optional fields), and sent
+  in order when a relay answers.
+- **A leave the host did not hear is said again** when the host next speaks to that membership (at
+  most once a minute); a membership that was left applies nothing the host says after, and a
+  request withdrawn while waiting is not seated by the welcome that follows.
+- **A claim no relay took changes nothing.** *Waiting for the host* was written before the claim was
+  sent, over what stood — the host's name with it — and stayed when nothing left. What stood is put
+  back; a person's own workspace's invitation is refused before anything is written.
+- **A guest's copy, smaller.** A fact the host relays is kept whoever wrote it — a newcomer never saw
+  what a former member had written — and only when its coordinate names that host's workspace; a
+  fact that arrives before its room is named waits for it (`waiting.jsonl`); a room deleted on the
+  host and made again starts empty in the copy too, its old log moved aside; `host.json` or
+  `read.json` that does not parse is moved aside so the workspace can be joined again; a torn line
+  in a log costs one fact, not the next as well; a fact is seen and shown once across a restart; a
+  face asked for and never sent is asked for again under the next directory.
+
+- **A node that was off hears what its hosts said meanwhile.** At start the node's own host pump
+  read everything the relays had kept before the guest sessions listened: a welcome, a removal and
+  every message a host had said were handed to the wrong reader and never reached the guest's
+  side. Every reader now listens before a relay is contacted — at start, and when the wire is
+  turned on.
+- **What a person is told is what stands.** The host's words were sent once: a welcome, a role, a
+  list of rooms or a removal that no relay took was gone, and a change made while no pump ran — the
+  wire off, a command with no node — was never said. The pump keeps what a relay last took for each
+  person (`net_people.json`) and says what differs at start, on every change, and on every round
+  until a relay takes it.
+- **A member's old words change nothing.** A leave handed back by a relay after a restart removed
+  somebody who had been invited again, and an old profile put a name back: the newest join or
+  leave, and the newest profile, of each person now stand.
+- **The history follows a person back.** The pump's ledger outlived what it recorded: somebody
+  removed and invited again, or whose node lost its copy, was sent nothing of what had been
+  *delivered* before. The ledger forgets them (a `-<member>` line an older build passes over).
+- **The host's pump, smaller.** While no relay took it, a fact was queued once more for every
+  person on every round — memory without bound, then published once per round that had passed —
+  and now waits once; settings that will not read make a claim wait on the owner instead of
+  admitting at once; `GET /sync` no longer waits behind a pump that is starting; a reader that fell
+  behind the pool reads everything again instead of losing what it missed.
 
 ## [0.8.0] - 2026-11-13
 

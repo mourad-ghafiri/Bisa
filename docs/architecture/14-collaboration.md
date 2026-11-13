@@ -91,8 +91,44 @@ any order (the receivers' rule is theirs: the guest's session and the host's pum
 on waits for the slowest reader to make room on the bus (`Relays::make_room`, bounded): a catch-up
 unwraps faster than a reader applies, and a wrap dropped for a lagging reader was already noted as
 handed on — lost to it for the life of the process, whatever a later catch-up fetched. A reader
-that lagged all the same, or started late, has the pool forget what it has seen
-(`Relays::forget_seen`) and is handed everything again.
+that lagged all the same has the pool forget what it has seen (`Relays::forget_seen`) and reads
+everything again — the host's pump on its next round, the guest's router at once.
+
+**Every reader listens before a relay is contacted.** A relay streams what it kept the moment the
+pool is given it, and the pool hands each wrap on once. So the node's pump
+(`crates/bisa-cli/src/net.rs::Pump::start`) opens the pool with no relay, then the guest sessions
+and their router, then the host's pump — whose readers attach in `Host::start` before anything is
+fetched — and only then gives the pool its relays and makes the first pass; turning the switch on
+follows the same order. Started the other way round, a node's own host pump was handed everything
+a host had said to this node while it was off, ignored it, and the guest's side never heard it.
+
+**What each person is told has one rule.** The host's words — a welcome, a role, the rooms a
+person reaches, the directory, a removal, a refusal — were sent once, when the pump saw the change
+happen: one no relay took was gone, and a change made while no pump ran was never said. The pump
+now keeps, per person, what a relay last took from it (`net_people.json`: welcomed, role, a digest
+of their rooms and of the directory, and the refusals said), and `host::reconcile` sends whatever
+differs from what stands — at start, whenever the people or the channels move (in a task of its
+own, woken by the store's events), and on every round while something is owed. A word is noted as
+told only after a relay took it. A read that fails skips its part: nobody is told they reach
+nothing, or that nobody is here, because a file would not read. The first time this build serves a
+workspace an older pump served, what stands is taken as told for everyone the ledger shows a
+delivery to — nobody is welcomed again, no history sent twice — and somebody admitted while no
+pump ran is owed their welcome.
+
+**A member's words stand by their time.** A join, a leave and a profile carry `at`; the pump keeps
+each person's newest join or leave (two of one second: the join, then the leave) and newest
+profile in the same record, and an older one handed back changes nothing: an old leave removes
+nobody invited again, an old join's spent code is answered by nothing, an old profile puts no name
+back. With nothing heard yet from a person — admitted by key — the day they were admitted is the
+floor for a leave.
+
+**The ledger forgets with the person.** `net_published.jsonl` keeps `(member, event)` delivered
+once. When a person is removed — or their node, a member's still, asks to join again because it
+lost its copy (answered with the history at most once in ten minutes) — a line `-<member>` forgets
+what was delivered to them, so the history follows them back; an older build passes over the
+line. A first welcome forgets too: a fact relayed before it found a node that keeps nothing until
+it is a member's. While no relay takes it a fact waits once for each person (`Outbox`), not once
+more every round.
 
 **One relay, whatever its spelling.** `collab_settings::canonical_relay_url` — scheme and host in
 lowercase, a default port and a lone trailing slash left out — is what the pool, the settings'
@@ -135,7 +171,9 @@ constant): the pool opens with no relay, the host pump does not start, a join an
 refused with the switch named, and `GET /sync` lists every configured relay as `off`
 (`RelayHealth::off`). `Relays::check` is a throwaway connection and works either way, which is
 what lets a person try the relays before turning the wire on. Turning the switch on is a `sync.*`
-write: the pump re-reads, the pool connects, the host pump starts — no restart.
+write: the pump re-reads, the host pump starts and attaches its readers, the pool connects — no
+restart. One change is applied at a time, and the pump's handle is held only to read or swap it,
+so `GET /sync` never waits on a start that waits on relays.
 
 | A member says | The host answers |
 |---|---|
@@ -236,13 +274,44 @@ that run, the same row a local decision writes (`record_decision`).
 `bisa-security` + `nostr` + `serde` + `tokio`, and **no** store, engine, harness or node.
 `GuestStore` keeps one host's replica at `<data_dir>/hosts/<host-pubkey>/` — `host.json` (the
 card, the role, the state), `channels.json`, `members.json` (each row with its face by hash),
-`conversations/<scope>.jsonl`, `seen.jsonl`, `read.json`; the faces themselves live behind the
+`conversations/<scope>.jsonl`, `seen.jsonl`, `read.json`, and four small records of its own:
+`heard.json` (when the newest of each kind of the host's words was said), `unsent.json` (this
+person's facts no relay has taken), `waiting.jsonl` (facts that arrived before their room was named,
+the newest 512) and `births.json` (each room's `created_at`); the faces themselves live behind the
 `FaceStore` port the embedder gives every session. `GuestSession` speaks: `join`, `channels`,
 `dms`, `members`, `messages`, `post`, `react`, `retract`, `open_dm`, `mark_read`, `leave`,
-`send_profile`, and `on_incoming` applies the host's words — from the host's seal only, a fact by an
-author the directory names, in a scope the person reaches — and answers what to say back (the
-profile after a welcome, the faces it lacks), which `Guests::route` sends. `Guests` supervises every membership on a node and routes the pool's inbound
-stream by the seal's sender.
+`send_profile`, and `on_incoming` applies the host's words — from the host's seal only, a fact whose
+coordinate names this host's workspace, in a scope the person reaches, whoever wrote it (the host
+admitted its author before relaying it) — and answers what to say back (the profile on becoming a
+member, the faces it lacks, a leave the host did not hear), which `Guests::route` sends. `Guests`
+supervises every membership on a node, routes the pool's inbound stream by the seal's sender, and
+retries what is unsent.
+
+**The newest word stands.** A relay hands the host's words back in any order — after a restart,
+every one it kept. Each carries the time it was said (the rumor's own), and the copy keeps when the
+newest of each kind was said: the membership (*waiting*, *refused*, *welcome*, *removed* — two of
+one second ordered so), the role, the rooms, the directory. An older word changes nothing; a
+welcome speaks to all four, each part against its own mark, and never moves the day the person
+joined; a word stamped more than a day ahead of this clock is dropped. The record is written
+before its mark, so a stop between the two costs a word applied twice, never one lost.
+
+**What the copy does when the wire does not.** A post, a reaction or a retraction is written into
+the copy and noted in `unsent.json`; with no relay to take it the door answers `queued`, the
+message reads `unsent`, and it is sent — oldest first — by the router's retry (every 15 s while
+anything waits) and before the next thing said. A claim no relay took changes nothing: what stood
+is put back, and a person's own workspace's code is refused before anything is written. A
+membership this person left applies nothing the host says after; whatever it says but *removed* —
+its answer to a leave — is answered with the leave again, at most once a minute. A membership that
+is over (left, removed, refused) can be forgotten: `Guests::forget` closes its session and moves
+the replica whole to `hosts-forgotten/<host-pubkey>.<secs>/`.
+
+**What the copy repairs.** `host.json` and `read.json` (and the four records above) that do not
+parse are moved aside beside themselves (`<name>.unreadable.<secs>`) and read as absent — so the
+workspace can be joined again; a file that cannot be read at all stays an error. A line cut short
+by a stop is ended before the next is written; the *seen* set is seeded from the logs at open; a
+fact is shown once. A room that comes back with another birth — deleted on the host and made again
+under its id — has its log moved to `conversations/<scope>.<secs>.gone`, so it starts empty here
+as it does there; the same room, taken away and given back, keeps what it held.
 
 **Clients.** The desktop's node runs the pool, the host's pump and the guest sessions in one
 process (`crates/bisa-cli/src/net.rs::Pump`), lends them to the node as `CollabDoors`, and the
@@ -265,9 +334,9 @@ workspace, an engine, a harness or the node. The wire shapes it reads — `Hoste
 | C5 | A message from outside reaches an agent only after the classifier's *safe*, or the owner's release — and never once its author is no longer a member, whenever that happened | `engine/collab.rs`, `store/held.rs` (one writer of the held list); `tests/it/collab.rs`; the unit test `a_release_and_a_verdict_at_once_lose_neither` in `store/held.rs` |
 | C6 | An agent woken by an outsider asks for every tool beyond read-only unless the owner said otherwise | `engine/security.rs`, `engine/inputs.rs`; `tests/it/collab.rs` |
 | C7 | What leaves the machine is redacted before it is signed | `engine/messaging.rs`, `guest/session.rs`; the guest's unit test `a_guest_joins_is_welcomed_posts_a_redacted_message_and_refuses_an_unreached_channel` in `crates/bisa-guest/src/session.rs` |
-| C8 | The host is the authority: a guest applies only what the host's seal carried | `guest/session.rs::on_incoming`; its unit tests `a_guest_joins_is_welcomed_posts_a_redacted_message_and_refuses_an_unreached_channel` (a stranger's fact dropped) and `a_refusal_and_a_removal_are_kept_in_words_and_a_reopen_finds_the_replica` (another key's welcome ignored) |
+| C8 | The host is the authority: a guest applies only what the host's seal carried | `guest/session.rs::on_incoming`; its unit tests `a_former_members_words_reach_a_newcomer` (the same fact under another seal is dropped), `a_fact_of_another_workspace_is_not_this_hosts` and `a_refusal_and_a_removal_are_kept_in_words_and_a_reopen_finds_the_replica` (another key's welcome ignored) |
 | C9 | A guest replica is apart from the node's own workspace: `hosts/` holds nothing the store reads | `guest/store.rs`, `guest/session.rs` (`HOSTS_DIR`); `crates/bisa-net/tests/it/host.rs::a_replica_of_a_host_is_nothing_the_nodes_own_store_reads` (a node that is also a guest, its own index rebuilt beside the replica) |
-| C10 | A membership is unseated only by the host's word to a member — a removal — never by a refusal: a member claiming again claims nothing, and a refusal a member hears is dropped | `guest/session.rs::join`, `on_incoming`; its tests; the journey `crates/bisa-cli/tests/it/e2e/two_nodes_and_a_relay.rs` |
+| C10 | A membership is unseated only by the host's word to a member — a removal — never by a refusal, nor by an older word handed back: a member claiming again claims nothing, a refusal a member hears is dropped, and a *waiting* or a refusal said before the welcome changes nothing whenever it arrives | `guest/session.rs::join`, `on_control`; its tests (`an_old_waiting_never_unseats_a_member`, `the_newest_word_stands_whatever_order_they_arrive_in`); the journey `crates/bisa-cli/tests/it/e2e/two_nodes_and_a_relay.rs` |
 
 ---
 

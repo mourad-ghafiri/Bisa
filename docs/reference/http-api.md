@@ -304,7 +304,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `POST /hosts/{host}/dms` | Ask the host for a direct channel with these people: `{members}` (pubkeys the host's directory names). The host answers with the channels; the new one appears among them. |
 | `GET /hosts/{host}/members` | The host's directory: every person there with their role and label. |
 | `GET /hosts/{host}/channels/{id}/messages` | Messages in a hosted channel (`?before=&limit=`), each with its reactions and whether it was retracted; attachments as descriptors, their bytes staying on the host. |
-| `POST /hosts/{host}/channels/{id}/messages` | Post into a hosted channel as this person: `{content, mentions?, reply_to?}` — text, pubkeys and a parent only; the text passes the redactor before it is signed. Refused for a channel the role does not reach. |
+| `POST /hosts/{host}/channels/{id}/messages` | Post into a hosted channel as this person: `{content, mentions?, reply_to?}` — text, pubkeys and a parent only; the text passes the redactor before it is signed. Refused for a channel the role does not reach. With no relay to take it, it is kept in this person's copy and sent when one answers: the answer says `queued`, and the message reads `unsent` until then. |
 | `POST /hosts/{host}/messages/{id}/react` | React to a hosted message: `{emoji}`. |
 | `POST /hosts/{host}/messages/{id}/retract` | Take back one of this person's own hosted messages or reactions. |
 | `POST /hosts/{host}/read` | Mark a hosted scope read: `{scope}`. |

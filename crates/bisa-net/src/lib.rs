@@ -13,6 +13,7 @@ pub mod error_text;
 pub mod host;
 #[cfg(feature = "iroh")]
 pub mod iroh_sync;
+mod told;
 pub mod truth;
 
 pub use config::NetConfig;

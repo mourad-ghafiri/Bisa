@@ -90,8 +90,10 @@ rebuilt from the files. The one place a workspace directory name is joined is `b
   members.json                 the owner and the people hosted here, each at a role
   invites.json                 the invitations — a secret's hash and its state, mode 0600
   held.json                    the messages from outside no agent may hear yet, and why
-  hosts/<host-pubkey>/         what this node holds of a workspace it joined: host.json, channels.json, members.json, conversations/<scope>.jsonl, seen.jsonl, read.json
-  net_published.jsonl          the host's pump's ledger — (member, event) pairs delivered once
+  hosts/<host-pubkey>/         what this node holds of a workspace it joined: host.json, channels.json, members.json, conversations/<scope>.jsonl, seen.jsonl, read.json — and heard.json (when the newest of each of the host's words was said), unsent.json (this person's facts no relay took yet), waiting.jsonl (facts kept for a room not named yet), births.json (each room's birth); a record that did not parse is beside itself as <name>.unreadable.<secs>, a room made again leaves conversations/<scope>.<secs>.gone
+  hosts-forgotten/<host-pubkey>.<secs>/   a membership that was over and forgotten: its replica, moved whole, read by nothing
+  net_published.jsonl          the host's pump's ledger — (member, event) pairs delivered once; a line `-<member>` forgets what was delivered to somebody removed, or whose node lost its copy
+  net_people.json              what the host's pump heard last from each person (their newest join or leave, their newest profile) and what a relay last took from it for them (welcomed, role, rooms, directory), and the refusals said
   seen.jsonl                   every event id ingest has accepted — the dedupe log, appended
   governance.json a2a.toml
   index.sqlite                 the rebuildable index, stamped SCHEMA_VERSION

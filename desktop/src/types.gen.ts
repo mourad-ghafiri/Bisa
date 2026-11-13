@@ -11081,6 +11081,11 @@ export interface HostedPosted {
   id: string;
   scope: string;
   redacted: number;
+  /**
+   * No relay took it yet: it is kept in this person's copy, shown as not
+   * sent, and sent on its own when a relay answers. Absent when it left.
+   */
+  queued?: boolean;
   [k: string]: unknown;
 }
 /**
@@ -11340,6 +11345,11 @@ export interface HostedMessage {
   artifacts?: ArtifactRef[];
   reactions?: HostedReaction[];
   retracted: boolean;
+  /**
+   * This person's own, and no relay has taken it yet: it is kept here and
+   * sent on its own when one answers.
+   */
+  unsent?: boolean;
   [k: string]: unknown;
 }
 /**

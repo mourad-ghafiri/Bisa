@@ -747,3 +747,118 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
     let again = guest.json(&["workspace", "leave", &owner]);
     assert_eq!(again["left"], owner.as_str(), "{again}");
 }
+
+/// What this node's own channel holds, as its node lists it.
+fn own_messages(ws: &Sealed, channel: &str) -> Vec<String> {
+    let (status, room) = ws.call("GET", &format!("/channels/{channel}/messages"), &[], None);
+    assert_eq!(status, 200, "{room}");
+    room["messages"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|m| m["content"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A node that was off hears, when it starts, what its host said meanwhile
+/// — a message, a role — and two nodes that host each other keep their
+/// rooms apart: each one's `general` is its own.
+///
+/// Started before the guest sessions listened, a node's own host pump was
+/// handed everything the relay had kept, ignored what was not for it, and
+/// the guest's side never heard it. And a fact named its room by the room's
+/// id alone: what one owner said in their own `general` landed in the
+/// other's.
+#[test]
+fn a_node_that_was_off_hears_what_was_said_meanwhile_and_two_that_host_each_other_keep_their_rooms_apart(
+) {
+    let relay = Relay::start();
+    let mut alice = Sealed::bare();
+    let mut bob = Sealed::bare();
+    for node in [&alice, &bob] {
+        on_the_relay(node, &relay);
+        node.ok(&["settings", "set", "workspace", "collab.join", "admit"]);
+    }
+    alice.start();
+    bob.start();
+    let (a, b) = (pubkey_of(&alice), pubkey_of(&bob));
+
+    let code = alice.json(&["workspace", "invite", "--role", "member"])["code"]
+        .as_str()
+        .expect("the code")
+        .to_string();
+    let joined = bob.json(&["workspace", "join", &code]);
+    assert_eq!(joined["host"]["state"]["state"], "member", "{joined}");
+    alice.ok(&["msg", "general", "before you went"]);
+    alice.until("the first word to land on bob's node", || {
+        contents(&hosted_messages(&bob, &a, "general"))
+            .contains(&"before you went".to_string())
+            .then_some(())
+    });
+
+    // --- bob's node is off; the host speaks and changes his role ------------------------
+    bob.stop();
+    alice.ok(&["msg", "general", "while you were away"]);
+    alice.ok(&["workspace", "role", &b, "admin"]);
+    bob.start();
+    bob.until("what the host said meanwhile to land on bob's node", || {
+        contents(&hosted_messages(&bob, &a, "general"))
+            .contains(&"while you were away".to_string())
+            .then_some(())
+    });
+    bob.until("the role the host gave meanwhile", || {
+        let hosts = bob.json(&["workspace", "hosts"]);
+        (hosts["hosts"][0]["role"] == "admin").then_some(())
+    });
+    let once = contents(&hosted_messages(&bob, &a, "general"));
+    assert_eq!(
+        once.iter().filter(|m| *m == "before you went").count(),
+        1,
+        "handed back by the relay, a fact is still one fact: {once:?}"
+    );
+
+    // --- and bob hosts alice in turn: two workspaces, two `general`s --------------------
+    let code = bob.json(&["workspace", "invite", "--role", "member"])["code"]
+        .as_str()
+        .expect("bob's code")
+        .to_string();
+    let joined = alice.json(&["workspace", "join", &code]);
+    assert_eq!(joined["host"]["state"]["state"], "member", "{joined}");
+    bob.ok(&["msg", "general", "said in bob's"]);
+    alice.ok(&["msg", "general", "said in alice's"]);
+    alice.until("bob's word in alice's copy of bob's room", || {
+        contents(&hosted_messages(&alice, &b, "general"))
+            .contains(&"said in bob's".to_string())
+            .then_some(())
+    });
+    bob.until("alice's word in bob's copy of alice's room", || {
+        contents(&hosted_messages(&bob, &a, "general"))
+            .contains(&"said in alice's".to_string())
+            .then_some(())
+    });
+    let (hers, his) = (
+        own_messages(&alice, "general"),
+        own_messages(&bob, "general"),
+    );
+    assert!(
+        !hers.contains(&"said in bob's".to_string()),
+        "bob's own room is not alice's: {hers:?}"
+    );
+    assert!(
+        !his.contains(&"said in alice's".to_string())
+            && !his.contains(&"while you were away".to_string()),
+        "alice's own room is not bob's: {his:?}"
+    );
+    assert!(
+        !contents(&hosted_messages(&alice, &b, "general")).contains(&"said in alice's".to_string()),
+        "nor is alice's word in her copy of bob's room"
+    );
+    assert!(
+        !contents(&hosted_messages(&bob, &a, "general")).contains(&"said in bob's".to_string()),
+        "nor bob's in his copy of alice's"
+    );
+    bob.stop();
+    alice.stop();
+}

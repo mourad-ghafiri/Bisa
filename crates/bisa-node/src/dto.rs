@@ -2564,6 +2564,10 @@ pub struct HostedPosted {
     pub id: String,
     pub scope: String,
     pub redacted: usize,
+    /// No relay took it yet: it is kept in this person's copy, shown as not
+    /// sent, and sent on its own when a relay answers. Absent when it left.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queued: bool,
 }
 
 /// A hosted channel with what this person has not read of it.

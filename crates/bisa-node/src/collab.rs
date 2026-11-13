@@ -684,7 +684,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/hosts/{host}/channels/{id}/messages",
-        summary: "Post into a hosted channel as this person: `{content, mentions?, reply_to?}` — text, pubkeys and a parent only; the text passes the redactor before it is signed. Refused for a channel the role does not reach.",
+        summary: "Post into a hosted channel as this person: `{content, mentions?, reply_to?}` — text, pubkeys and a parent only; the text passes the redactor before it is signed. Refused for a channel the role does not reach. With no relay to take it, it is kept in this person's copy and sent when one answers: the answer says `queued`, and the message reads `unsent` until then.",
     },
     RouteDoc {
         method: "POST",

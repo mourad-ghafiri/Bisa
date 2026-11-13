@@ -8,12 +8,26 @@
 //! - `members.json` — the people, as of the last directory the host sent;
 //! - `conversations/<scope>.jsonl` — every conversation fact the host
 //!   relayed and every one this person signed, verbatim;
-//! - `seen.jsonl` — the ids already applied, so a catch-up replays nothing;
-//! - `read.json` — where this person has read up to, per scope.
+//! - `seen.jsonl` — the ids of the facts already applied, so a catch-up
+//!   applies none twice;
+//! - `read.json` — where this person has read up to, per scope;
+//! - `heard.json` — when the newest of the host's words of each kind was
+//!   said ([`Heard`]), so an older one handed back by a relay changes
+//!   nothing;
+//! - `unsent.json` — the ids of this person's own facts no relay has taken
+//!   yet, in the order they were said;
+//! - `waiting.jsonl` — facts that arrived before the room they are in was
+//!   named, kept for it;
+//! - `conversations/<scope>.<secs>.gone` — the log of a room the host
+//!   deleted, or made again under the same id: kept, and read by nothing.
 //!
 //! Files are the truth; there is no index. A hosted membership is small —
 //! a handful of channels, hundreds of messages — and a fold over one scope's
-//! log is what a screen needs. Every write is atomic (write, then rename).
+//! log is what a screen needs. A file that is replaced is written whole and
+//! renamed into place; a log takes one line at a time, each on its own line.
+//! A record that does not parse — `host.json`, `read.json`, `heard.json` —
+//! is moved aside beside itself and read as absent: left where it was, it
+//! failed every word and every read for good.
 
 use crate::GuestError;
 use bisa_collab::{Directory, HostCard};
@@ -111,7 +125,47 @@ pub struct HostedMessage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<HostedReaction>,
     pub retracted: bool,
+    /// This person's own, and no relay has taken it yet: it is kept here and
+    /// sent on its own when one answers.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unsent: bool,
 }
+
+/// When the newest of the host's words of each kind was said, by the host's
+/// own clock (the word's `at`). A relay hands words back in any order — after
+/// a restart, every one it kept — and a word older than the newest of its
+/// kind already applied changes nothing.
+///
+/// Four kinds, since a word of one says nothing of another: where the
+/// membership stands (welcome, waiting, refused, removed), the role, the
+/// rooms, the people. A welcome speaks to all four, each part against its
+/// own mark.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Heard {
+    /// The membership's newest word: its time, and its rank among words of
+    /// one second ([`Heard::takes_membership`]).
+    #[serde(default)]
+    pub membership: (u64, u8),
+    #[serde(default)]
+    pub role: u64,
+    #[serde(default)]
+    pub channels: u64,
+    #[serde(default)]
+    pub members: u64,
+}
+
+impl Heard {
+    /// Whether a membership word said at `at`, of `rank`, is newer than the
+    /// one that stands. Strictly: the same word handed back changes
+    /// nothing. Two of one second are told apart by rank — *waiting*, then
+    /// *refused*, then *welcome*, then *removed*: the order a host says them in.
+    pub fn takes_membership(&self, at: u64, rank: u8) -> bool {
+        (at, rank) > self.membership
+    }
+}
+
+/// A fact kept for a room not named yet, at most this many: the newest stay.
+const MAX_WAITING: usize = 512;
 
 #[derive(Serialize, Deserialize, Default)]
 struct ReadFile {
@@ -131,7 +185,13 @@ const CHANNELS_FILE: &str = "channels.json";
 const MEMBERS_FILE: &str = "members.json";
 const SEEN_FILE: &str = "seen.jsonl";
 const READ_FILE: &str = "read.json";
+const HEARD_FILE: &str = "heard.json";
+const UNSENT_FILE: &str = "unsent.json";
+const WAITING_FILE: &str = "waiting.jsonl";
+const BIRTHS_FILE: &str = "births.json";
 const CONVERSATIONS_DIR: &str = "conversations";
+/// Where a forgotten membership's replica is kept, beside `hosts/`.
+pub const FORGOTTEN_DIR: &str = "hosts-forgotten";
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), GuestError> {
     if let Some(parent) = path.parent() {
@@ -157,20 +217,55 @@ fn append_line(path: &Path, line: &str) -> Result<(), GuestError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     } // LCOV_EXCL_LINE a path with no parent; by construction
+      // A line cut short by a stop — no newline after it — is ended before
+      // the next is written. Glued to it, the next fact parsed as neither, and
+      // both were lost: the one that was torn and the one that was sound.
+    let torn = match std::fs::read(path) {
+        Ok(bytes) => bytes.last().is_some_and(|b| *b != b'\n'),
+        Err(_) => false,
+    };
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
+    if torn {
+        writeln!(f)?;
+    }
     writeln!(f, "{line}")?;
     Ok(())
 }
 
+/// A record read whole, `fallback` when it is not there — and when it is
+/// there and does not parse: it is moved aside beside itself
+/// (`<name>.unreadable.<secs>`), said in the log, and read as absent. An
+/// I/O error stays an error: a file nobody may read is not a broken one.
 fn read_json_or<T: serde::de::DeserializeOwned>(path: &Path, fallback: T) -> Result<T, GuestError> {
     match std::fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(value) => Ok(value),
+            Err(e) => {
+                let aside = path.with_extension(format!("unreadable.{}", now_secs()));
+                std::fs::rename(path, &aside)?;
+                // LCOV_EXCL_START a tracing event's fields, evaluated under a subscriber only
+                tracing::warn!(
+                    "{} did not read ({e}); moved to {} and read as absent",
+                    path.display(),
+                    aside.display()
+                );
+                // LCOV_EXCL_STOP
+                Ok(fallback)
+            }
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(fallback),
         Err(e) => Err(e.into()),
     }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 /// The value of the first tag named `name`.
@@ -249,6 +344,23 @@ impl GuestStore {
                     .map(str::to_string),
             );
         }
+        // And every fact a log holds: a stop between a fact's line and its
+        // id's left the fact kept and not seen, and it was kept a second
+        // time when a relay handed it back.
+        let logs = std::fs::read_dir(dir.join(CONVERSATIONS_DIR))?;
+        for log in logs.flatten().map(|e| e.path()) {
+            // A log moved aside (`.gone`) is read by nothing.
+            if log.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            seen.extend(
+                std::fs::read_to_string(&log)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter_map(|l| Event::from_json(l).ok())
+                    .map(|e| e.id.to_hex()),
+            );
+        }
         Ok(Self {
             dir,
             host_hex,
@@ -285,6 +397,16 @@ impl GuestStore {
         read_json_or(&self.dir.join(HOST_FILE), None)
     }
 
+    /// Take the membership's record away — a claim that never left a node
+    /// with nothing recorded before it. The replica's folder stays.
+    pub fn unset_hosted(&self) -> Result<(), GuestError> {
+        match std::fs::remove_file(self.dir.join(HOST_FILE)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()), // LCOV_EXCL_LINE a record that cannot be removed; disk-only
+        }
+    }
+
     pub fn set_hosted(&self, hosted: &Hosted) -> Result<(), GuestError> {
         write_atomic(
             &self.dir.join(HOST_FILE),
@@ -296,11 +418,157 @@ impl GuestStore {
         read_json_or(&self.dir.join(CHANNELS_FILE), Vec::new())
     }
 
+    /// The rooms as the host says them now, whole. A room that comes back
+    /// with another birth (`created_at`: deleted on the host and made again
+    /// under the id) has its log moved aside
+    /// (`conversations/<scope>.<secs>.gone`): the room made again starts
+    /// empty here as it does on the host, and the old words are kept, read
+    /// by nothing. The births are remembered past a room's leaving the list
+    /// (`births.json`), so the rule holds when the copy heard the list
+    /// without the room in between — and a room this person was taken off
+    /// and put back on, the same room, keeps what it held.
     pub fn set_channels(&self, channels: &[Channel]) -> Result<(), GuestError> {
+        let births_path = self.dir.join(BIRTHS_FILE);
+        let mut births: HashMap<String, u64> = read_json_or(&births_path, HashMap::new())?;
+        // A copy older than the record of births: what it lists is what it knows.
+        for was in self.channels()? {
+            births.entry(was.id.to_string()).or_insert(was.created_at);
+        }
+        let mut moved = false;
+        for now in channels {
+            let known = births.insert(now.id.to_string(), now.created_at);
+            moved |= known != Some(now.created_at);
+            if known.is_some_and(|born| born != now.created_at) {
+                let log = self.conversation_path(now.id.as_str());
+                if log.exists() {
+                    let aside = log.with_extension(format!("{}.gone", now_secs()));
+                    std::fs::rename(&log, &aside)?;
+                }
+            }
+        }
+        if moved {
+            write_atomic(&births_path, &serde_json::to_vec(&births)?)?;
+        }
         write_atomic(
             &self.dir.join(CHANNELS_FILE),
             &serde_json::to_vec_pretty(channels)?,
         )
+    }
+
+    // -- what was heard, what waits to be sent, what waits for its room -----
+
+    pub fn heard(&self) -> Result<Heard, GuestError> {
+        read_json_or(&self.dir.join(HEARD_FILE), Heard::default())
+    }
+
+    pub fn set_heard(&self, heard: &Heard) -> Result<(), GuestError> {
+        write_atomic(&self.dir.join(HEARD_FILE), &serde_json::to_vec(heard)?)
+    }
+
+    /// The ids of this person's facts no relay has taken, oldest first.
+    pub fn unsent(&self) -> Result<Vec<String>, GuestError> {
+        read_json_or(&self.dir.join(UNSENT_FILE), Vec::new())
+    }
+
+    fn set_unsent(&self, ids: &[String]) -> Result<(), GuestError> {
+        write_atomic(&self.dir.join(UNSENT_FILE), &serde_json::to_vec(ids)?)
+    }
+
+    /// Note a fact as not sent yet, once, after the ones already waiting.
+    pub fn mark_unsent(&self, event_id: &str) -> Result<(), GuestError> {
+        let mut ids = self.unsent()?;
+        if !ids.iter().any(|id| id == event_id) {
+            ids.push(event_id.to_string());
+            self.set_unsent(&ids)?;
+        }
+        Ok(())
+    }
+
+    /// A relay took it.
+    pub fn clear_unsent(&self, event_id: &str) -> Result<(), GuestError> {
+        let mut ids = self.unsent()?;
+        let before = ids.len();
+        ids.retain(|id| id != event_id);
+        if ids.len() != before {
+            self.set_unsent(&ids)?;
+        }
+        Ok(())
+    }
+
+    /// Keep a fact for a room the host has not named yet — it arrived
+    /// before the word that names its room. Bounded: the newest
+    /// [`MAX_WAITING`] stay.
+    pub fn park(&self, event: &Event) -> Result<(), GuestError> {
+        let path = self.dir.join(WAITING_FILE);
+        let mut lines: Vec<String> = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(str::to_string)
+            .collect();
+        let line = event.as_json();
+        if lines.contains(&line) {
+            return Ok(());
+        }
+        lines.push(line);
+        if lines.len() > MAX_WAITING {
+            lines.drain(..lines.len() - MAX_WAITING);
+        }
+        write_atomic(&path, (lines.join("\n") + "\n").as_bytes())
+    }
+
+    /// The facts kept for rooms now named, taken off the waiting list; the
+    /// rest wait on.
+    pub fn take_parked(&self) -> Result<Vec<Event>, GuestError> {
+        let path = self.dir.join(WAITING_FILE);
+        let body = match std::fs::read_to_string(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()), // LCOV_EXCL_LINE the waiting list unreadable; disk-only
+        };
+        let rooms: HashSet<String> = self
+            .channels()?
+            .into_iter()
+            .map(|c| c.id.to_string())
+            .collect();
+        let (mut ready, mut waits) = (Vec::new(), Vec::new());
+        for line in body.lines().filter(|l| !l.trim().is_empty()) {
+            match Event::from_json(line) {
+                Ok(ev) if scope_of(&ev).is_some_and(|s| rooms.contains(&s)) => ready.push(ev),
+                Ok(_) => waits.push(line.to_string()),
+                // A line that is no fact — torn by a stop — is dropped at
+                // the next hand-over.
+                Err(_) => continue,
+            }
+        }
+        if !ready.is_empty() {
+            let mut out = waits.join("\n");
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            write_atomic(&path, out.as_bytes())?;
+        }
+        Ok(ready)
+    }
+
+    /// Forget a membership: its replica is moved out of `hosts/` to
+    /// `hosts-forgotten/<host>.<secs>/` beside it — kept whole, listed and
+    /// read by nothing. Answers where it went.
+    pub fn forget(hosts_root: &Path, host_hex: &str) -> Result<PathBuf, GuestError> {
+        let from = hosts_root.join(host_hex);
+        let aside = hosts_root
+            .parent()
+            .unwrap_or(hosts_root)
+            .join(FORGOTTEN_DIR);
+        std::fs::create_dir_all(&aside)?;
+        let mut to = aside.join(format!("{host_hex}.{}", now_secs()));
+        let mut n = 1;
+        while to.exists() {
+            to = aside.join(format!("{host_hex}.{}.{n}", now_secs()));
+            n += 1;
+        }
+        std::fs::rename(&from, &to)?;
+        Ok(to)
     }
 
     pub fn channel(&self, scope: &str) -> Result<Option<Channel>, GuestError> {
@@ -411,7 +679,13 @@ impl GuestStore {
         let mut messages: Vec<HostedMessage> = Vec::new();
         let mut reactions: Vec<(String, HostedReaction)> = Vec::new();
         let mut retracted: HashSet<String> = HashSet::new();
+        let unsent: HashSet<String> = self.unsent()?.into_iter().collect();
+        // A fact is shown once, however often its line was written.
+        let mut drawn: HashSet<String> = HashSet::new();
         for ev in &events {
+            if !drawn.insert(ev.id.to_hex()) {
+                continue;
+            }
             let Ok(author) = PrincipalId::new(ev.pubkey.to_hex()) else {
                 continue; // LCOV_EXCL_LINE a relayed key is always a principal; by construction
             };
@@ -445,6 +719,7 @@ impl GuestStore {
                         artifacts,
                         reactions: Vec::new(),
                         retracted: false,
+                        unsent: unsent.contains(&ev.id.to_hex()),
                     });
                 }
                 k if k == KIND_REACTION => {
@@ -589,6 +864,272 @@ mod tests {
     fn post(keys: &Keys, text: &str, scope: &str, at: u64) -> Event {
         let body = serde_json::to_string(&MessageBody::post(text)).unwrap();
         fact(keys, KIND_MESSAGE, &body, scope, None, at)
+    }
+
+    fn room(id: &str, born: u64) -> Channel {
+        Channel {
+            id: bisa_core::ChannelId::new(id).unwrap(),
+            name: id.into(),
+            ..Channel::general(born)
+        }
+    }
+
+    fn gone_logs(store: &GuestStore) -> Vec<String> {
+        std::fs::read_dir(store.dir().join(CONVERSATIONS_DIR))
+            .unwrap()
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .filter(|n| n.ends_with(".gone"))
+            .collect()
+    }
+
+    /// The channels programme's rule reaches the copy: a room deleted on the
+    /// host and made again under its id starts empty here too, its old words
+    /// kept aside — whether or not the copy heard the list without it in
+    /// between. The same room, taken away and given back, keeps its words.
+    #[test]
+    fn a_room_made_again_starts_empty_in_the_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        store
+            .set_channels(&[room("general", 1), room("design", 5)])
+            .unwrap();
+        store
+            .append(&post(&host, "the old room", "design", 10))
+            .unwrap();
+        store.append(&post(&host, "hello", "general", 11)).unwrap();
+
+        // Taken off the room and put back on it: the same room.
+        store.set_channels(&[room("general", 1)]).unwrap();
+        store
+            .set_channels(&[room("general", 1), room("design", 5)])
+            .unwrap();
+        assert_eq!(store.messages("design", None, 10).unwrap().len(), 1);
+        assert!(gone_logs(&store).is_empty());
+
+        // Deleted, the list heard without it, then made again.
+        store.set_channels(&[room("general", 1)]).unwrap();
+        store
+            .set_channels(&[room("general", 1), room("design", 9)])
+            .unwrap();
+        assert!(store.messages("design", None, 10).unwrap().is_empty());
+        assert_eq!(store.messages("general", None, 10).unwrap().len(), 1);
+        let gone = gone_logs(&store);
+        assert_eq!(gone.len(), 1, "{gone:?}");
+        assert!(gone[0].starts_with("design."), "{gone:?}");
+        store
+            .append(&post(&host, "the new room", "design", 20))
+            .unwrap();
+        assert_eq!(store.messages("design", None, 10).unwrap().len(), 1);
+
+        // Made again between two words: the list never read without it.
+        store
+            .set_channels(&[room("general", 2), room("design", 9)])
+            .unwrap();
+        assert!(store.messages("general", None, 10).unwrap().is_empty());
+        assert_eq!(store.messages("design", None, 10).unwrap().len(), 1);
+
+        // A room made again that never held a word has no log to move; a
+        // reopened copy reads no log that was moved aside.
+        store
+            .set_channels(&[room("general", 2), room("design", 9), room("kitchen", 1)])
+            .unwrap();
+        store
+            .set_channels(&[room("general", 2), room("design", 9), room("kitchen", 2)])
+            .unwrap();
+        assert_eq!(gone_logs(&store).len(), 2);
+        let reopened = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        assert_eq!(reopened.messages("design", None, 10).unwrap().len(), 1);
+        assert!(reopened.messages("general", None, 10).unwrap().is_empty());
+
+        // A copy from before births were remembered knows what it lists.
+        std::fs::remove_file(store.dir().join(BIRTHS_FILE)).unwrap();
+        store
+            .set_channels(&[room("general", 2), room("design", 12)])
+            .unwrap();
+        assert!(store.messages("design", None, 10).unwrap().is_empty());
+    }
+
+    /// A line cut short by a stop is ended before the next is written: the
+    /// torn fact is lost, the sound one after it is not.
+    #[test]
+    fn a_torn_line_costs_one_event_not_two() {
+        use std::io::Write;
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        store.set_channels(&[room("general", 1)]).unwrap();
+        store.append(&post(&host, "one", "general", 10)).unwrap();
+        let torn = post(&host, "torn", "general", 11).as_json();
+        let mut log = std::fs::OpenOptions::new()
+            .append(true)
+            .open(store.conversation_path("general"))
+            .unwrap();
+        log.write_all(&torn.as_bytes()[..torn.len() / 2]).unwrap();
+        drop(log);
+        store.append(&post(&host, "two", "general", 12)).unwrap();
+        let texts: Vec<String> = store
+            .messages("general", None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.text)
+            .collect();
+        assert_eq!(texts, ["one", "two"]);
+    }
+
+    /// A stop between a fact's line and its id's: the reopened copy knows
+    /// the fact from its log and keeps it once; and a log that holds a fact
+    /// twice — written by a build that did not — shows it once.
+    #[test]
+    fn a_fact_in_the_log_is_seen_and_shown_once() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let fact = post(&host, "once", "general", 10);
+        {
+            let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+            store.set_channels(&[room("general", 1)]).unwrap();
+            assert!(store.append(&fact).unwrap());
+            std::fs::remove_file(store.dir().join(SEEN_FILE)).unwrap();
+        }
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        assert!(store.has_seen(&fact.id.to_hex()));
+        assert!(!store.append(&fact).unwrap(), "kept already");
+        append_line(&store.conversation_path("general"), &fact.as_json()).unwrap();
+        assert_eq!(store.events("general").unwrap().len(), 2);
+        assert_eq!(store.messages("general", None, 10).unwrap().len(), 1);
+    }
+
+    /// What waits: a fact not sent is noted once and in order, and cleared
+    /// when a relay took it; a fact for a room not named is kept once, the
+    /// newest when there are too many, and handed over when its room is.
+    #[test]
+    fn what_waits_is_kept_once_in_order_and_within_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        store.set_channels(&[room("general", 1)]).unwrap();
+        assert!(store.unsent().unwrap().is_empty());
+        store.mark_unsent("a").unwrap();
+        store.mark_unsent("b").unwrap();
+        store.mark_unsent("a").unwrap();
+        assert_eq!(store.unsent().unwrap(), ["a", "b"]);
+        store.clear_unsent("a").unwrap();
+        store.clear_unsent("never").unwrap();
+        assert_eq!(store.unsent().unwrap(), ["b"]);
+        let mine = post(&host, "mine", "general", 10);
+        store.append(&mine).unwrap();
+        store.mark_unsent(&mine.id.to_hex()).unwrap();
+        let shown = store.messages("general", None, 10).unwrap();
+        assert!(shown[0].unsent);
+        let json = serde_json::to_value(&shown[0]).unwrap();
+        assert_eq!(json["unsent"], true);
+        store.clear_unsent(&mine.id.to_hex()).unwrap();
+        let sent = serde_json::to_value(&store.messages("general", None, 10).unwrap()[0]).unwrap();
+        assert!(sent.get("unsent").is_none(), "absent when sent: {sent}");
+
+        assert!(store.take_parked().unwrap().is_empty());
+        let early = post(&host, "early", "design", 10);
+        std::fs::write(store.dir().join(WAITING_FILE), b"{ torn\n").unwrap();
+        store.park(&early).unwrap();
+        store.park(&early).unwrap();
+        store.park(&post(&host, "other", "kitchen", 11)).unwrap();
+        assert!(store.take_parked().unwrap().is_empty(), "no room named yet");
+        store
+            .set_channels(&[room("general", 1), room("design", 2)])
+            .unwrap();
+        let ready = store.take_parked().unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, early.id);
+        assert!(store.take_parked().unwrap().is_empty(), "taken once");
+        // The other waits on, past the hand-over.
+        store
+            .set_channels(&[room("general", 1), room("design", 2), room("kitchen", 3)])
+            .unwrap();
+        assert_eq!(store.take_parked().unwrap().len(), 1);
+
+        for i in 0..(MAX_WAITING as u64 + 3) {
+            store
+                .park(&post(&host, &format!("n{i}"), "later", 100 + i))
+                .unwrap();
+        }
+        store
+            .set_channels(&[room("general", 1), room("later", 4)])
+            .unwrap();
+        let kept = store.take_parked().unwrap();
+        assert_eq!(kept.len(), MAX_WAITING);
+        assert!(
+            kept[0].content.contains("\"n3\""),
+            "the newest stay: {}",
+            kept[0].content
+        );
+    }
+
+    /// A copy forgotten is moved whole, and never over one forgotten before
+    /// it — not in the same second either; a record taken away twice is
+    /// taken away.
+    #[test]
+    fn a_forgotten_copy_never_lands_on_another() {
+        let root = tempfile::tempdir().unwrap();
+        let hosts = root.path().join("hosts");
+        let host = Keys::generate();
+        let mut kept = Vec::new();
+        for n in 0..3 {
+            let store = GuestStore::open(&hosts, &host.public_key()).unwrap();
+            store.set_channels(&[room("general", n)]).unwrap();
+            store.unset_hosted().unwrap();
+            store.unset_hosted().unwrap();
+            drop(store);
+            let aside = GuestStore::forget(&hosts, &host.public_key().to_hex()).unwrap();
+            assert!(aside.starts_with(root.path().join(FORGOTTEN_DIR)));
+            assert!(aside.join(CHANNELS_FILE).is_file());
+            assert!(!hosts.join(host.public_key().to_hex()).exists());
+            kept.push(aside);
+        }
+        kept.sort();
+        kept.dedup();
+        assert_eq!(kept.len(), 3, "three copies, none written over");
+    }
+
+    /// The marks of what was heard round-trip, and read as nothing heard on
+    /// a copy made before they were kept.
+    #[test]
+    fn what_was_heard_is_kept_and_an_older_copy_has_heard_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        assert_eq!(store.heard().unwrap(), Heard::default());
+        let heard = Heard {
+            membership: (20, 2),
+            role: 30,
+            channels: 40,
+            members: 50,
+        };
+        store.set_heard(&heard).unwrap();
+        assert_eq!(store.heard().unwrap(), heard);
+        assert!(heard.takes_membership(20, 3), "a later kind of one second");
+        assert!(heard.takes_membership(21, 0));
+        assert!(!heard.takes_membership(20, 2), "the same word handed back");
+        assert!(!heard.takes_membership(20, 1));
+        assert!(!heard.takes_membership(20, 0));
+        assert!(!heard.takes_membership(19, 2));
+        std::fs::write(store.dir().join(HEARD_FILE), b"{}").unwrap();
+        assert_eq!(store.heard().unwrap(), Heard::default());
+        // And each state in the words a section says under its title.
+        let words = |state: HostedState| state.words();
+        assert_eq!(words(HostedState::Requested), "waiting for the host");
+        assert_eq!(words(HostedState::Member), "");
+        assert_eq!(
+            words(HostedState::Refused {
+                reason: "used".into()
+            }),
+            "refused — used"
+        );
+        assert_eq!(
+            words(HostedState::Removed { reason: None }),
+            "removed by the host"
+        );
+        assert_eq!(words(HostedState::Left), "you left");
     }
 
     #[test]
