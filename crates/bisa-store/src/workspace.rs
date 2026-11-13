@@ -180,6 +180,11 @@ pub enum StoreEvent {
         author: bisa_core::PrincipalId,
         role: bisa_core::MemberRole,
     },
+    /// A channel's record written elsewhere — by an admin on another node,
+    /// by this workspace on another machine — landed and stands. Said so the
+    /// node tells its windows and the host tells each person the rooms they
+    /// now reach. Never re-published.
+    RemoteChannelArrived { d: String },
     /// A peer's drawing landed (19 — Drawings): adopted into the index and
     /// the repository like any other, and said here so the engine may tell
     /// an open canvas what the store now holds. Never re-published.

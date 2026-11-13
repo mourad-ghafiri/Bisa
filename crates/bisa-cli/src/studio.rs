@@ -1,8 +1,10 @@
-//! The Studio surface from the terminal: Channels (standing conversations),
-//! Messages (DMs, including with your agents), and Pulse.
+//! The Studio surface from the terminal: channels (standing conversations)
+//! and direct channels (including with your agents), and the messages in
+//! them.
 //!
-//! Every scope — channel, goal, workstream — takes the same message commands;
-//! a scope is just a ULID.
+//! Every scope — a channel, a goal's thread, a conversation — takes the same
+//! message commands; a scope is its id: a channel's slug, a goal's or a
+//! conversation's ULID.
 
 use crate::ctx::Ctx;
 use crate::output::Out;
@@ -74,6 +76,13 @@ pub enum ChannelCmd {
         #[command(flatten)]
         tags: TagSetArgs,
     },
+    /// Delete a channel or a direct channel. Refused for `general`, which
+    /// every workspace always has, and while a workflow still posts or
+    /// listens there. The turns agents run in it are stopped first; the room
+    /// is forgotten and its history kept aside on disk, so a channel made
+    /// again under the name starts empty.
+    #[command(alias = "remove")]
+    Rm { id: String },
 }
 
 /// The three halves of a roster as a person types them, each `None` when
@@ -198,7 +207,10 @@ fn render_roster(out: &Out, c: &Channel) {
             let mut names: Vec<String> = agents.iter().map(|a| a.to_string()).collect();
             names.extend(teams.iter().map(|t| format!("team:{t}")));
             names.extend(humans.iter().map(|p| format!("human:{}", &p.as_hex()[..8])));
-            out.human(&format!("  roster: {}", names.join(", ")));
+            out.say(&bisa_core::text!(
+                "cli-studio-roster",
+                names = names.join(", ")
+            ));
         }
     }
 }
@@ -228,17 +240,12 @@ pub async fn channels(ctx: &Ctx, out: &Out, cmd: ChannelCmd) -> Result<()> {
             }
             for c in &channels {
                 let n = unread.get(c.id.as_str()).copied().unwrap_or(0);
-                let badge = if n > 0 {
-                    format!("  {n} unread")
-                } else {
-                    String::new()
-                };
                 out.human(&format!(
-                    "{:<28} {:<20} {:?}  {}{badge}",
+                    "{:<28} {:<20} {}{}",
                     c.id,
                     c.name,
-                    c.kind,
-                    crate::tags::label(&c.tags)
+                    crate::tags::label(&c.tags),
+                    unread_badge(n)
                 ));
                 render_roster(out, c);
             }
@@ -289,37 +296,91 @@ pub async fn channels(ctx: &Ctx, out: &Out, cmd: ChannelCmd) -> Result<()> {
             tags,
         } => {
             let cid = channel_id(&id)?;
-            let current = ws.get_channel(&cid)?;
             // Each field is replaced only when named, so editing a topic does
             // not silently empty a roster somebody else set — and naming an
-            // agent takes no team and no person off it.
+            // agent takes no team and no person off it. Through a node, only
+            // what was named is sent: what this process read a moment ago is
+            // not sent back over what another window changed since.
             let words = RosterWords::of(agents, teams, humans);
-            let roster = if words.named() {
-                words.over(&current.roster)?
-            } else {
-                current.roster.clone()
-            };
-            let tags = tags.apply(current.tags)?;
             let channel = match ctx.node_client().await {
                 Some(node) => {
-                    let mut body = json!({"tags": tags});
-                    if let Some(topic) = &topic {
-                        body["topic"] = json!(topic);
-                    }
-                    let body = words.into_body(body);
+                    let body = edit_body(topic.as_deref(), &tags, words)?;
                     channel_said(&node.patch(&format!("/channels/{cid}"), body).await?)?
                 }
                 None => {
-                    let topic = topic.or(current.topic.clone());
-                    ws.update_channel(&cid, topic.as_deref(), roster, tags)?
+                    let named_tags = tags.given().then(|| tags.parse()).transpose()?;
+                    // The ids are read before the record is: what is left
+                    // for the edit itself cannot be refused as words.
+                    words.over(&RosterPolicy::default())?;
+                    let (_, after) = ws.update_channel_with(&cid, |channel| {
+                        if let Some(topic) = topic {
+                            channel.topic = Some(topic);
+                        }
+                        if let (true, Ok(roster)) = (words.named(), words.over(&channel.roster)) {
+                            channel.roster = roster;
+                        }
+                        if let Some(tags) = named_tags {
+                            channel.tags = tags;
+                        }
+                        Ok(())
+                    })?;
+                    after
                 }
             };
             out.human(&format!("{}  {}", channel.id, channel.name));
             render_roster(out, &channel);
             out.json_value(json!({"channel": channel}));
         }
+        ChannelCmd::Rm { id } => {
+            let cid = channel_id(&id)?;
+            let deletable = bisa_core::DeletableChannelId::new(cid.clone())
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            match ctx.node_client().await {
+                // Through the node, the turns agents run there are stopped
+                // first and every open window drops the room.
+                Some(node) => {
+                    node.delete(&format!("/channels/{cid}")).await?;
+                }
+                None => ws.delete_channel_by_id(&deletable)?,
+            }
+            out.say(&bisa_core::text!(
+                "cli-studio-channel-removed",
+                id = cid.to_string()
+            ));
+            out.json_value(json!({"removed": cid}));
+        }
     }
     Ok(())
+}
+
+/// `  3 unread`, or nothing when everything was read.
+fn unread_badge(unread: u64) -> String {
+    if unread == 0 {
+        return String::new();
+    }
+    bisa_i18n::say(&bisa_core::text!(
+        "cli-studio-unread",
+        n = unread.to_string()
+    ))
+}
+
+/// What `channels edit` sends a node: the fields the command line named and
+/// no other. Tags ride only when a `--tag` was given — sent on every edit,
+/// they were the tags this process had read, written back over what another
+/// window had changed since.
+fn edit_body(
+    topic: Option<&str>,
+    tags: &TagSetArgs,
+    roster: RosterWords,
+) -> Result<serde_json::Value> {
+    let mut body = json!({});
+    if let Some(topic) = topic {
+        body["topic"] = json!(topic);
+    }
+    if tags.given() {
+        body["tags"] = json!(tags.parse()?);
+    }
+    Ok(roster.into_body(body))
 }
 
 /// What a person says from the command line, ready to be posted.
@@ -372,7 +433,7 @@ async fn say(ctx: &Ctx, ws: &Workspace, scope: &str, words: Words<'_>) -> Result
     Ok(ws.post_message(
         scope,
         MessageBody::Post {
-            text: words.text.to_string(),
+            text: words_kept(ctx, ws, scope, words.text).await?,
             context: vec![],
             artifacts: words.artifacts,
             thinking: None,
@@ -385,6 +446,30 @@ async fn say(ctx: &Ctx, ws: &Workspace, scope: &str, words: Words<'_>) -> Result
         // `bisa msg` is a person at a terminal.
         PostOrigin::Asked,
     )?)
+}
+
+/// A person's words as the store keeps them when no node runs: redacted by
+/// the rule the node's door holds ([`bisa_engine::messaging::words_for`])
+/// when the scope is one a person on another node reads. Only then is an
+/// engine started — a quiet one, which hears nothing and wakes nobody — so a
+/// workspace nobody was invited to pays nothing for the question.
+async fn words_kept(ctx: &Ctx, ws: &Workspace, scope: &str, text: &str) -> Result<String> {
+    let read_elsewhere = ChannelId::new(scope)
+        .ok()
+        .and_then(|id| ws.get_channel(&id).ok())
+        .is_some_and(|channel| {
+            ws.people()
+                .unwrap_or_default()
+                .iter()
+                .any(|p| bisa_core::reaches(&channel, p.role, &p.pubkey))
+        });
+    if !read_elsewhere {
+        return Ok(text.to_string());
+    }
+    let engine = ctx.quiet_engine().await?;
+    let kept = bisa_engine::messaging::words_for(engine.inner(), scope, text.to_string());
+    engine.shutdown().await;
+    Ok(kept)
 }
 
 /// Post to any scope: a channel, a goal thread, or a conversation.
@@ -534,6 +619,9 @@ async fn mark(
     }
 }
 
+/// The most one page reads, as the node's routes hold it.
+const MAX_PAGE: usize = 200;
+
 /// A scope's messages read and printed for a person — reading is
 /// acknowledging, so the read mark moves — and handed back for the one JSON
 /// answer the verb prints: `msgs` prints them as they are, a `conversation
@@ -546,7 +634,14 @@ pub async fn read_messages(
     before: Option<u64>,
 ) -> Result<Vec<bisa_store::MessageRow>> {
     let ws = ctx.workspace()?;
-    let rows = ws.messages(scope, before.map(bisa_store::PageBefore::at), limit)?;
+    // A scope that is not here is said as that — never read as an empty
+    // one, which marked a misspelt room read.
+    ws.resolve_scope(scope)?;
+    let rows = ws.messages(
+        scope,
+        before.map(bisa_store::PageBefore::at),
+        limit.clamp(1, MAX_PAGE),
+    )?;
     if rows.is_empty() {
         out.say(&bisa_core::text!("cli-studio-no-messages-scope-yet"));
     }
@@ -559,8 +654,11 @@ pub async fn read_messages(
     }
     // Read up to what was printed: a message that landed while the page
     // was being read stays unread.
-    let shown = rows.iter().map(|m| m.created_at).max();
-    mark(ctx, &ws, scope, true, shown).await?;
+    // And a page that showed nothing reads nothing: a mark with no moment
+    // is a mark up to now, which read the whole room unseen.
+    if let Some(shown) = rows.iter().map(|m| m.created_at).max() {
+        mark(ctx, &ws, scope, true, Some(shown)).await?;
+    }
     Ok(rows)
 }
 
@@ -605,19 +703,18 @@ fn list_dms(ctx: &Ctx, out: &Out) -> Result<()> {
     }
     for c in &dms {
         let n = unread.get(c.id.as_str()).copied().unwrap_or(0);
-        let badge = if n > 0 {
-            format!("  {n} unread") // LCOV_EXCL_LINE a studio arm no journey stages; out by decision
-        } else {
-            String::new()
-        };
         // The audience *is* the DM: a DM's name is derived from it and there
         // is no roster to print, so the participant count is what tells two
         // conversations with the same short prefixes apart.
         out.human(&format!(
-            "{:<28} {:<28} {} participants{badge}",
+            "{:<28} {:<28} {}{}",
             c.id,
             c.name,
-            c.audience.principals().len()
+            bisa_i18n::say(&bisa_core::text!(
+                "cli-studio-participants",
+                n = c.audience.principals().len().to_string()
+            )),
+            unread_badge(n)
         ));
     }
     out.json_value(json!({"dms": dms}));
@@ -638,6 +735,9 @@ async fn send_dm(ctx: &Ctx, out: &Out, pubkeys: &[String], content: &str) -> Res
         .iter()
         .map(|p| PrincipalId::new(p.clone()).map_err(|e| anyhow::anyhow!("{e}")))
         .collect::<Result<_>>()?;
+    // Whoever it is sent to is somebody who is here — the rule a mention
+    // keeps, held with a node and without one.
+    ws.resolve_mentions(bisa_core::ChannelId::general().as_str(), pubkeys)?;
     // Opened through the node when there is one, as its words then go.
     let channel: Channel = match ctx.node_client().await {
         Some(client) => {
@@ -696,4 +796,54 @@ pub async fn read_marker(
     }
     out.json_value(said);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `channels edit` sends a node is what the command line named and
+    /// nothing else: an edit of the topic alone carries no tags and no
+    /// roster. Sent whole, they were what this process had read — written
+    /// back over what another window had changed since.
+    #[test]
+    fn only_what_was_named_is_sent() {
+        let no_tags = TagSetArgs::default();
+        let nobody = || RosterWords::of(vec![], vec![], vec![]);
+        assert_eq!(
+            edit_body(Some("how it looks"), &no_tags, nobody()).unwrap(),
+            json!({"topic": "how it looks"})
+        );
+        assert_eq!(edit_body(None, &no_tags, nobody()).unwrap(), json!({}));
+        let tagged = TagSetArgs {
+            tags: vec!["ux".into()],
+        };
+        assert_eq!(
+            edit_body(None, &tagged, nobody()).unwrap(),
+            json!({"tags": ["ux"]})
+        );
+        assert_eq!(
+            edit_body(
+                Some(""),
+                &tagged,
+                RosterWords::of(vec!["scout".into()], vec![], vec!["ab".repeat(32)]),
+            )
+            .unwrap(),
+            json!({"topic": "", "tags": ["ux"], "agents": ["scout"], "humans": ["ab".repeat(32)]})
+        );
+        assert!(edit_body(
+            None,
+            &TagSetArgs {
+                tags: vec!["Not A Tag!".into()]
+            },
+            nobody()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn an_unread_count_is_said_and_none_is_nothing() {
+        assert_eq!(unread_badge(0), "");
+        assert!(unread_badge(3).contains("3 unread"), "{}", unread_badge(3));
+    }
 }

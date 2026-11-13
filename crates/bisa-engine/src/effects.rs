@@ -1183,16 +1183,21 @@ fn post_as(
     // the two names stood.
     principals.sort();
     principals.dedup();
-    Ok(inner.ws.post_message(
-        &scope_id,
-        MessageBody::post(text),
-        None,
-        &principals,
-        &[],
-        Some(&speaker),
-        // The platform announcing, not a person asking: nothing triages.
-        PostOrigin::Announced,
-    )?)
+    // Remembered as this run's before anybody can hear it: the agent it
+    // names answers, and that answer is the run's consequence — a listener
+    // that led here does not start again on it.
+    Ok(crate::listen::post_for_run(inner, Some(run.id), || {
+        inner.ws.post_message(
+            &scope_id,
+            MessageBody::post(text),
+            None,
+            &principals,
+            &[],
+            Some(&speaker),
+            // The platform announcing, not a person asking: nothing triages.
+            PostOrigin::Announced,
+        )
+    })?)
 }
 
 /// Where a run's signals belong: its goal, or the workspace.

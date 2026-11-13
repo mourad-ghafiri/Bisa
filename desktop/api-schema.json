@@ -19794,7 +19794,7 @@
           ]
         }
       ],
-      "description": "Who may read. `Workspace` uses the shared workspace key; `Restricted` is\nwrapped pairwise to exactly those principals and never touches it."
+      "description": "Who may read. `Workspace` is wrapped pairwise to each person whose role\nreaches the channel — there is no shared workspace key; `Restricted` is\nwrapped pairwise to exactly those principals."
     },
     "RosterPolicy": {
       "oneOf": [

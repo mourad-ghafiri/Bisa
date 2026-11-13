@@ -91,7 +91,7 @@ was closed, the app opens on its list and says *It is no longer here — back to
 archived is still there, and so is its place.
 
 **What starts empty, on purpose.** A dialog or a form opens empty every time, and a secret field is
-never kept. A message you were writing is kept until you send it, as are a note and a document; the
+never kept. A message you were writing is kept until you send it — from the press, not the answer: one you sent and left behind is never waiting in its box, and one the node refused is put back — as are a note and a document; the
 files attached to a message not yet sent, the search palette, undo histories, banners and the *Back*
 history of the last time the app ran are not.
 
@@ -414,9 +414,19 @@ a search by name and *New message*. A direct channel's stored name is never show
 it. Both pages fill the window like the Goals list.
 
 A standing channel's header carries its topic, its tags, a working dot, and an `@handle` chip that
-opens the roster — the agents and teams that belong here, and the people on other nodes listed on
-it. **Edit** changes topic, roster (agents, teams and, under **People**, the hosted members a guest
-reaches this channel through) and tags; the audience and the kind are fixed. Below your own
+opens the roster — the agents listed on it, a disabled one marked, with how many agents the handle
+reaches by the node's own count (a team's agents in, a disabled agent out, the General Agent and
+the Workflow Agent last). **Edit** changes the topic, the roster's agents and — under **People** —
+the hosted members a guest reaches this channel through, and the tags; the audience and the kind
+are fixed, and a roster's teams are edited from the command line. An edit writes what you changed
+and nothing else, so a dialog left open while another window changed the roster saves its topic
+and leaves the roster as it now is; emptying the topic clears it; `general` offers its topic and
+tags, since everybody belongs there; and a dialog with something typed asks before it closes.
+**Delete…** — in a channel's `⋮`, on the Channels page and in its header, and in a direct
+channel's — removes the room after saying what still uses it: `general` has none, a channel a
+workflow posts or listens in is listed instead of deleted, and a room deleted in another window
+leaves this one's lists at once. A deleted room's messages leave every page, count and search, and
+a channel made again under its name starts empty. Below your own
 channels and direct messages the sidebar has one section per workspace you are a guest of —
 **Hosted by …** — with the channels and direct channels the host says you reach; a hosted channel
 is the same surface, read and written through the host, text, mentions and replies only

@@ -30,7 +30,7 @@ import { applyDelta, markAt, needsOf, joinOf, waitingOf } from "../views/_studio
 import { withLatest } from "../views/_studio/channelListModel.mjs";
 import { nameIn, principalNames } from "./namesModel.mjs";
 import { rowRead } from "../views/_studio/readModel.mjs";
-import { COALESCE_MS, LOAD_SHAPES, degradedReads, failedRead, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
+import { COALESCE_MS, LOAD_SHAPES, degradedReads, failedRead, framesSinceLoad, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads, unreadOver } from "./workspaceLoadModel.mjs";
 import { bootLine } from "./nodeBootModel.mjs";
 import { useNodeBoot } from "./nodeBootStore";
 import { createLatest } from "./latestModel.mjs";
@@ -39,6 +39,7 @@ import type {
   AttachmentRef,
   AgentDef,
   ChannelListEntry,
+  ConversationFrame,
   InboxRow,
   GoalRow,
   MemberRow,
@@ -243,10 +244,14 @@ export function useWorkspaceState(): WorkspaceData {
   /** Coalesces a burst of `hosted_changed` frames into one re-read. */
   const pendingHosted = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** What the bus said of each scope since the load in flight was asked (`workspaceLoadModel.framesSinceLoad`). */
+  const sinceLoad = useRef(framesSinceLoad<ConversationFrame>());
+
   const load = useCallback(async () => {
     inFlight.current?.abort();
     const ac = new AbortController();
     inFlight.current = ac;
+    sinceLoad.current.begin();
     const hostedTicket = hostedReads.current.begin();
     // Each read settles on its own (`workspaceLoadModel`): one route that
     // cannot answer — a goals list that cannot read a run, an inbox that
@@ -307,8 +312,12 @@ export function useWorkspaceState(): WorkspaceData {
       setArchivedProjects(pr.projects.filter((p) => !!p.project.archived));
     }
     if (wst) setWorkstreams(wst.workstreams);
-    if (ci) setChannels(ci.channels);
-    if (dm) setDms(dm.dms);
+    // What the bus said while the lists were being read is newer than what
+    // they answered: each such frame is put over the answer, so a badge and a
+    // row's last words never drop back to what the load had read.
+    const late = sinceLoad.current.since();
+    if (ci) setChannels(late.reduce(withLatest, ci.channels));
+    if (dm) setDms(late.reduce(withLatest, dm.dms));
     if (ib) setInbox(ib.rows);
     // One map keyed by scope id. The two lists are disjoint — `/channels` is
     // standing channels and `/dms` is DMs — so nothing here is written twice;
@@ -318,7 +327,7 @@ export function useWorkspaceState(): WorkspaceData {
       const next: Record<string, number> = {};
       for (const c of [...ci.channels, ...dm.dms]) next[c.channel.id] = c.unread_count;
       for (const r of ib.rows) if (r.unread_count) next[r.key] = r.unread_count;
-      setUnread(next);
+      setUnread(unreadOver(next, late));
     }
     const degradedNow = [...failed, ...(hs?.failed ?? [])];
     if (degradedNow.length > 0) log.warn("workspace", "some of the workspace could not be read", { degraded: degradedNow });
@@ -416,6 +425,7 @@ export function useWorkspaceState(): WorkspaceData {
           // this is the frame the views used to drop because it has no `snapshot`.
           if (f.scope) {
             const scope = f.scope;
+            sinceLoad.current.heard(f);
             setUnread((u) => ({
               ...u,
               [scope]: f.unread_count ?? (u[scope] ?? 0) + 1,

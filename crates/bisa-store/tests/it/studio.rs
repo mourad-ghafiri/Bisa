@@ -611,26 +611,34 @@ fn dm_audience_enforced_at_ingest_and_post() {
         bisa_core::kind::KIND_CHANNEL,
         dm.id.as_str(),
     );
+    // A direct channel is opened where its owner is: a person on another
+    // node — an admin there, even — does not write one into a workspace, so
+    // nobody is handed an audience they did not open.
     ws3.add_member(
         ws1.owner_principal(),
         MemberRole::Admin,
         Admission::default(),
     )
     .unwrap();
-    ws3.ingest_remote_event(&snap).unwrap();
-    // ws3 is not a participant: cannot post into it.
-    assert!(ws3
+    assert!(matches!(
+        ws3.ingest_remote_event(&snap).unwrap(),
+        IngestOutcome::Rejected { reason } if reason.contains("standing channels")
+    ));
+    assert!(ws3.get_channel(&dm.id).is_err());
+    // On the node that holds it, an agent that is not a participant cannot
+    // post into it, and its owner can.
+    let outsider = ws1.add_agent(new_agent("Outsider")).unwrap();
+    assert!(ws1
         .post_message(
             dm.id.as_str(),
             MessageBody::post("intrude"),
             None,
             &[],
             &[],
-            None,
+            Some(&outsider.id),
             PostOrigin::Asked
         )
         .is_err());
-    // A message from a participant is accepted by a participant's node.
     ws1.post_message(
         dm.id.as_str(),
         MessageBody::post("hi"),
@@ -641,18 +649,7 @@ fn dm_audience_enforced_at_ingest_and_post() {
         PostOrigin::Asked,
     )
     .unwrap();
-    let ev = raw_conversation_events(&ws1, dm.id.as_str()).pop().unwrap();
-    ws2.add_member(
-        ws1.owner_principal(),
-        MemberRole::Admin,
-        Admission::default(),
-    )
-    .unwrap();
-    ws2.ingest_remote_event(&snap).unwrap();
-    assert!(matches!(
-        ws2.ingest_remote_event(&ev).unwrap(),
-        IngestOutcome::AppliedConversation { .. }
-    ));
+    assert_eq!(raw_conversation_events(&ws1, dm.id.as_str()).len(), 1);
 }
 
 #[test]

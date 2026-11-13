@@ -19,12 +19,12 @@
  */
 
 import { useEffect, useSyncExternalStore } from "react";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { subscribe as busSubscribe, watchConnection } from "../../bus";
 import { reloadOnReconnect } from "../../shell/workspaceLoadModel.mjs";
 import type { EnginePayload } from "../../types";
 import { NO_TURNS, agentsOf, applyStreamed, dropSettled, landedOf, primeTurns, retireLanded, sameAgents, settleTurn } from "./liveTurnModel.mjs";
-import type { LiveTurn, LiveTurns } from "./liveTurnModel.mjs";
+import type { LiveRoute, LiveTurn, LiveTurns } from "./liveTurnModel.mjs";
 
 let turns: LiveTurns = NO_TURNS;
 /** The agents with a row per scope, rebuilt only when the scope's turns moved and the agents changed. */
@@ -86,7 +86,7 @@ function subscribe(l: () => void): () => void {
   });
   // The node came back: every scope with a turn in flight is given the node's whole turns again, as a reader joining mid-turn is.
   unwatchConnection ??= reloadOnReconnect(watchConnection, () => {
-    for (const scope of turns.keys()) void primeLiveTurns(scope);
+    for (const scope of turns.keys()) void primeLiveTurns(scope, primed.get(scope) ?? null);
   });
   return () => {
     listeners.delete(l);
@@ -125,17 +125,27 @@ export function retireLandedTurns(messageIds: Iterable<string>): void {
   set(retireLanded(turns, new Set(messageIds)));
 }
 
+/** The route each primed scope's turns are read by, kept for the read after a reconnect. */
+const primed = new Map<string, LiveRoute>();
+
 /**
  * What a reader that joins mid-turn is given: the node's whole turns for the
- * conversation, replacing the frames the bus said since the reader came. A
- * scope that is not a conversation, or a node that cannot answer, leaves
- * the bus's account standing.
+ * scope, replacing the frames the bus said since the reader came — by the
+ * route its kind has (`liveRouteOf`): a conversation's, or a channel's for a
+ * channel and a direct channel. A scope with no route leaves the bus's
+ * account standing, and so does a node that cannot answer — but a scope the
+ * node says is **gone** has no turn: its rows are cleared, never left
+ * streaming for a room that was deleted.
  */
-export async function primeLiveTurns(conversation: string, signal?: AbortSignal): Promise<void> {
+export async function primeLiveTurns(scope: string, route: LiveRoute | null, signal?: AbortSignal): Promise<void> {
+  if (!route) return;
+  primed.set(scope, route);
   try {
-    const { turns: rows } = await api.conversationLive(conversation, signal);
-    set(primeTurns(turns, conversation, rows));
-  } catch {
-    // The bus keeps saying what it hears; nothing to add.
+    const read = route === "channel" ? api.channelLive : api.conversationLive;
+    const { turns: rows } = await read(scope, signal);
+    set(primeTurns(turns, scope, rows));
+  } catch (e) {
+    // The bus keeps saying what it hears; nothing to add — unless there is no such scope any more.
+    if (e instanceof ApiError && e.status === 404) set(primeTurns(turns, scope, []));
   }
 }

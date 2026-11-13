@@ -60,7 +60,7 @@ import { doorFailedWords, doorWords, failureWords, nodeDoors } from "./nodeBootM
 import { useNodeBoot } from "./nodeBootStore";
 import { openNodeDoor } from "./nodeDoors";
 import { settingsPath, settingsSearch } from "../views/_settings/settingsLink.mjs";
-import { sortChannels, sortDms } from "../views/_studio/channelListModel.mjs";
+import { dmHead, dmLabel, sortChannels, sortDms } from "../views/_studio/channelListModel.mjs";
 import type { SidebarMode } from "./sidebarModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
@@ -161,10 +161,11 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
           {sortDms(ws.dms).map(({ channel }) => {
             const others = audiencePrincipals(channel).filter((p) => p !== ws.me);
             const agent = others.map((p) => ws.agentByPubkey(p)).find(Boolean);
-            const label = others.length ? others.map((p) => ws.nameOf(p)).join(", ") : t("shell-omnibox-just");
+            // One name for a direct channel, on every surface (`channelListModel.dmLabel`).
+            const label = dmLabel(channel, ws.me, ws.nameOf);
             const unread = ws.unread[channel.id] ?? 0;
             const busy = (ws.working[channel.id] ?? []).length > 0;
-            const head = others[0] ?? channel.id;
+            const head = dmHead(channel, ws.me);
             return (
               <SidebarRow
                 key={channel.id}
@@ -194,7 +195,8 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
         {/* The workspaces this node is a guest of (14-collaboration): one
             section per host, its channels and direct channels as the host
             relays them. No add button — a channel there is the host's to
-            make; a direct message is asked for from a hosted channel. An
+            make, and a direct channel there is opened by its host or from the
+            command line (`bisa workspace` verbs) — no door here opens one. An
             empty one is a door to where the membership is kept, with its
             standing beneath. */}
         {orderSections(ws.hosted).map((section) => {

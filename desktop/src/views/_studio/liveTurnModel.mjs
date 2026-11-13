@@ -309,3 +309,16 @@ export function thinkingWords(chars, open, live = false, elapsedS = 0) {
     hint: open ? tr("studio-live-turn-hide-thinking") : tr("studio-live-turn-show-thinking", { length }),
   };
 }
+
+/**
+ * The route a scope's turns in flight are read by, from its kind: a
+ * conversation's own, a channel's for a channel and for a direct channel;
+ * `null` where no route answers — a goal's thread.
+ * @param {string | null | undefined} kind a chat's kind: `conversation`, `channel`, `dm`, `goal`
+ * @returns {"conversation" | "channel" | null}
+ */
+export function liveRouteOf(kind) {
+  if (kind === "conversation") return "conversation";
+  if (kind === "channel" || kind === "dm") return "channel";
+  return null;
+}

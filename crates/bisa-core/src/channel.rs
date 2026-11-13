@@ -112,8 +112,9 @@ impl ChannelKind {
     }
 }
 
-/// Who may read. `Workspace` uses the shared workspace key; `Restricted` is
-/// wrapped pairwise to exactly those principals and never touches it.
+/// Who may read. `Workspace` is wrapped pairwise to each person whose role
+/// reaches the channel — there is no shared workspace key; `Restricted` is
+/// wrapped pairwise to exactly those principals.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "audience", content = "principals")]
 pub enum Audience {
@@ -179,6 +180,15 @@ impl RosterPolicy {
         match self {
             RosterPolicy::Everyone => &[],
             RosterPolicy::Listed { humans, .. } => humans,
+        }
+    }
+
+    /// Take `person` off the list. `Everyone` lists nobody, so there is
+    /// nobody to take off.
+    pub fn drop_human(&mut self, person: &PrincipalId) {
+        match self {
+            RosterPolicy::Everyone => {}
+            RosterPolicy::Listed { humans, .. } => humans.retain(|p| p != person),
         }
     }
 
@@ -313,6 +323,30 @@ impl DeletableChannel {
     pub fn channel(&self) -> &Channel {
         &self.0
     }
+
+    /// The id alone, still unable to be `general`'s.
+    pub fn id(&self) -> DeletableChannelId {
+        DeletableChannelId(self.0.id.clone())
+    }
+}
+
+/// The id of a channel that may be deleted — what is left to go by when the
+/// record itself cannot be read. As with [`DeletableChannel`], the only
+/// constructor refuses `general`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeletableChannelId(ChannelId);
+
+impl DeletableChannelId {
+    pub fn new(id: ChannelId) -> Result<Self, ChannelError> {
+        if id.is_general() {
+            return Err(ChannelError::Permanent { id });
+        }
+        Ok(Self(id))
+    }
+
+    pub fn as_id(&self) -> &ChannelId {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -444,6 +478,36 @@ mod tests {
             Err(ChannelError::Permanent { .. })
         ));
         assert!(DeletableChannel::new(listed("eng", &[], &[])).is_ok());
+    }
+
+    #[test]
+    fn a_person_is_taken_off_a_listed_roster_and_everyone_lists_nobody() {
+        let key = |c: char| PrincipalId::new(c.to_string().repeat(64)).unwrap();
+        let (ada, grace) = (key('a'), key('b'));
+        let mut roster = RosterPolicy::Listed {
+            agents: vec![],
+            teams: vec![],
+            humans: vec![ada.clone(), grace.clone()],
+        };
+        roster.drop_human(&ada);
+        assert_eq!(roster.humans(), std::slice::from_ref(&grace));
+        let mut everyone = RosterPolicy::Everyone;
+        everyone.drop_human(&grace);
+        assert_eq!(everyone, RosterPolicy::Everyone);
+    }
+
+    #[test]
+    fn the_id_of_general_cannot_be_made_deletable_either() {
+        assert!(matches!(
+            DeletableChannelId::new(ChannelId::general()),
+            Err(ChannelError::Permanent { .. })
+        ));
+        let eng = DeletableChannel::new(listed("eng", &[], &[])).unwrap();
+        assert_eq!(eng.id().as_id().as_str(), "eng");
+        assert_eq!(
+            DeletableChannelId::new(ChannelId::new("eng").unwrap()).unwrap(),
+            eng.id()
+        );
     }
 
     #[test]

@@ -477,6 +477,23 @@ pub async fn held(ctx: &Ctx, out: &Out) -> Result<()> {
     Ok(())
 }
 
+/// A message's id as it goes into a route: letters, digits, `-` and `_`,
+/// one segment of a path and nothing more — or it names no message and is
+/// refused here, never put into a path as it was typed.
+fn an_event_id(id: &str) -> Result<&str> {
+    let one_segment = (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    if one_segment {
+        return Ok(id);
+    }
+    bail!(bisa_core::text!(
+        "cli-net-not-a-message-id",
+        id = id.to_string()
+    ))
+}
+
 /// Let a held message through. The agents it addresses are woken on the
 /// spot, so this needs the node that runs them: a release from a process
 /// that leaves at once would lose the wake.
@@ -484,8 +501,11 @@ pub async fn release_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
     let Some(node) = ctx.node_client().await else {
         bail!(bisa_core::text!("cli-net-release-needs-node"));
     };
-    node.post(&format!("/messages/{id}/release"), json!({}))
-        .await?;
+    node.post(
+        &format!("/messages/{}/release", an_event_id(id)?),
+        json!({}),
+    )
+    .await?;
     out.say(&bisa_core::text!(
         "cli-net-held-released",
         id = id.to_string()
@@ -499,7 +519,7 @@ pub async fn release_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
 /// the node; a message nobody holds is refused by name.
 pub async fn refuse_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
     if let Some(node) = ctx.node_client().await {
-        node.post(&format!("/messages/{id}/refuse"), json!({}))
+        node.post(&format!("/messages/{}/refuse", an_event_id(id)?), json!({}))
             .await?;
     } else {
         let engine = ctx.quiet_engine().await?;
@@ -1221,6 +1241,22 @@ impl CollabDoors for Pump {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An id goes into a route only when it is one: anything else is
+    /// refused by name before a node is asked.
+    #[test]
+    fn a_message_id_is_checked_before_it_is_put_into_a_route() {
+        let id = "ab".repeat(32);
+        assert_eq!(an_event_id(&id).unwrap(), id);
+        assert_eq!(an_event_id("e-member").unwrap(), "e-member");
+        for not_one in ["", "../people", "a/b", "a b", "a?x=1", &"ab".repeat(65)] {
+            let refused = an_event_id(not_one).unwrap_err().to_string();
+            assert!(
+                refused.contains("not a message id"),
+                "{not_one:?}: {refused}"
+            );
+        }
+    }
 
     #[test]
     fn the_doctor_says_what_stands_in_the_way_before_anything_is_dialled() {

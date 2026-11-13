@@ -28,6 +28,20 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Delete… for a channel and a direct channel in the desktop** — on the Channels page, in a
+  channel's header and in a direct channel's, never on `general`. The dialog says what still uses
+  the room before it offers Delete, keeps a refusal in the node's words, and a room deleted in
+  another window leaves this one's lists, its place and what its box held.
+
+- **`bisa channels rm <id>`** deletes a channel or a direct channel from the command line, through
+  the node when one runs: never `general`, refused while a workflow still names the room, and a
+  channel made again under the name starts empty.
+
+- **`GET /channels/{id}/live`** — the turns in flight in a channel or a direct channel, each
+  agent's words and thinking so far, as a conversation's live read answers them: a window opened
+  mid-reply shows the reply from its start. A channel's deletion is said on `GET /events` as its
+  snapshot frame with `removed: true`, and a channel nobody can read is deleted by its id.
+
 - **Disable an agent and stand a team down from the desktop.** *Disable* and *Enable* are in an
   agent's card menu and its pane — never on the General Agent or the Workflow Agent — and *Stand
   down* and *Bring back* in a team's. Each changes that one thing and nothing else of the record,
@@ -199,6 +213,172 @@ notes (`docs/contributing/release.md`).
   always said.
 
 ### Fixed
+
+- **Copy link on a message opens that message.** The link carried the message under a word no
+  screen read, so it opened the thread at its bottom; a thread opened by one is now put at the
+  message it names. A page of older messages that lands while a reply arrives no longer throws
+  the reader back, and reading waits a full beat after each message that lands.
+
+- **Sending in a channel no longer disables the send for a second.** The slot waited, shaped as
+  *Stop*, for a session to stop — where no Stop is ever drawn — and swallowed an Enter typed in
+  that time; a send the node refused is no longer logged as an error nobody handled.
+
+- **One name for a direct channel on every surface** — the sidebar, the Messages page, its header
+  and the palette, which now lists them as the lists do — and never its stored name of key
+  prefixes; an agent that is switched off says so in its direct channel's header. A message's
+  buttons name whose message they act on, a retraction quotes what it takes back, a role and a
+  harness are said by their names, and *1 agents* is *1 agent*.
+
+- **A hosted thread shows what its host says as it arrives.** A host's message reaches a guest's
+  window as a `hosted_changed` fact and the open thread followed conversation frames alone: it
+  was never drawn, and a beat later it was marked read. The thread now reads again on that fact.
+
+- **A hosted room and this workspace's room of the same id no longer share a draft, an addressee,
+  a reading place or a working mark.** What a window keeps by a scope is kept with its host for
+  a hosted one — a line half-typed in your own `general` no longer sat in a host's `general`,
+  one Enter from being said in another organisation — and the address tray, this workspace's
+  agents' live rows and their working line are not drawn there.
+
+- **Reactions in a hosted channel are drawn, and yours can be taken back.** The rows carried the
+  message's id under a name the timeline did not read; pressing one again is the same reaction,
+  as on the host. A hosted composer offers no file door, where a file was uploaded and then
+  dropped at the send.
+
+- **The guest's copy keeps the rules its host keeps.** A read mark never moves back; unread counts
+  the messages the thread shows — not a join, a leave or a post taken back; a message past the
+  256 KiB bound is refused before it is kept; its files are written whole, each write under a
+  temporary of its own; and a hosted page's `limit` is held from 1.
+
+- **Editing a channel in the desktop writes what you changed.** The dialog sent the topic, the
+  roster and the tags on every save, from a record the page had read once: a topic edit undid a
+  roster change made in another window, and one name on the roster that no agent answered to made
+  every save fail with no way to take it off. The page now draws the list's copy of the channel,
+  the dialog names only the fields it changed, an emptied topic clears, `general` is offered no
+  roster the node would throw away, and an unresolved name is listed with a way to remove it.
+
+- **A message being sent no longer takes what you type next with it, or comes back as a draft.**
+  The box was emptied whole when the send settled, and the stored draft was cleared only then —
+  so sending and leaving the room at once left the sent message in its box, one Enter from being
+  said twice. What was sent is cleared and nothing typed since; the draft goes at the press and
+  is put back if the node refuses.
+
+- **A direct channel offers its participants.** Its address tray and `@` offered every agent and
+  team; naming one from outside is refused by the node. The tray no longer forgets every scope's
+  addressees when the workspace loaded without its agents.
+
+- **A reload of the lists no longer overwrites a message that landed meanwhile** — the unread
+  badge and a row's last words dropped back to what the load had read; a channel opened while an
+  agent is answering shows the reply from its start, and a live row of a room that is gone is
+  cleared instead of streaming for ever; going from one channel to another no longer draws the
+  first one's header over the second's messages while it is read; the two channel dialogs ask
+  before dropping what was typed, stay shut while saving and lock their fields; and *@name
+  reaches N agents* is the node's own count, a disabled agent marked.
+
+- **`bisa channels edit` through a node sends what it named.** It sent the tags it had read on
+  every edit — a topic alone among them — writing them back over what another window had changed
+  since; with no node it edits the record as it stands.
+
+- **`bisa msgs` on a page that shows nothing reads nothing.** A page cut before a room's first
+  message, or a room misspelt, marked the whole room read: a mark with no moment is a mark up to
+  now. A scope that is not here is refused by name, and `--limit` is held between 1 and 200.
+
+- **What `bisa msg` and `bisa dm send` store with no node running is redacted** as the node's
+  door redacts it, when the room is one a person on another node reads; and `dm send` holds the
+  same check of who is addressed with a node and without one. A held message's id is checked
+  before it goes into a route.
+
+- **Two edits of one channel at once both stand, over HTTP too.** `PATCH /channels/{id}` read the
+  record, merged the body and wrote it back whole: a topic edit beside a roster edit kept one of
+  them. The handler now names what the body named and the store applies it on the record as it
+  stands. An empty `topic` clears it — `null` reads as absent, so clearing a topic said *updated*
+  and changed nothing.
+
+- **The channel routes are a channel's.** `POST /channels/{id}/messages` posted into any scope —
+  an archived conversation among them — and answered 400 for a channel that is gone where the
+  page answers 404; a react and a retract of a message that is not here are 404, and an emoji has
+  one bound, the store's 64 bytes.
+
+- **The owner's window hears what a person on another node says, and a channel written there.**
+  Neither made a frame on `GET /events`, so a guest's message showed at the next reload. A
+  frame's `snippet` is the words of a post, where it was the stored JSON.
+
+- **A message sent while an agent is answering no longer costs either reply.** The message handed
+  to the live session bumped the turn counter at once: what the running turn had said so far was
+  wiped, and the reply to the second message was taken for a repeat of the first and never
+  posted. It now waits behind the turn in flight, which keeps its own words and its own end.
+
+- **The idle clock no longer disposes a turn that is still running.** It was armed when the
+  session launched and looked only at follow-ups, so a reply that took longer than five minutes
+  was cut and its row read *parked*. It runs between turns now, and a turn that never ends is the
+  wall clock's.
+
+- **A harness that takes no follow-up answers one message at a time.** A second message during
+  its turn launched a second session beside the first — which no stop could reach — and one of
+  the two replies was never posted. The message now waits its turn, and a session that cannot
+  take a message is let go of before another is launched in its place.
+
+- **Deleting a channel stops the turn still launching and the message queued behind one**, not
+  only the sessions already live; the turn in flight is aborted, not left to finish into a room
+  that is gone.
+
+- **An agent's reply in a direct channel wakes whom it names.** With two agents in one direct
+  channel, each reply of one woke the other again though it named nobody.
+
+- **A workflow no longer restarts itself through its own `notify` step.** A workflow that starts
+  on what agents say, and whose step names an agent, heard that agent's answer as a new
+  occurrence; the answer now carries the run's causal chain, as a worker's own post does.
+
+- **What an agent says through `post_message` is redacted as its spoken reply is**, and the tool
+  takes no more words into an archived conversation than a person's own door does.
+
+- **A channel written on another node is checked before it is stored.** An admin's record, or one
+  from this workspace on another machine, was written and indexed as it came: a room rostered
+  *everyone* made the next rebuild — and so the next open — fail, a direct channel could be given
+  another audience, `general` another shape. It is now read first: the shape this node would
+  store, under the id it names, its kind, audience and origin unchanged, and from a person on
+  another node a standing channel only, never `general`. A refusal is final.
+
+- **A person hears the rooms they reach when one is deleted or written from another node**, and a
+  list the host could not read is never sent as an empty one — a person's copy dropped every room
+  it held. A received message of nothing, or past its bounds, is refused for good instead of
+  being offered again at every catch-up, and a direct channel takes words from its participants
+  alone.
+
+- **A channel has one writer.** Creating, editing, opening a direct channel and deleting take the
+  lock an agent's and a team's record are written under. Before, two edits at once kept the later
+  one alone — a roster change made by an invite's admission was undone by an edit of the topic —
+  an edit that lost to a delete made the room again, and two channels made under one name at once
+  were one, the second written over the first. A direct channel asked for by two at once is one.
+
+- **A deleted channel is forgotten, and a channel made again under its name starts empty.** The
+  delete removes the room's messages, read mark and searchable words from the index and moves its
+  log aside (`conversation/<id>.<secs>.deleted`); before, the deleted room still showed in unread
+  counts, mentions and search, and a new channel of the same name inherited its history. The
+  delete now takes what others read first and the record after, is finished when asked again
+  after a stop midway, deletes a record nobody can read by its id, and says so on the store's bus.
+
+- **One channel file the disk will not give costs its row, not every list.** A read error on one
+  record failed the channel list, and with it the Inbox and a rebuild; a record the index refuses
+  no longer stops a rebuild, and so no longer stops the workspace opening.
+
+- **A roster edit asks about the names it adds.** One name gone stale on a roster made every later
+  edit of that channel fail — an invite's admission (the person was added, then told refused) and
+  a person's leave among them.
+
+- **A post is in its log or nowhere.** A line the log would not take left its row in the index,
+  shown until a rebuild lost it; and a post that stood was answered as a failure when the
+  seen-list could not be written, so a retry said it twice.
+
+- **A direct channel is between its participants.** A mention there names somebody who is in it
+  and is refused in words otherwise, its handle is the participants' agents, and a reaction is a
+  participant's alone. Named from outside, an agent was woken on the conversation and its answer
+  refused. The conversation with somebody who has since left is found again instead of refused.
+
+- **A channel this build cannot read keeps its name.** It read as a free name: making a channel of
+  that name, or installing one from the catalog, wrote over it.
+
+- **A reply to a reaction is refused in words**, where it was the index's own error; a `general`
+  of the wrong shape is made again at the next open, its topic kept.
 
 - **Saving the agent editor or the team dialog no longer writes back what it only read.** A save
   named every field of the record as the dialog had read it when it opened, so an editor left

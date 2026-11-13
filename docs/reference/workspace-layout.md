@@ -61,6 +61,7 @@ rebuilt from the files. The one place a workspace directory name is joined is `b
     listeners/<host>-<step>.json   one listener's memory — when it next comes due, what a poll has seen, a project's last heads, why it could not be armed
     scratch/<host>-<step>/     where a check start with no project runs its command
   conversation/<scope>.jsonl         message history, append-only, one file per scope — a channel's, a goal's thread, a conversation's
+  conversation/<scope>.<secs>.deleted  a deleted channel's history, moved aside at the delete; nothing reads it, and a channel made again under the id starts empty
   attachments/<2-hex>/<62-hex> bytes, content-addressed — an attachment's and an artifact's alike
   attachments/named/<sha256>/<name>  a blob under its maker's name, made on demand for the file manager and the default app
   pets/<id>/pet.json           an installed pet package: its manifest, beside its sheets and sounds

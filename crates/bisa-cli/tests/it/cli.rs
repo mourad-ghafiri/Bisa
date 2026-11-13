@@ -4608,6 +4608,10 @@ fn msg_uploads_then_posts_attachments_and_artifacts() {
         ],
     );
     assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("/no/such/file.html"),
+        "refused by the path's name, not by the parser: {refused:?}"
+    );
     assert_eq!(ws.list_artifacts("general", 10).unwrap().len(), 1);
 }
 
@@ -7913,4 +7917,166 @@ fn a_prompt_file_nobody_can_read_and_a_reference_gone_are_said() {
         shown.contains("alert-triage") && shown.contains("(unresolved)"),
         "{shown}"
     );
+}
+
+// --- channels and messages from the command line (the channels hardening) ---
+
+/// Reading a page that shows nothing reads nothing, and a scope that is not
+/// here is refused by name. An empty page — one cut before the room's first
+/// message, a room misspelt — marked the whole room read before: a mark
+/// with no moment is a mark up to now.
+#[test]
+fn msgs_of_an_empty_page_reads_nothing_and_an_unknown_scope_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    {
+        // Somebody else's words, so there is something unread.
+        let ws = open_ws(dir.path());
+        ws.post_message(
+            "general",
+            bisa_core::MessageBody::post("what the agent said"),
+            None,
+            &[],
+            &[],
+            Some(&bisa_core::AgentId::general()),
+            bisa_store::PostOrigin::Asked,
+        )
+        .unwrap();
+        assert_eq!(ws.unread_counts().unwrap(), vec![("general".into(), 1)]);
+    }
+    let unread = |dir: &Path| open_ws(dir).unread_counts().unwrap();
+
+    // A page cut before the first message shows nothing and marks nothing.
+    let empty = bisa(dir.path(), &["--json", "msgs", "general", "--before", "1"]);
+    assert_ok(&empty, "msgs --before 1");
+    assert_eq!(json(&empty)["messages"], serde_json::json!([]));
+    assert_eq!(unread(dir.path()), vec![("general".to_string(), 1)]);
+
+    // A room that is not here is said as that, and no mark is made for it.
+    let refused = bisa(dir.path(), &["msgs", "genral"]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("genral"),
+        "{refused:?}"
+    );
+    assert_eq!(unread(dir.path()), vec![("general".to_string(), 1)]);
+
+    // `--limit 0` is a page of one, as the node holds it; reading it reads.
+    let one = bisa(dir.path(), &["--json", "msgs", "general", "--limit", "0"]);
+    assert_ok(&one, "msgs --limit 0");
+    assert_eq!(json(&one)["messages"].as_array().unwrap().len(), 1);
+    assert!(unread(dir.path()).is_empty());
+}
+
+/// A channel is edited by the fields named and removed by its id, with no
+/// node as with one: a topic alone keeps the tags, a removed room is
+/// forgotten and one made again under its name starts empty, and `general`
+/// is refused by name.
+#[test]
+fn a_channel_is_edited_by_what_is_named_and_removed_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let made = json(&bisa(
+        dir.path(),
+        &["--json", "channels", "create", "Design", "--tag", "ux"],
+    ));
+    assert_eq!(made["channel"]["id"], "design", "{made}");
+    assert_ok(
+        &bisa(dir.path(), &["msg", "design", "what the old room said"]),
+        "msg",
+    );
+    let edited = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "channels",
+            "edit",
+            "design",
+            "--topic",
+            "how it looks",
+        ],
+    ));
+    assert_eq!(edited["channel"]["topic"], "how it looks", "{edited}");
+    assert_eq!(
+        edited["channel"]["tags"],
+        serde_json::json!(["ux"]),
+        "{edited}"
+    );
+    let retagged = json(&bisa(
+        dir.path(),
+        &["--json", "channels", "edit", "design", "--tag", "look"],
+    ));
+    assert_eq!(
+        retagged["channel"]["tags"],
+        serde_json::json!(["look"]),
+        "{retagged}"
+    );
+    assert_eq!(retagged["channel"]["topic"], "how it looks", "{retagged}");
+    let bad = bisa(
+        dir.path(),
+        &["channels", "edit", "design", "--agent", "Not An Id!"],
+    );
+    assert!(!bad.status.success());
+
+    let listed = bisa(dir.path(), &["channels", "list"]);
+    assert!(stdout(&listed).contains("design"), "{}", stdout(&listed));
+
+    let removed = json(&bisa(dir.path(), &["--json", "channels", "rm", "design"]));
+    assert_eq!(removed["removed"], "design", "{removed}");
+    let gone = bisa(dir.path(), &["msgs", "design"]);
+    assert!(!gone.status.success(), "a removed room is no scope");
+    assert_ok(
+        &bisa(dir.path(), &["channels", "create", "Design"]),
+        "create again",
+    );
+    let again = json(&bisa(dir.path(), &["--json", "msgs", "design"]));
+    assert_eq!(again["messages"], serde_json::json!([]), "{again}");
+
+    let refused = bisa(dir.path(), &["channels", "rm", "general"]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("general"),
+        "{refused:?}"
+    );
+    let missing = bisa(dir.path(), &["channels", "remove", "no-such-room"]);
+    assert!(!missing.status.success());
+}
+
+/// What a person says from the command line with no node running is
+/// redacted as the node's door redacts it, when the room is one a person on
+/// another node reads. It was stored as typed, and relayed to them later.
+#[test]
+fn an_offline_post_is_redacted_as_the_nodes_is() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let said = format!("the key is {token}, keep it safe");
+    let last = |dir: &Path| {
+        open_ws(dir)
+            .messages("general", None, 10)
+            .unwrap()
+            .pop()
+            .expect("a message")
+            .content
+    };
+
+    // Nobody else reads the room: the words are the person's own, as typed.
+    assert_ok(&bisa(dir.path(), &["msg", "general", &said]), "msg, alone");
+    assert_eq!(last(dir.path()), said);
+
+    // A member of the workspace on another node reaches `general`.
+    {
+        let ws = open_ws(dir.path());
+        let member = bisa_core::PrincipalId::new("ab".repeat(32)).unwrap();
+        ws.add_member(
+            member,
+            bisa_core::MemberRole::Member,
+            bisa_store::Admission::default(),
+        )
+        .unwrap();
+    }
+    assert_ok(&bisa(dir.path(), &["msg", "general", &said]), "msg, hosted");
+    let kept = last(dir.path());
+    assert!(!kept.contains(&token), "{kept}");
+    assert!(kept.contains("keep it safe"), "{kept}");
 }

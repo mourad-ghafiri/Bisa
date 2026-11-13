@@ -1028,7 +1028,7 @@ const page = (before?: PageBefore, limit?: number): string => {
  * generated to import, and a `string` parameter would let a typo reach the
  * node as a 400 the caller never anticipated.
  */
-export type UsageKind = "agent" | "team" | "skill" | "mcp";
+export type UsageKind = "agent" | "team" | "skill" | "mcp" | "channel";
 
 /**
  * A folder repository's routes — the notes' under `/notes/git`, the
@@ -1327,7 +1327,16 @@ export const api = {
 
   // --- channels / messages -------------------------------------------------
   channels: (s?: AbortSignal) => get<{ channels: ChannelListEntry[] }>("/channels", s),
-  channel: (id: string, s?: AbortSignal) => get<{ channel: ChannelDef }>(`/channels/${id}`, s),
+  /// One channel, with what its handle reaches by the node's own answer:
+  /// `roster_pubkeys` — a team's agents in, a disabled agent out, the two
+  /// core agents last.
+  channel: (id: string, s?: AbortSignal) => get<{ channel: ChannelDef; roster_pubkeys?: string[] }>(`/channels/${id}`, s),
+  /// Delete a channel or a direct channel. `general` is refused, and so is a
+  /// channel a workflow still names — in the node's words, by name.
+  deleteChannel: (id: string, s?: AbortSignal) => del<{ ok: boolean; channel: string }>(`/channels/${id}`, undefined, s),
+  /// The turns in flight in a channel or a direct channel, as
+  /// `conversationLive` answers a conversation's.
+  channelLive: (id: string, s?: AbortSignal) => get<LiveTurnsResponse>(`/channels/${id}/live`, s),
   /// `agents` is the standing roster — a directory, not an audience and not
   /// a subscription: rostered agents still answer only when addressed;
   /// `teams` expand to their members at post time; `humans` are the hosted

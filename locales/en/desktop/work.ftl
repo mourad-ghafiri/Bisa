@@ -2486,6 +2486,7 @@ work-draft-discard-title = Discard your changes?
 work-draft-discard-edits-of = What you changed of { $name } here was not saved, and closing drops it.
 work-draft-discard-new-agent = This agent was not created yet, and closing drops what you wrote.
 work-draft-discard-new-team = This team was not created yet, and closing drops what you wrote.
+work-draft-discard-new-channel = This channel was not created yet, and closing drops what you wrote.
 work-draft-discard = Discard
 work-draft-keep-editing = Keep editing
 work-model-plan-editor-not-listed = not listed by { $harness }

@@ -8,3 +8,9 @@ export declare function leftHosts(remembered: readonly string[], hosts: readonly
 export declare function memberHostKeys(hosted: readonly { host?: { host?: { pubkey?: unknown } | null; state?: { state?: string } | null } | null }[] | null | undefined): string[];
 /** Whether the memberships the shell holds are the node's answer — the only list a host's absence from means the person left. */
 export declare function membershipsKnown(workspace: { ready: boolean; offline: string | null; hostsRead: boolean }): boolean;
+/** The channel a `conversation` frame says was removed, or `null` for any other frame. */
+export declare function goneChannel(frame: { scope?: string; kind?: number; snapshot?: boolean; removed?: boolean } | null | undefined): string | null;
+/** The places a channel stood at: as a channel and as a direct channel. */
+export declare function channelPaths(id: string): string[];
+/** What the browser's storage keeps by a scope: its draft and whom it addressed. */
+export declare function scopePrefKeys(scope: string): string[];

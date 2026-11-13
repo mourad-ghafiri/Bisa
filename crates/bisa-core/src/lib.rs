@@ -111,8 +111,8 @@ pub use changes::{
 };
 pub use channel::{
     events_for_enablement, members, reaches, Audience, Channel, ChannelError, ChannelKind,
-    ChannelOrigin, DeletableChannel, Member, MembershipCause, MembershipChange, MembershipEvent,
-    RosterPolicy,
+    ChannelOrigin, DeletableChannel, DeletableChannelId, Member, MembershipCause, MembershipChange,
+    MembershipEvent, RosterPolicy,
 };
 pub use collab_settings::{
     is_relay_url, CollabSettings, CollaborationSecurity, JoinPolicy, ManualPeer, OutsiderTools,

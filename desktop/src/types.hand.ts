@@ -954,6 +954,8 @@ export interface ConversationFrame {
    */
   latest?: import("./types.gen").Representative | null;
   snapshot?: boolean;
+  /** With `snapshot`: the record was removed — an agent, a team, a skill, a channel. */
+  removed?: boolean;
 }
 
 /**

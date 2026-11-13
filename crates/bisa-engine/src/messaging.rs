@@ -41,14 +41,7 @@ pub fn post_as_person(
     post: PersonPost,
 ) -> Result<String, EngineError> {
     let mentions = inner.ws.resolve_mentions(scope, &post.mentions)?;
-    // A message that leaves this machine for a person on another node is
-    // redacted before it is signed (14-collaboration): a key typed into a
-    // room a guest reads must not sit raw in their copy of the log.
-    let text = if crate::collab::scope_leaves_the_machine(inner, scope) {
-        inner.security.redact_inbound(&post.text, "person_post")
-    } else {
-        post.text
-    };
+    let text = words_for(inner, scope, post.text);
     Ok(inner.ws.post_message(
         scope,
         MessageBody::Post {
@@ -66,6 +59,20 @@ pub fn post_as_person(
     )?)
 }
 
+/// A person's words as they are stored in a scope. A message that leaves
+/// this machine for a person on another node is redacted before it is
+/// signed (14-collaboration): a key typed into a room a guest reads must
+/// not sit raw in their copy of the log. The one rule for every door a
+/// person speaks through — the node's routes, and the command line when no
+/// node runs.
+pub fn words_for(inner: &Arc<Inner>, scope: &str, text: String) -> String {
+    if crate::collab::scope_leaves_the_machine(inner, scope) {
+        inner.security.redact_inbound(&text, "person_post")
+    } else {
+        text
+    }
+}
+
 pub fn create_channel(
     inner: &Arc<Inner>,
     name: &str,
@@ -76,29 +83,87 @@ pub fn create_channel(
     Ok(inner.ws.create_channel(name, topic, roster, tags)?)
 }
 
-pub fn update_channel(
+/// What an edit of a standing channel names: each field absent keeps what is
+/// stored. The roster has three halves and an edit replaces the ones it
+/// names; a topic of nothing clears it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChannelEdit {
+    pub topic: Option<String>,
+    pub agents: Option<Vec<bisa_core::AgentId>>,
+    pub teams: Option<Vec<bisa_core::TeamId>>,
+    pub humans: Option<Vec<PrincipalId>>,
+    pub tags: Option<Tags>,
+}
+
+/// Edit a channel by the fields named, on the record as it stands under the
+/// store's one writer ([`bisa_store::Workspace::update_channel_with`]): two
+/// edits at once of different fields both stand. Read, merged and written
+/// back whole by the caller, the later one undid the earlier.
+pub fn edit_channel(
     inner: &Arc<Inner>,
     id: &ChannelId,
-    topic: Option<&str>,
-    roster: RosterPolicy,
-    tags: Tags,
+    edit: ChannelEdit,
 ) -> Result<Channel, EngineError> {
-    Ok(inner.ws.update_channel(id, topic, roster, tags)?)
+    let (_, after) = inner.ws.update_channel_with(id, |channel| {
+        if let Some(topic) = edit.topic {
+            channel.topic = Some(topic);
+        }
+        if let Some(tags) = edit.tags {
+            channel.tags = tags;
+        }
+        if edit.agents.is_some() || edit.teams.is_some() || edit.humans.is_some() {
+            let (agents, teams, humans) = match &channel.roster {
+                RosterPolicy::Listed {
+                    agents,
+                    teams,
+                    humans,
+                } => (agents.clone(), teams.clone(), humans.clone()),
+                RosterPolicy::Everyone => (vec![], vec![], vec![]),
+            };
+            channel.roster = RosterPolicy::Listed {
+                agents: edit.agents.unwrap_or(agents),
+                teams: edit.teams.unwrap_or(teams),
+                humans: edit.humans.unwrap_or(humans),
+            };
+        }
+        Ok(())
+    })?;
+    Ok(after)
 }
 
 /// Delete a channel the type has already agreed is deletable (`general` never
 /// is). A channel something still points at is refused by the store — before
-/// anything is stopped; then every live turn an agent runs in the channel is
-/// disposed, as a conversation's are on its deletion, so no session goes on
-/// posting into a scope that no longer resolves.
+/// anything is stopped; then every turn an agent runs in the channel is
+/// stopped — the one still launching and the message queued behind one
+/// among them — so no session goes on posting into a scope that no longer
+/// resolves.
 pub async fn delete_channel(
     inner: &Arc<Inner>,
     channel: DeletableChannel,
 ) -> Result<(), EngineError> {
-    let id = channel.channel().id.to_string();
-    inner.ws.refuse_channel_delete_if_used(&channel)?;
-    crate::conversation::dispose_live_sessions(inner, &id).await;
-    Ok(inner.ws.delete_channel(channel)?)
+    delete_channel_by_id(inner, &channel.id()).await
+}
+
+/// [`delete_channel`] by the id alone — the door a record nobody can read
+/// is deleted through.
+pub async fn delete_channel_by_id(
+    inner: &Arc<Inner>,
+    id: &bisa_core::DeletableChannelId,
+) -> Result<(), EngineError> {
+    inner.ws.refuse_channel_delete_by_id(id)?;
+    crate::conversation::end_scope_sessions(inner, id.as_id().as_str()).await;
+    Ok(inner.ws.delete_channel_by_id(id)?)
+}
+
+/// The turns in flight in a channel or a direct channel — each agent's
+/// words and thinking so far — for a reader that joins mid-turn; empty when
+/// nothing runs.
+pub fn live_turns(
+    inner: &Arc<Inner>,
+    id: &ChannelId,
+) -> Result<Vec<crate::conversations::LiveTurnRow>, EngineError> {
+    inner.ws.get_channel(id)?;
+    Ok(crate::conversations::live_rows(inner, id.as_str()))
 }
 
 /// Open — or find — the direct channel between these people and the owner.

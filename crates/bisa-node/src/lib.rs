@@ -1271,6 +1271,21 @@ async fn health() -> Json<serde_json::Value> {
 /// for the client's bus, not its subscribers — the desktop re-reads what it
 /// shows, as it does after a reconnect.
 // LCOV_EXCL_START: a reader that fell behind the bus; a race no test can time
+/// The first words of what a fact says, for a frame's `snippet`: a post's
+/// text, a reaction's emoji; nothing for a join, a leave or a retraction.
+/// Never the stored body as it is written — that is JSON, not words.
+fn snippet_of(event: &nostr::event::Event) -> String {
+    let words = if event.kind.as_u16() == bisa_core::kind::KIND_MESSAGE {
+        match serde_json::from_str::<bisa_core::MessageBody>(&event.content) {
+            Ok(bisa_core::MessageBody::Post { text, .. }) => text,
+            _ => String::new(),
+        }
+    } else {
+        event.content.clone()
+    };
+    words.chars().take(120).collect()
+}
+
 fn lagged_frame(dropped: u64) -> Vec<serde_json::Value> {
     tracing::warn!(
         // LCOV_EXCL_LINE: a bind outside loopback; out by decision
@@ -1331,8 +1346,12 @@ async fn events(
                     Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)), // LCOV_EXCL_LINE: a reader that fell behind the bus; a race no test can time
                 };
                 match e {
-                    StoreEvent::ConversationAppended { scope, event, .. } => {
-                        let snippet: String = event.content.chars().take(120).collect();
+                    // A message a person on another node said lands as any
+                    // post does: the same frames, so the owner's window
+                    // shows it, counts it and previews it as it arrives.
+                    StoreEvent::ConversationAppended { scope, event, .. }
+                    | StoreEvent::RemoteMessageArrived { scope, event, .. } => {
+                        let snippet = snippet_of(&event);
                         let unread = st
                             .engine
                             .workspace()
@@ -1380,6 +1399,12 @@ async fn events(
                     StoreEvent::ConversationSnapshot { kind, d, .. } => Some(vec![json!({
                         "stream": "conversation",
                         "payload": {"scope": d, "kind": kind, "snapshot": true}
+                    })]),
+                    // A channel written on another node is a channel
+                    // written: the frame a local write sends.
+                    StoreEvent::RemoteChannelArrived { d } => Some(vec![json!({
+                        "stream": "conversation",
+                        "payload": {"scope": d, "kind": bisa_core::kind::KIND_CHANNEL, "snapshot": true}
                     })]),
                     // The same frame a write of the record sends, and one
                     // word more: a reader that reloads on a snapshot of the

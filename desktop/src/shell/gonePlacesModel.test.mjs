@@ -72,3 +72,18 @@ test("the member hosts' keys are read without a throw: a section missing its hos
   assert.deepEqual(memberHostKeys(null), []);
   assert.deepEqual(memberHostKeys(undefined), []);
 });
+
+test("a channel removed is forgotten with its draft and whom it addressed", async () => {
+  const { channelPaths, goneChannel, scopePrefKeys } = await import("./gonePlacesModel.mjs");
+  const removed = { scope: "design", kind: 33405, snapshot: true, removed: true };
+  assert.equal(goneChannel(removed), "design");
+  assert.equal(goneChannel({ ...removed, scope: "dm-01" }), "dm-01", "a direct channel is a channel removed");
+  // A write of the record, an agent removed, a message: none is a channel gone.
+  assert.equal(goneChannel({ scope: "design", kind: 33405, snapshot: true }), null);
+  assert.equal(goneChannel({ ...removed, kind: 33403 }), null);
+  assert.equal(goneChannel({ scope: "design", kind: 3407, event_id: "e" }), null);
+  assert.equal(goneChannel({ kind: 33405, snapshot: true, removed: true }), null);
+  assert.equal(goneChannel(null), null);
+  assert.deepEqual(channelPaths("design"), ["/channels/design", "/messages/design"]);
+  assert.deepEqual(scopePrefKeys("design"), ["bisa:draft:design", "bisa:address:design"]);
+});

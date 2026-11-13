@@ -45,3 +45,7 @@ export declare function reconnectWords(): string;
 export declare const RELOADS_WORKSPACE: readonly string[];
 export declare function reloadsWorkspace(type: unknown): boolean;
 export declare const COALESCE_MS: number;
+/** What the bus said of each scope while a load was out — the newest message frame a scope. */
+export declare function framesSinceLoad<F extends { scope?: string; snapshot?: boolean }>(): { begin: () => void; heard: (frame: F | null | undefined) => void; since: () => F[] };
+/** A load's unread counts with what the bus said since it was asked put over them. */
+export declare function unreadOver(loaded: Record<string, number>, frames: readonly { scope?: string; unread_count?: number }[]): Record<string, number>;

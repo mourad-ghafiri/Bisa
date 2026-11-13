@@ -163,6 +163,35 @@ export function addressable(agents) {
 }
 
 /**
+ * Who a scope offers to address, of the agents it could: in a **direct
+ * channel**, its participants alone — a mention there names somebody who is
+ * in it, and the node refuses any other; anywhere else, all of them.
+ * `audience` is the direct channel's participants, `null` for every other
+ * scope.
+ * @template {{pubkey: string}} T
+ * @param {readonly T[]} agents
+ * @param {readonly string[] | null | undefined} audience
+ * @returns {T[]}
+ */
+export function offeredIn(agents, audience) {
+  const list = [...(agents ?? [])];
+  if (!audience) return list;
+  const here = new Set(audience);
+  return list.filter((a) => here.has(a.pubkey));
+}
+
+/**
+ * The participants of a direct channel, `null` for any other scope: what
+ * {@link offeredIn} narrows by.
+ * @param {{kind?: string, audience?: {audience?: string, principals?: readonly string[]}} | null | undefined} channel
+ * @returns {string[] | null}
+ */
+export function directAudience(channel) {
+  if (!channel || channel.kind !== "direct") return null;
+  return [...(channel.audience?.principals ?? [])];
+}
+
+/**
  * The agents a **roster** picker offers, which is a different question.
  *
  * The core agent is excluded because the node stores it zero times: a roster

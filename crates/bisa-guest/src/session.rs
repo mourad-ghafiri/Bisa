@@ -28,6 +28,14 @@ use nostr::event::{Event, EventBuilder, FinalizeEvent, Kind, Tag};
 use nostr::key::{Keys, PublicKey};
 use nostr::types::Timestamp;
 use std::collections::{HashMap, HashSet};
+
+/// The fact an event points at: its first `e` tag.
+fn e_target(event: &Event) -> Option<&str> {
+    event.tags.iter().find_map(|t| {
+        let s = t.as_slice();
+        (s.len() >= 2 && s[0] == "e").then(|| s[1].as_str())
+    })
+}
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -418,6 +426,15 @@ impl GuestSession {
         if redaction.text.is_empty() {
             return Err(GuestError::Refused("an empty message".into()));
         }
+        // The host's bound, held before anything is kept or sent: a message
+        // past it was written into this copy as sent, and the host — which
+        // refuses it — never had it.
+        if redaction.text.len() > bisa_core::MAX_TEXT_BYTES {
+            return Err(GuestError::Refused(format!(
+                "a message is at most {} KiB; send a longer text as a file",
+                bisa_core::MAX_TEXT_BYTES / 1024
+            )));
+        }
         if let Some(parent) = reply_to {
             if !self.store.has_seen(parent) {
                 return Err(GuestError::Refused(format!(
@@ -448,8 +465,40 @@ impl GuestSession {
             .event(event_id)?
             .ok_or_else(|| GuestError::Refused(format!("unknown message {event_id}")))?;
         let scope = scope_of(&target).unwrap_or_default();
+        // One live reaction per person, message and emoji, as on the host:
+        // pressing it again answers the one that stands — which is what can
+        // be taken back — and writes nothing.
+        if let Some(standing) = self.standing_reaction(&scope, event_id, emoji)? {
+            return Ok(Posted {
+                id: standing,
+                scope,
+                redacted: 0,
+            });
+        }
         let event = self.build_fact(KIND_REACTION, emoji, &scope, Some((event_id, "")), &[])?;
         self.commit(event, 0).await
+    }
+
+    /// This person's live reaction to a message with one emoji, by its id.
+    fn standing_reaction(
+        &self,
+        scope: &str,
+        target: &str,
+        emoji: &str,
+    ) -> Result<Option<String>, GuestError> {
+        let me = self.keys.public_key();
+        let events = self.store.events(scope)?;
+        let taken_back: HashSet<&str> = events
+            .iter()
+            .filter(|e| e.kind.as_u16() == KIND_RETRACTION)
+            .filter_map(|e| e_target(e))
+            .collect();
+        Ok(events
+            .iter()
+            .filter(|e| e.kind.as_u16() == KIND_REACTION && e.pubkey == me && e.content == emoji)
+            .filter(|e| e_target(e) == Some(target))
+            .map(|e| e.id.to_hex())
+            .find(|id| !taken_back.contains(id.as_str())))
     }
 
     /// Take back one of this person's own facts.
@@ -1172,6 +1221,28 @@ mod tests {
         // A reaction and a retraction of one's own, and never of the host's.
         let reacted = session.react(&hosts.id.to_hex(), "👍").await.unwrap();
         assert_eq!(reacted.scope, "general");
+        // Pressed again it is the same reaction — the one that can be taken
+        // back — and another emoji is another.
+        let again = session.react(&hosts.id.to_hex(), "👍").await.unwrap();
+        assert_eq!(
+            again.id, reacted.id,
+            "one live reaction a person, a message and an emoji"
+        );
+        let other = session.react(&hosts.id.to_hex(), "🎉").await.unwrap();
+        assert_ne!(other.id, reacted.id);
+        let reactions = session
+            .messages("general", None, 10)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == hosts.id.to_hex())
+            .map(|m| m.reactions.len());
+        assert_eq!(reactions, Some(2), "two emoji, two reactions");
+        // A message past the host's bound is refused here, and kept nowhere.
+        let before = session.messages("general", None, 50).unwrap().len();
+        let long = "x".repeat(bisa_core::MAX_TEXT_BYTES + 1);
+        let refused = session.post("general", &long, &[], None).await.unwrap_err();
+        assert!(refused.to_string().contains("at most"), "{refused}");
+        assert_eq!(session.messages("general", None, 50).unwrap().len(), before);
         assert!(session.retract(&hosts.id.to_hex()).await.is_err());
         session.retract(&posted.id).await.unwrap();
         let after = session.messages("general", None, 10).unwrap();

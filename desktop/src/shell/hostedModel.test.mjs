@@ -63,7 +63,7 @@ test("a hosted message becomes the chat's row with its reactions folded out", ()
   assert.equal(page.messages[0].content, "hi");
   assert.equal(page.messages[0].scope_id, "general");
   assert.equal(page.messages[0].attachments[0].present, false);
-  assert.deepEqual(page.reactions.map((r) => [r.id, r.target, r.emoji]), [[`m1:${"b".repeat(64)}:👍`, "m1", "👍"]]);
+  assert.deepEqual(page.reactions.map((r) => [r.id, r.target_id, r.emoji, r.retracted]), [[`m1:${"b".repeat(64)}:👍`, "m1", "👍", false]]);
   assert.deepEqual(hostedPage(null), { messages: [], reactions: [] });
 });
 
@@ -119,4 +119,33 @@ test("a hosted screen says what it knows: reading until the memberships answered
   assert.equal(hostedScreen({ ready: true, section: member, channel: null }), "unreached", "a member, and a channel the role does not reach or that is gone");
   assert.equal(hostedScreen({ ready: true, section: member, channel: general }), "thread");
   assert.equal(hostedScreen({ ready: false, section: member, channel: general }), "thread", "what is already held is drawn while a load is out");
+});
+
+test("a hosted page's reactions fold onto their message, and a person's own is theirs to take back", async () => {
+  const { groupReactions } = await import("../views/_studio/reactionModel.mjs");
+  const me = "c".repeat(64);
+  const page = hostedPage([
+    { id: "m1", scope: "general", author: "a".repeat(64), at: 10, text: "hi", reactions: [{ author: "b".repeat(64), emoji: "👍" }, { author: me, emoji: "👍" }, { author: me, emoji: "🎉" }] },
+    { id: "m2", scope: "general", author: "a".repeat(64), at: 11, text: "again" },
+  ]);
+  const onFirst = groupReactions(page.reactions, "m1", me);
+  assert.deepEqual(onFirst.map((g) => [g.emoji, g.count]), [["👍", 2], ["🎉", 1]]);
+  assert.ok(onFirst.every((g) => g.mine), "the pill the person pressed is theirs");
+  assert.deepEqual(groupReactions(page.reactions, "m2", me), []);
+});
+
+test("a host's message re-reads the hosted thread it landed in", async () => {
+  const { hostedMoved, scopeKey } = await import("./hostedModel.mjs");
+  const host = "a".repeat(64);
+  assert.equal(hostedMoved({ type: "hosted_changed", host, scope: "general" }, host, "general"), true);
+  assert.equal(hostedMoved({ type: "hosted_changed", host }, host, "general"), true, "the host at large moved: every thread of it reads");
+  assert.equal(hostedMoved({ type: "hosted_changed", host, scope: "design" }, host, "general"), false);
+  assert.equal(hostedMoved({ type: "hosted_changed", host: "b".repeat(64), scope: "general" }, host, "general"), false);
+  assert.equal(hostedMoved({ type: "agent_replied", host, scope: "general" }, host, "general"), false);
+  assert.equal(hostedMoved({ type: "hosted_changed", host, scope: "general" }, null, "general"), false, "a thread of this workspace is no hosted thread");
+  assert.equal(hostedMoved(null, host, "general"), false);
+  // A hosted room and this workspace's room of the same id keep their things apart.
+  assert.equal(scopeKey("general", null), "general");
+  assert.equal(scopeKey("general", host), `${host}/general`);
+  assert.notEqual(scopeKey("general", host), scopeKey("general", undefined));
 });

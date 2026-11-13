@@ -448,7 +448,7 @@ async fn hosted_messages(
             host.as_hex().to_string(),
             scope.to_string(),
             q.before,
-            q.limit.unwrap_or(50).min(200),
+            q.limit.unwrap_or(50).clamp(1, 200),
         )
         .await?;
     Ok(Json(json!({"scope": scope, "messages": messages})))

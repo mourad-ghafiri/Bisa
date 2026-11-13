@@ -1,8 +1,8 @@
 //! Channels, direct channels and their messages (05 — Channels): what the
 //! timeline promises at its edges — a page that loses nothing, a reaction
 //! that is one however often it is clicked, a post that is words or nothing,
-//! a bound on how long, a direct channel that needs somebody else, a deleted
-//! channel whose history stays on disk.
+//! a bound on how long, a direct channel that needs somebody else and is
+//! between its participants, a deleted channel whose words are kept aside.
 
 use bisa_core::{
     ChannelKind, MessageBody, PrincipalId, RosterPolicy, Tags, MAX_TEXT_BYTES, MAX_THINKING_BYTES,
@@ -26,6 +26,17 @@ fn channel(ws: &Workspace, name: &str) -> String {
         .unwrap()
         .id
         .to_string()
+}
+
+fn agent(ws: &Workspace, name: &str) -> bisa_core::AgentId {
+    ws.add_agent(NewAgent {
+        name: name.into(),
+        harness: "mock".into(),
+        system_prompt: "x".into(),
+        ..Default::default()
+    })
+    .unwrap()
+    .id
 }
 
 fn say(ws: &Workspace, scope: &str, text: &str) -> String {
@@ -224,7 +235,7 @@ fn a_direct_channel_needs_somebody_else_and_is_one_however_it_is_asked_for() {
 }
 
 #[test]
-fn a_deleted_channel_keeps_its_history_on_disk_and_answers_nothing_after() {
+fn a_deleted_channel_keeps_its_words_aside_and_answers_nothing_after() {
     let (_d, ws) = ws();
     let scope = channel(&ws, "ephemeral");
     say(&ws, &scope, "kept as history");
@@ -234,10 +245,160 @@ fn a_deleted_channel_keeps_its_history_on_disk_and_answers_nothing_after() {
     let deletable = bisa_core::DeletableChannel::new(ws.get_channel(&id).unwrap()).unwrap();
     ws.delete_channel(deletable).unwrap();
     assert!(ws.get_channel(&id).is_err());
-    assert!(log.is_file(), "the message log stays on disk as history");
-    // The store still reads that history by id — the node's door is what
-    // answers 404 for a channel that is gone (`tests/it/node.rs`).
-    assert_eq!(ws.messages(&scope, None, 10).unwrap().len(), 1);
+    // Its words are still on disk, under a name no scope has; the store
+    // answers nothing by the id any more — no page, no search, no count.
+    assert!(!log.exists());
+    let aside: Vec<_> = std::fs::read_dir(ws.paths().conversation_dir())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".deleted"))
+        .collect();
+    assert_eq!(aside.len(), 1);
+    let kept = std::fs::read_to_string(aside[0].path()).unwrap();
+    assert!(kept.contains("kept as history"), "{kept}");
+    assert!(ws.messages(&scope, None, 10).unwrap().is_empty());
+    assert!(ws.unread_counts().unwrap().is_empty());
+    ws.rebuild_index().unwrap();
+    assert!(ws.messages(&scope, None, 10).unwrap().is_empty());
+}
+
+/// A post is in its log or it is nowhere: a line the log would not take
+/// leaves no row behind. Indexed first and written after, the refused post
+/// showed in the timeline until a rebuild lost it — and posted again, stood
+/// twice.
+#[cfg(unix)]
+#[test]
+fn a_post_whose_log_cannot_be_written_leaves_no_row() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_d, ws) = ws();
+    let scope = channel(&ws, "ledger");
+    say(&ws, &scope, "the first line");
+    let log = ws.paths().conversation_log(&scope).unwrap();
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o400)).unwrap();
+    let refused = ws.post_message(
+        &scope,
+        MessageBody::post("the line the disk refused"),
+        None,
+        &[],
+        &[],
+        None,
+        PostOrigin::Asked,
+    );
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(refused.is_err(), "{refused:?}");
+    let shown: Vec<String> = ws
+        .messages(&scope, None, 10)
+        .unwrap()
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    assert_eq!(shown, vec!["the first line"]);
+    say(&ws, &scope, "the line the disk refused");
+    assert_eq!(ws.messages(&scope, None, 10).unwrap().len(), 2);
+    ws.rebuild_index().unwrap();
+    assert_eq!(ws.messages(&scope, None, 10).unwrap().len(), 2);
+}
+
+/// A direct channel is between its participants: a mention names one of
+/// them, its handle is their agents, and whoever is outside it neither posts
+/// nor reacts in it. Named from outside, an agent was woken on a
+/// conversation that was not its own, and its answer was refused.
+#[test]
+fn a_mention_in_a_direct_channel_names_only_who_is_in_it() {
+    let (_d, ws) = ws();
+    let scout = agent(&ws, "Scout");
+    let ranger = agent(&ws, "Ranger");
+    let scout_key = ws.get_agent(&scout).unwrap().pubkey;
+    let ranger_key = ws.get_agent(&ranger).unwrap().pubkey;
+    let dm = ws.open_dm(std::slice::from_ref(&scout_key)).unwrap();
+    let scope = dm.id.to_string();
+
+    for outsider in [
+        ranger.to_string(),
+        ranger_key.as_hex().to_string(),
+        "general-agent".to_string(),
+    ] {
+        let refused = ws
+            .resolve_mentions(&scope, std::slice::from_ref(&outsider))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("a direct channel is between its participants"),
+            "{outsider}: {refused}"
+        );
+    }
+    assert_eq!(
+        ws.resolve_mentions(&scope, &[scout.to_string()]).unwrap(),
+        vec![scout_key.clone()]
+    );
+    assert_eq!(
+        ws.resolve_mentions(&scope, std::slice::from_ref(&scope))
+            .unwrap(),
+        vec![scout_key.clone()],
+        "the handle of a direct channel is its participants' agents — no core agent beside them"
+    );
+    // A disabled participant is not in the handle.
+    ws.set_agent_enabled(&scout, false).unwrap();
+    assert!(ws
+        .resolve_mentions(&scope, std::slice::from_ref(&scope))
+        .unwrap()
+        .is_empty());
+    ws.set_agent_enabled(&scout, true).unwrap();
+
+    // The store holds it for a caller that brings keys of its own.
+    let named = ws.post_message(
+        &scope,
+        MessageBody::post("a word"),
+        None,
+        std::slice::from_ref(&ranger_key),
+        &[],
+        None,
+        PostOrigin::Asked,
+    );
+    assert!(named.is_err(), "{named:?}");
+    let said = say(&ws, &scope, "between us");
+    assert!(ws.react(&said, "👀", Some(&ranger)).is_err());
+    ws.react(&said, "👀", Some(&scout)).unwrap();
+    ws.react(&said, "👍", None).unwrap();
+    // A standing channel names whom it names.
+    let room = channel(&ws, "open");
+    assert_eq!(
+        ws.resolve_mentions(&room, &[ranger.to_string()]).unwrap(),
+        vec![ranger_key]
+    );
+}
+
+/// A reaction has an id too, and is no parent for a reply: refused in the
+/// words a reply to nothing is, where it was the cache's own error before.
+#[test]
+fn a_reply_to_a_reaction_is_refused_in_words() {
+    let (_d, ws) = ws();
+    let scope = channel(&ws, "thread");
+    let said = say(&ws, &scope, "a message");
+    let reaction = ws.react(&said, "👍", None).unwrap();
+    let refused = ws
+        .post_message(
+            &scope,
+            MessageBody::post("a reply to a thumb"),
+            Some(reaction),
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("cannot reply"), "{refused}");
+    ws.post_message(
+        &scope,
+        MessageBody::post("a reply to the message"),
+        Some(said),
+        &[],
+        &[],
+        None,
+        PostOrigin::Asked,
+    )
+    .unwrap();
 }
 
 /// What a list says of a room is its latest live post — read for every room

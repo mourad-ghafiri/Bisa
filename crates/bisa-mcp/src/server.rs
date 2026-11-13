@@ -2325,8 +2325,10 @@ pub struct EmitSignalParams {
 pub struct PostMessageParams {
     /// The message text.
     pub content: String,
-    /// Target scope ULID (channel/goal/workstream). Defaults to this
-    /// session's goal thread.
+    /// Target scope: a channel's id (its slug, or a direct channel's
+    /// `dm-…`), a goal's id for its thread, or a conversation's id. Defaults
+    /// to where this session speaks — its conversation, else its goal's
+    /// thread.
     #[serde(default)]
     pub scope: Option<String>,
     /// Message id to reply to.

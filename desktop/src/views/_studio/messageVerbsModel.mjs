@@ -37,3 +37,22 @@ export function verbWords(id) {
       throw new Error(`no such verb: ${id}`);
   }
 }
+
+/** How much of a message a question about it quotes. */
+const QUOTED = 80;
+
+/**
+ * The words a question about one message quotes, so the person sees which
+ * one it is about: its first line, cut at a word — `null` for a message of
+ * files alone, which the question names in general.
+ * @param {{content?: string | null} | null | undefined} message
+ * @returns {string | null}
+ */
+export function quotedWords(message) {
+  const line = String(message?.content ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "");
+  if (!line) return null;
+  if (line.length <= QUOTED) return line;
+  const cut = line.slice(0, QUOTED);
+  const at = cut.lastIndexOf(" ");
+  return `${(at > QUOTED / 2 ? cut.slice(0, at) : cut).trimEnd()}…`;
+}

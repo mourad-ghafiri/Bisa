@@ -209,7 +209,10 @@ screens-inbox-waiting-2 = { $needsOf } waiting on you
 screens-inbox-waiting-admitted = Waiting to be admitted
 screens-inbox-waiting-terminal = Waiting on you in a terminal
 screens-inbox-what-happened = What happened
-screens-messages-agents = { $agents } agents
+screens-messages-agents = { $agents } { $agents ->
+    [one] agent
+   *[other] agents
+  }
 screens-messages-ask-something-will-do-work-here = Ask for something and it will do the work here, with its own tools. It runs on { $harness } · { $models }.
 screens-messages-direct-message = Direct message
 screens-messages-install-agent-from-catalog-invite-someone = Install an agent from the Catalog, or invite someone from Settings.
@@ -501,8 +504,11 @@ screens-agents-label-explain = <label/> — { $explain }
 screens-channels-topic-dot = { $topic } ·
 screens-inbox-keys-legend = <kbd>j</kbd> <kbd>k</kbd> move · <kbd>Enter</kbd> opens · <kbd>a</kbd> answers · <kbd>e</kbd> read · <kbd>u</kbd> unread
 screens-teams-nothing-answers-to-id = Nothing in this workspace answers to <id/>. It may have been deleted since the link was made.
-screens-messages-answers-any-member = answers any workspace member
-screens-messages-answers-you-only = answers you only
+screens-messages-agent-line = { $harness } · { $plan } · { $answers ->
+    [you] answers you only
+   *[members] answers any workspace member
+  }
+screens-messages-agent-disabled = Disabled — it answers nobody until it is enabled again. Runs on { $harness }.
 
 ## Settings › Library › Addons, the rail's row (`views/Settings.tsx`).
 screens-settings-addons = Addons
@@ -547,6 +553,22 @@ screens-channels-reaches-agents = @{ $name } reaches { $agents } { $agents ->
   }
 screens-channels-design = design
 screens-channels-channel-updated = #{ $channel } updated.
+screens-channels-topic-tags-everyone-belongs = Topic and tags. Every agent and team belongs here, so there is no roster to edit.
+screens-channels-roster-of = Who @{ $name } reaches
+screens-channels-roster-entry-disabled = { $name } (disabled)
+screens-channels-roster-unresolved = Roster names no agent here answers to
+screens-channels-roster-unresolved-line = { $name } is on the roster, and no agent here answers to it.
+screens-channels-roster-take-off = Take { $name } off the roster
+screens-channels-roster-take-off-short = Take off
+screens-channels-delete-menu = Delete #{ $channel }…
+screens-channels-delete = Delete { $name }?
+screens-channels-delete-direct = Delete the direct channel with { $name }?
+screens-channels-delete-consequence = The channel leaves every list, and what was said in it leaves every page, count and search. Its history is kept aside on disk. A channel made again under this name starts empty.
+screens-channels-delete-direct-consequence = The conversation leaves every list, and what was said in it leaves every page, count and search. Its history is kept aside on disk. Writing to the same people again opens a new, empty one.
+screens-channels-channel-deleted = { $name } deleted.
+screens-channels-direct-deleted = Direct channel deleted.
+screens-messages-menu = More for { $title }
+screens-messages-delete-menu = Delete this direct channel…
 
 ## A hosted workspace's channel — who hosts it, and a host you are not a member of (`views/Hosted.tsx`) — words moved out of the markup.
 screens-hosted-not-a-member = not a member

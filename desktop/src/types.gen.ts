@@ -2920,8 +2920,9 @@ export type AskKind =
 export type ChannelId = string;
 export type ChannelKind = "standing" | "direct";
 /**
- * Who may read. `Workspace` uses the shared workspace key; `Restricted` is
- * wrapped pairwise to exactly those principals and never touches it.
+ * Who may read. `Workspace` is wrapped pairwise to each person whose role
+ * reaches the channel — there is no shared workspace key; `Restricted` is
+ * wrapped pairwise to exactly those principals.
  */
 export type Audience =
   | {

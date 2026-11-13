@@ -18,7 +18,7 @@
 
 import { AddonsHost } from "./addons/AddonsHost";
 import { pushShellWords } from "./shell/shellWords";
-import { readPref, webStorage, writePref } from "./shell/storedPrefModel.mjs";
+import { forgetPref, readPref, webStorage, writePref } from "./shell/storedPrefModel.mjs";
 import { LAYOUT_CHANGED, notifyLayoutChanged } from "./shell/layerSlots";
 import { publishContentBox } from "./shell/contentBox";
 import { LinkProvider } from "./shell/linkHandler";
@@ -27,7 +27,7 @@ import { useNotifySettings } from "./shell/notifySettings";
 import { joinCodeFromUrls } from "./views/_settings/inviteCodeModel.mjs";
 import { settingsSearch } from "./views/_settings/settingsLink.mjs";
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
-import { type ConnState, useEngineEvents, watchConnection } from "./bus";
+import { type ConnState, useConversationEvents, useEngineEvents, watchConnection } from "./bus";
 import { FIRST_CONN } from "./busModel.mjs";
 import { useReloadOnReconnect } from "./ui/useReloadOnReconnect";
 import { navigate, useRoute, type Route } from "./router";
@@ -66,7 +66,7 @@ import { syncCacheTuningFromNode } from "./shell/cacheTuning";
 import { syncLocaleFromNode } from "./i18n/localeStore";
 import { OPEN_PLACES, useGlobalShortcuts } from "./shell/shortcuts";
 import { WorkspaceContext, useWorkspaceState } from "./shell/useWorkspaceData";
-import { gonePaths, leftHosts, memberHostKeys, membershipsKnown } from "./shell/gonePlacesModel.mjs";
+import { channelPaths, goneChannel, gonePaths, leftHosts, memberHostKeys, membershipsKnown, scopePrefKeys } from "./shell/gonePlacesModel.mjs";
 import { rootOfPath } from "./views/_workbench/idePlacesModel.mjs";
 import { forgetRootMemory } from "./views/_workbench/workbenchStore";
 import { placesNow } from "./shell/placeMemoryStore";
@@ -252,6 +252,17 @@ export default function App() {
       const root = rootOfPath(path);
       if (root) forgetRootMemory(root);
     }
+  });
+  // A channel removed — here or in another window — is said on the
+  // conversation stream: its place goes, and what the storage kept by its
+  // scope with it, so a channel made again under the id starts with no
+  // draft and nobody addressed. The lists follow the same frame on their
+  // own, and the page that stood on it finds nothing and leaves.
+  useConversationEvents((frame) => {
+    const gone = goneChannel(frame);
+    if (!gone) return;
+    for (const path of channelPaths(gone)) forgetPlaceMemory(path);
+    for (const key of scopePrefKeys(gone)) forgetPref(webStorage(), key);
   });
   // A node that was not there at boot answered none of the three: the dials,
   // the language and the cache knobs are read once it is.

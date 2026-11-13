@@ -278,7 +278,7 @@ test("a dialog and a form start empty: nothing typed into one is the screen's me
   assert.ok(dialog.includes("useState<TeamDraft>(emptyTeamDraft)") && !dialog.includes("useViewState") && !dialog.includes("viewState"), "the team's dialog");
   const channels = read("views/Channels.tsx");
   const forms = between(channels, "function NewChannelDialog(", "/** Where the index keeps its memory");
-  assert.ok(forms.includes('useState("")') && !forms.includes("useViewState") && !forms.includes("viewState"), "the channel's dialogs");
+  assert.ok(forms.includes("useState<ChannelDraft>(emptyChannelDraft)") && !forms.includes("useViewState") && !forms.includes("viewState"), "the channel's dialogs");
   const settings = read("views/Settings.tsx");
   assert.ok(!settings.includes("useViewState") && !settings.includes("keepRead"), "the settings keep their scroll, and nothing a panel's form holds");
   const goal = read("views/GoalDetail.tsx");

@@ -33,6 +33,21 @@ export function handoverElapsed(settledAt, now, graceMs = SEND_HANDOVER_GRACE_MS
 }
 
 /**
+ * What the slot holds once a send landed: the grace in which a session may
+ * be named to stop — on a surface that can stop one (`stop` wired, even as
+ * `null` while nothing runs) — or nothing at all where no Stop is ever
+ * drawn (`stop` left out: a channel, a direct channel). There the slot went
+ * *Stop*-shaped and dead for the whole grace after every message, and an
+ * Enter in it was swallowed.
+ * @param {{ label?: string } | null | undefined} stop the surface's stop, `undefined` when it has none
+ * @param {number} now
+ * @returns {{ settledAt: number } | null}
+ */
+export function handoverAfterSend(stop, now) {
+  return stop === undefined ? null : { settledAt: now };
+}
+
+/**
  * Why *Send* is off, in the words the button is described by. Each reason
  * says its own way out: an empty box asks for words, an upload asks for a
  * moment, a context over its budget asks for a chip to go.

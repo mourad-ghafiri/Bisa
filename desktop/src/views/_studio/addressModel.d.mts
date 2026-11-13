@@ -75,3 +75,7 @@ export declare function answerableAddressed(
   agents: readonly { pubkey: string; enabled?: boolean }[] | null | undefined,
   ready: boolean,
 ): string[];
+/** Who a scope offers of the agents it could: a direct channel's participants alone, else all of them. */
+export declare function offeredIn<T extends { pubkey: string }>(agents: readonly T[] | null | undefined, audience: readonly string[] | null | undefined): T[];
+/** The participants of a direct channel; `null` for any other scope. */
+export declare function directAudience(channel: { kind?: string; audience?: { audience?: string; principals?: readonly string[] } } | null | undefined): string[] | null;

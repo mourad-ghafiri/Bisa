@@ -528,6 +528,15 @@ impl Paths {
             .join(format!("{}.jsonl", Self::stem("scope id", scope)?)))
     }
 
+    /// Where a deleted channel's log is kept: beside the live logs, under a
+    /// name no reader of `*.jsonl` takes for a scope's — so its words are
+    /// still on disk, and a channel made again under the id starts empty.
+    pub fn conversation_log_archive(&self, scope: &str, at: u64) -> Result<PathBuf, StoreError> {
+        Ok(self
+            .conversation_dir()
+            .join(format!("{}.{at}.deleted", Self::stem("scope id", scope)?)))
+    }
+
     /// The blob for a SHA-256 digest, or `None` when the digest is not one.
     ///
     /// An allowlist — 64 lowercase hex characters — for the same reason a

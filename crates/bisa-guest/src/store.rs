@@ -137,8 +137,17 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), GuestError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     } // LCOV_EXCL_LINE a path with no parent; by construction
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
+      // A name of its own for every write — two writers of one file in one
+      // process never share a temporary — and the bytes on disk before the
+      // rename, so what the name points at after a crash is a whole file.
+    use std::io::Write;
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{n}", std::process::id()));
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
@@ -522,10 +531,15 @@ impl GuestStore {
         read_json_or(&self.dir.join(READ_FILE), ReadFile::default())
     }
 
-    /// Mark a scope read up to `at`.
+    /// Mark a scope read up to `at`. The mark never moves backwards, as the
+    /// host's own never does: a read of an older moment leaves it standing.
     pub fn mark_read(&self, scope: &str, at: u64) -> Result<(), GuestError> {
         let mut file = self.read_file()?;
-        file.marks.insert(scope.to_string(), at);
+        let mark = file.marks.entry(scope.to_string()).or_insert(0);
+        if at <= *mark {
+            return Ok(());
+        }
+        *mark = at;
         write_atomic(
             &self.dir.join(READ_FILE),
             &serde_json::to_vec_pretty(&file)?,
@@ -536,15 +550,16 @@ impl GuestStore {
         Ok(self.read_file()?.marks.get(scope).copied())
     }
 
-    /// Messages by others after the read mark.
+    /// Messages by others after the read mark — the messages a screen is
+    /// shown ([`Self::messages`]): a join or a leave is no post, and a post
+    /// taken back is nothing to read. Counted from the raw facts, the badge
+    /// named messages the thread did not draw.
     pub fn unread(&self, scope: &str, me: &PrincipalId) -> Result<usize, GuestError> {
         let mark = self.read_mark(scope)?.unwrap_or(0);
         Ok(self
-            .events(scope)?
+            .messages(scope, None, usize::MAX)?
             .iter()
-            .filter(|e| e.kind.as_u16() == KIND_MESSAGE)
-            .filter(|e| e.created_at.as_secs() > mark)
-            .filter(|e| e.pubkey.to_hex() != me.as_hex())
+            .filter(|m| !m.retracted && m.at > mark && m.author != *me)
             .count())
     }
 }
@@ -680,6 +695,120 @@ mod tests {
         store.mark_read("general", 10).unwrap();
         assert_eq!(store.read_mark("general").unwrap(), Some(10));
         assert_eq!(store.unread("general", &me_id).unwrap(), 1);
+    }
+
+    /// A read mark never moves back, as the host's never does: a read of an
+    /// older moment leaves it where it stands. Set to whatever was named, a
+    /// late mark put read messages back unread.
+    #[test]
+    fn a_read_mark_never_moves_back() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let me = Keys::generate();
+        let me_id = PrincipalId::new(me.public_key().to_hex()).unwrap();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        store.append(&post(&host, "one", "general", 10)).unwrap();
+        store.append(&post(&host, "two", "general", 12)).unwrap();
+        store.mark_read("general", 12).unwrap();
+        store.mark_read("general", 10).unwrap();
+        assert_eq!(store.read_mark("general").unwrap(), Some(12));
+        assert_eq!(store.unread("general", &me_id).unwrap(), 0);
+        store.mark_read("general", 20).unwrap();
+        assert_eq!(store.read_mark("general").unwrap(), Some(20));
+    }
+
+    /// The badge counts what the thread draws: a post taken back and a join
+    /// or a leave are no messages to read.
+    #[test]
+    fn unread_counts_what_messages_shows() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Keys::generate();
+        let me = Keys::generate();
+        let me_id = PrincipalId::new(me.public_key().to_hex()).unwrap();
+        let store = GuestStore::open(root.path(), &host.public_key()).unwrap();
+        let kept = post(&host, "kept", "general", 10);
+        let taken_back = post(&host, "taken back", "general", 11);
+        store.append(&kept).unwrap();
+        store.append(&taken_back).unwrap();
+        let joined = EventBuilder::new(
+            Kind::Custom(KIND_MESSAGE),
+            serde_json::json!({
+                "body": "membership", "channel": "general",
+                "member": {"agent": "developer"}, "change": "joined", "cause": "enabled", "at": 12
+            })
+            .to_string(),
+        )
+        .tag(
+            Tag::parse([
+                "a",
+                &format!("33405:{}:general", host.public_key().to_hex()),
+            ])
+            .unwrap(),
+        )
+        .custom_created_at(nostr::types::Timestamp::from_secs(12))
+        .finalize(&host)
+        .unwrap();
+        store.append(&joined).unwrap();
+        let retraction = EventBuilder::new(Kind::Custom(bisa_core::kind::KIND_RETRACTION), "")
+            .tag(
+                Tag::parse([
+                    "a",
+                    &format!("33405:{}:general", host.public_key().to_hex()),
+                ])
+                .unwrap(),
+            )
+            .tag(Tag::parse(["e", &taken_back.id.to_hex()]).unwrap())
+            .custom_created_at(nostr::types::Timestamp::from_secs(13))
+            .finalize(&host)
+            .unwrap();
+        store.append(&retraction).unwrap();
+        let shown: Vec<_> = store
+            .messages("general", None, 50)
+            .unwrap()
+            .into_iter()
+            .filter(|m| !m.retracted)
+            .collect();
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        assert_eq!(store.unread("general", &me_id).unwrap(), 1);
+    }
+
+    /// Two writes of one file at once each land whole: each has a temporary
+    /// of its own. One name a process, the second writer renamed the
+    /// first's half-written bytes into place.
+    #[test]
+    fn two_writes_of_one_file_at_once_both_land_whole() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("read.json");
+        let writers: Vec<_> = (0..8u8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let body = vec![b'a' + n; 64 * 1024];
+                    for _ in 0..20 {
+                        write_atomic(&path, &body).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for w in writers {
+            w.join().unwrap();
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.len(), 64 * 1024);
+        assert!(
+            bytes.iter().all(|b| *b == bytes[0]),
+            "one writer's bytes, whole"
+        );
+        let left: Vec<_> = std::fs::read_dir(root.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            left,
+            vec!["read.json".to_string()],
+            "no temporary is left behind"
+        );
     }
 
     #[test]

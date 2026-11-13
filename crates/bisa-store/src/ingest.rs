@@ -113,6 +113,34 @@ fn hosted_may_write(role: bisa_core::MemberRole, wire_kind: u16) -> bool {
         || (role.may(bisa_core::Permission::ManageChannels) && kind::is_manager_kind(wire_kind))
 }
 
+/// Why a received message could never be posted, if it could not: the
+/// refusals a local post answers ([`Workspace::post_message`]), held for a
+/// received one too.
+fn unpostable(event: &Event) -> Option<String> {
+    let body: bisa_core::MessageBody = match serde_json::from_str(&event.content) {
+        Ok(body) => body,
+        Err(e) => return Some(format!("message content is not a body: {e}")),
+    };
+    if let Err(e) = body.validate() {
+        return Some(e.to_string());
+    }
+    let bisa_core::MessageBody::Post {
+        text,
+        context,
+        artifacts,
+        ..
+    } = &body
+    else {
+        return None;
+    };
+    let carries_a_file = event
+        .tags
+        .iter()
+        .any(|t| t.as_slice().first().map(String::as_str) == Some("imeta"));
+    (text.trim().is_empty() && context.is_empty() && artifacts.is_empty() && !carries_a_file)
+        .then(|| "a message of nothing".to_string())
+}
+
 fn reject(reason: impl Into<String>) -> IngestOutcome {
     IngestOutcome::Rejected {
         reason: reason.into(),
@@ -137,6 +165,40 @@ pub fn remote_goal_admissible(local: &Goal, remote: &Goal) -> Result<(), String>
     }
     if local.is_closed() && !remote.is_closed() {
         return Err("a closed goal never reopens".into());
+    }
+    Ok(())
+}
+
+/// May a channel's record written elsewhere be stored — over `local`, the
+/// one this node holds, if any?
+///
+/// The record must be one this node would store itself
+/// ([`Channel::validate`]). What a channel is never changes: its kind, its
+/// audience — who past messages were encrypted to — and where it came from.
+/// And a person on another node (`hosted`) writes the rooms of the
+/// workspace: standing channels, never `general`, which is the platform's
+/// own, and never a direct channel, whose participants are fixed where it
+/// was opened.
+pub fn remote_channel_admissible(
+    local: Option<&bisa_core::Channel>,
+    remote: &bisa_core::Channel,
+    hosted: bool,
+) -> Result<(), String> {
+    remote.validate().map_err(|e| e.to_string())?;
+    if hosted && (remote.is_general() || remote.kind != bisa_core::ChannelKind::Standing) {
+        return Err("a person on another node writes standing channels, never general".into());
+    }
+    let Some(local) = local else {
+        return Ok(());
+    };
+    if local.kind != remote.kind {
+        return Err("a channel's kind never changes".into());
+    }
+    if local.audience != remote.audience {
+        return Err("a channel's audience never changes".into());
+    }
+    if local.origin != remote.origin {
+        return Err("a channel's origin never changes".into());
     }
     Ok(())
 }
@@ -360,7 +422,7 @@ impl Workspace {
             return self.ingest_conversation_fact(event, hosted);
         }
         match wire_kind {
-            kind::KIND_CHANNEL => return self.ingest_ns_snapshot(event, Paths::NS_CHANNELS),
+            kind::KIND_CHANNEL => return self.ingest_channel_snapshot(event, hosted.is_some()),
             kind::KIND_CONVERSATION => {
                 return self.ingest_ns_snapshot(event, Paths::NS_CONVERSATIONS)
             }
@@ -399,12 +461,11 @@ impl Workspace {
         };
         let author = bisa_core::PrincipalId::new(event.pubkey.to_hex())?;
         if let crate::workspace::EventAudience::Restricted(aud) = &scope.audience {
-            let direct = aud.contains(&author);
-            let via_owner = crate::identity::verify_attestation(event)
-                .and_then(|owner_hex| bisa_core::PrincipalId::new(owner_hex).ok())
-                .map(|owner| aud.contains(&owner))
-                .unwrap_or(false);
-            if !direct && !via_owner {
+            // A participant, and nobody through one: an agent its owner
+            // attests is in a direct channel when the channel names it, as
+            // a local post holds ([`Workspace::post_message`]).
+            if !aud.contains(&author) {
+                self.mark_seen(event)?;
                 return Ok(reject("author is not a participant of this conversation"));
             }
         }
@@ -422,6 +483,15 @@ impl Workspace {
                     "{} does not reach {scope_id} as a {role}",
                     &author.as_hex()[..8]
                 )));
+            }
+        }
+        // A message that is no message — a body that does not read, one past
+        // its bounds, a post of nothing — is refused for good: marked seen,
+        // it is not offered again at every catch-up.
+        if event.kind.as_u16() == kind::KIND_MESSAGE {
+            if let Some(why) = unpostable(event) {
+                self.mark_seen(event)?;
+                return Ok(reject(why));
             }
         }
         // `None`: a peer's fact is applied to local storage and re-published
@@ -472,6 +542,43 @@ impl Workspace {
         self.ingest_ns_snapshot(event, &crate::workflows::workflow_namespace(&w.origin))
     }
 
+    /// A channel's record written elsewhere: checked before it is stored
+    /// ([`remote_channel_admissible`]) — once stored it is the record, and
+    /// one of the wrong shape cost the next rebuild, and with it the open. A
+    /// refusal is final and marked seen. Under the one writer, as every
+    /// channel write is.
+    fn ingest_channel_snapshot(
+        &self,
+        event: &Event,
+        hosted: bool,
+    ) -> Result<IngestOutcome, StoreError> {
+        let remote: bisa_core::Channel = match serde_json::from_str(&event.content) {
+            Ok(c) => c,
+            Err(e) => {
+                self.mark_seen(event)?;
+                return Ok(reject(format!("channel snapshot does not decode: {e}")));
+            }
+        };
+        if tag_value(event, "d") != Some(remote.id.as_str()) {
+            self.mark_seen(event)?;
+            return Ok(reject("channel snapshot's d tag is not its id"));
+        }
+        let _one_writer = self.roster_writer();
+        let local = self.get_channel(&remote.id).ok();
+        if let Err(why) = remote_channel_admissible(local.as_ref(), &remote, hosted) {
+            self.mark_seen(event)?;
+            return Ok(reject(why));
+        }
+        let outcome = self.ingest_ns_snapshot(event, Paths::NS_CHANNELS)?;
+        if matches!(outcome, IngestOutcome::AppliedConversation { .. }) {
+            self.tolerated_index("channel", remote.id.as_str(), self.index_channel(&remote))?;
+            self.emit_store_event(crate::workspace::StoreEvent::RemoteChannelArrived {
+                d: remote.id.to_string(),
+            });
+        }
+        Ok(outcome)
+    }
+
     fn ingest_ns_snapshot(&self, event: &Event, ns: &str) -> Result<IngestOutcome, StoreError> {
         let d = tag_value(event, "d").map(str::to_string).ok_or_else(|| {
             StoreError::Invalid(bisa_core::text!(
@@ -484,15 +591,9 @@ impl Workspace {
             return Ok(reject("stale"));
         }
         let indexed: Result<(), StoreError> = match event.kind.as_u16() {
-            k if k == kind::KIND_CHANNEL => {
-                match serde_json::from_str::<bisa_core::Channel>(&event.content) {
-                    Ok(c) => self.index_channel(&c),
-                    Err(e) => Err(StoreError::Invalid(bisa_core::text!(
-                        "error-store-ingest-refused",
-                        detail = e.to_string()
-                    ))),
-                }
-            }
+            // A channel was read before it came here, and is indexed by
+            // the door that read it ([`Self::ingest_channel_snapshot`]).
+            k if k == kind::KIND_CHANNEL => Ok(()),
             k if k == kind::KIND_AGENT_PROFILE => {
                 match serde_json::from_str::<bisa_core::Agent>(&event.content) {
                     // An id this node holds a record for keeps its own row:
@@ -1435,6 +1536,7 @@ mod tests {
                 | StoreEvent::ReadMarkerSet { .. } => {}
                 StoreEvent::RemoteMessageArrived { .. }
                 | StoreEvent::RemoteDrawingArrived { .. }
+                | StoreEvent::RemoteChannelArrived { .. }
                 | StoreEvent::PeopleChanged { .. }
                 | StoreEvent::InviteChanged { .. }
                 | StoreEvent::DefinitionRemoved { .. } => {
@@ -2018,7 +2120,7 @@ mod tests {
             .tag(general.clone())
             .finalize(&keys)
             .unwrap();
-        assert!(reason(ws.ingest_remote_event(&not_a_body).unwrap()).contains("apply failed"));
+        assert!(reason(ws.ingest_remote_event(&not_a_body).unwrap()).contains("not a body"));
         let reaction_to_nothing = EventBuilder::new(Kind::from(kind::KIND_REACTION), "👍")
             .tag(general.clone())
             .finalize(&keys)
@@ -2284,9 +2386,9 @@ mod tests {
             }
         );
         // A snapshot of each kind whose content will not decode is applied
-        // as a file, said, and indexed by nobody.
+        // as a file, said, and indexed by nobody — but a channel's, which is
+        // read before it is stored and refused.
         for k in [
-            kind::KIND_CHANNEL,
             kind::KIND_AGENT_PROFILE,
             kind::KIND_TEAM,
             kind::KIND_SKILL,
@@ -2308,7 +2410,15 @@ mod tests {
                 "kind {k}"
             );
         }
-        let nameless = EventBuilder::new(Kind::from(kind::KIND_CHANNEL), "{}")
+        let odd_channel = EventBuilder::new(Kind::from(kind::KIND_CHANNEL), "{}")
+            .tag(Tag::parse(["d", "odd"]).unwrap())
+            .finalize(&keys)
+            .unwrap();
+        assert!(matches!(
+            ws1.ingest_remote_event(&odd_channel).unwrap(),
+            IngestOutcome::Rejected { reason } if reason.contains("does not decode")
+        ));
+        let nameless = EventBuilder::new(Kind::from(kind::KIND_SKILL), "{}")
             .finalize(&keys)
             .unwrap();
         assert!(ws1.ingest_remote_event(&nameless).is_err());
@@ -2832,5 +2942,241 @@ mod tests {
             .unwrap()
             .iter()
             .any(|m| m.id == posted && m.retracted));
+    }
+    // --- a received channel is checked (the channels hardening) ---
+
+    /// A channel record as `author` might sign it, whatever it says.
+    fn channel_record(
+        author: &Workspace,
+        d: &str,
+        revision: u64,
+        record: serde_json::Value,
+    ) -> Event {
+        author
+            .snapshots
+            .put(
+                Paths::NS_CHANNELS,
+                kind::KIND_CHANNEL,
+                d,
+                &record,
+                revision,
+                author.owner_keys(),
+                crate::workspace::now_secs(),
+                None,
+                &[],
+            )
+            .unwrap();
+        author
+            .snapshots
+            .get_raw(Paths::NS_CHANNELS, kind::KIND_CHANNEL, d)
+            .unwrap()
+            .unwrap()
+    }
+
+    fn standing(id: &str, roster: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "id": id, "name": id, "kind": "standing",
+            "audience": {"audience": "workspace"},
+            "roster": roster, "origin": "local", "created_at": 1,
+        })
+    }
+
+    fn refused(outcome: IngestOutcome, why: &str) {
+        assert!(
+            matches!(&outcome, IngestOutcome::Rejected { reason } if reason.contains(why)),
+            "wanted a refusal saying {why:?}, got {outcome:?}"
+        );
+    }
+
+    /// A channel an admin on another node writes is checked before it is
+    /// stored: the shape this node would store itself, the id its `d` names,
+    /// standing channels only and never `general`. Stored unchecked, a room
+    /// rostered everyone made the next rebuild — and so the next open —
+    /// fail, and a direct channel could be given another audience. A refusal
+    /// is final; what is admitted is said, once.
+    #[test]
+    fn an_admins_channel_that_breaks_a_rule_is_refused_and_never_stops_a_rebuild() {
+        let (dir, host) = ws();
+        staffed(&host);
+        let (_da, admin) = hosted(&host, MemberRole::Admin);
+        let admin_key = admin.owner_principal();
+        let listed = || serde_json::json!({"policy": "listed"});
+        let mut rx = host.subscribe_store_events();
+
+        let blue = channel_record(&admin, "blue", 1, standing("blue", listed()));
+        assert_eq!(
+            host.ingest_remote_event(&blue).unwrap(),
+            IngestOutcome::AppliedConversation {
+                scope: "blue".into()
+            }
+        );
+        let mut said = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            if let StoreEvent::RemoteChannelArrived { d } = ev {
+                said.push(d);
+            }
+        }
+        assert_eq!(said, vec!["blue".to_string()]);
+
+        let wide = channel_record(
+            &admin,
+            "wide",
+            1,
+            standing("wide", serde_json::json!({"policy": "everyone"})),
+        );
+        refused(
+            host.ingest_remote_event(&wide).unwrap(),
+            "rostered everyone",
+        );
+        assert_eq!(
+            host.ingest_remote_event(&wide).unwrap(),
+            IngestOutcome::Duplicate,
+            "refused for good"
+        );
+        let misfiled = channel_record(&admin, "shelf", 1, standing("blue", listed()));
+        refused(host.ingest_remote_event(&misfiled).unwrap(), "not its id");
+        let garbled = channel_record(&admin, "noise", 1, serde_json::json!({"id": 7}));
+        refused(
+            host.ingest_remote_event(&garbled).unwrap(),
+            "does not decode",
+        );
+
+        // `general` is the platform's own, and a direct channel's
+        // participants are fixed where it was opened.
+        let mut general = standing("general", serde_json::json!({"policy": "everyone"}));
+        general["origin"] = serde_json::json!("core");
+        general["topic"] = serde_json::json!("theirs now");
+        refused(
+            host.ingest_remote_event(&channel_record(&admin, "general", 99, general))
+                .unwrap(),
+            "never general",
+        );
+        let scout = host
+            .get_agent(&bisa_core::AgentId::new("developer").unwrap())
+            .unwrap()
+            .pubkey;
+        let dm = host.open_dm(std::slice::from_ref(&admin_key)).unwrap();
+        let mut widened = serde_json::to_value(&dm).unwrap();
+        widened["audience"]["principals"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!(scout.as_hex()));
+        refused(
+            host.ingest_remote_event(&channel_record(&admin, dm.id.as_str(), 99, widened.clone()))
+                .unwrap(),
+            "standing channels",
+        );
+
+        // This workspace on another machine writes anything a channel may
+        // be — and still not another kind, audience or origin of one held.
+        let (_dt, twin) = twin(&host);
+        refused(
+            host.ingest_remote_event(&channel_record(&twin, dm.id.as_str(), 99, widened))
+                .unwrap(),
+            "audience never changes",
+        );
+        let mut direct = standing("blue", listed());
+        direct["kind"] = serde_json::json!("direct");
+        direct["audience"] = serde_json::json!({"audience": "restricted", "principals": [admin_key.as_hex(), host.owner_principal().as_hex()]});
+        refused(
+            host.ingest_remote_event(&channel_record(&twin, "blue", 99, direct))
+                .unwrap(),
+            "kind never changes",
+        );
+        let mut catalog = standing("blue", listed());
+        catalog["origin"] = serde_json::json!({"catalog": {"slug": "blue"}});
+        refused(
+            host.ingest_remote_event(&channel_record(&twin, "blue", 100, catalog))
+                .unwrap(),
+            "origin never changes",
+        );
+        let mut retopic = standing("blue", listed());
+        retopic["topic"] = serde_json::json!("sea");
+        assert!(matches!(
+            host.ingest_remote_event(&channel_record(&twin, "blue", 101, retopic))
+                .unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+
+        assert_eq!(
+            host.get_channel(&bisa_core::ChannelId::new("blue").unwrap())
+                .unwrap()
+                .topic
+                .as_deref(),
+            Some("sea")
+        );
+        assert_eq!(host.get_channel(&dm.id).unwrap(), dm);
+        assert!(host
+            .get_channel(&bisa_core::ChannelId::general())
+            .unwrap()
+            .validate()
+            .is_ok());
+        host.rebuild_index().unwrap();
+        drop(host);
+        Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    }
+
+    /// A message of nothing, or past its bounds, is refused for good — the
+    /// refusals a local post answers. Not marked seen before, it was offered
+    /// again at every catch-up.
+    #[test]
+    fn a_received_message_of_nothing_is_refused_for_good() {
+        let (_d, host) = ws();
+        let (_dm, member) = hosted(&host, MemberRole::Member);
+        let scope = Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:general",
+                kind::KIND_CHANNEL,
+                host.owner_keys().public_key().to_hex()
+            ),
+        ])
+        .unwrap();
+        let said = |body: bisa_core::MessageBody| {
+            EventBuilder::new(
+                Kind::from(kind::KIND_MESSAGE),
+                serde_json::to_string(&body).unwrap(),
+            )
+            .tag(scope.clone())
+            .finalize(member.owner_keys())
+            .unwrap()
+        };
+        let blank = said(bisa_core::MessageBody::post("   "));
+        refused(host.ingest_remote_event(&blank).unwrap(), "nothing");
+        assert_eq!(
+            host.ingest_remote_event(&blank).unwrap(),
+            IngestOutcome::Duplicate
+        );
+        let long = said(bisa_core::MessageBody::post(
+            "x".repeat(bisa_core::MAX_TEXT_BYTES + 1),
+        ));
+        assert!(matches!(
+            host.ingest_remote_event(&long).unwrap(),
+            IngestOutcome::Rejected { .. }
+        ));
+        assert_eq!(
+            host.ingest_remote_event(&long).unwrap(),
+            IngestOutcome::Duplicate
+        );
+        // A join or a leave is a message with nothing to weigh but its shape.
+        let joined = said(bisa_core::MessageBody::Membership(
+            bisa_core::MembershipEvent {
+                channel: bisa_core::ChannelId::general(),
+                member: bisa_core::Member::Agent(bisa_core::AgentId::general()),
+                change: bisa_core::MembershipChange::Joined,
+                cause: bisa_core::MembershipCause::Enabled,
+                at: 1,
+            },
+        ));
+        assert!(matches!(
+            host.ingest_remote_event(&joined).unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+        assert!(matches!(
+            host.ingest_remote_event(&said(bisa_core::MessageBody::post("hello")))
+                .unwrap(),
+            IngestOutcome::AppliedConversation { .. }
+        ));
+        assert_eq!(host.messages("general", None, 10).unwrap().len(), 2);
     }
 }

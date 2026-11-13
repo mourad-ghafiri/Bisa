@@ -2262,6 +2262,17 @@ impl Index {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Whether the cache still holds a row for a channel.
+    pub fn channel_known(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .conn
+            .query_row("SELECT 1 FROM channels WHERE id = ?1", params![id], |_| {
+                Ok(())
+            })
+            .optional()?
+            .is_some())
+    }
+
     pub fn delete_channel(&self, id: &str) -> Result<(), StoreError> {
         self.conn
             .execute("DELETE FROM channels WHERE id = ?1", params![id])?;
@@ -3449,6 +3460,19 @@ impl Index {
     }
 
     /// The scope a stored fact belongs to, by event id.
+    /// The scope of a message — of a message alone: what a reply's parent
+    /// is asked, where [`Self::fact_scope`] answers for a reaction too.
+    pub fn message_scope(&self, event_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT scope_id FROM messages WHERE id = ?1",
+                params![event_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?)
+    }
+
     pub fn fact_scope(&self, event_id: &str) -> Result<Option<String>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT scope_id FROM messages WHERE id = ?1

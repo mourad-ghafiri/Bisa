@@ -22,12 +22,14 @@
  */
 
 import { forgetPrefsUnder, readPref, webStorage, writePref } from "../shell/storedPrefModel.mjs";
+import { errorFields, log } from "../log";
+import { DRAFT_PREFIX, afterSend, draftAfterFailure, draftKey, draftWhileSending } from "./composerDraftModel.mjs";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ArtifactRef, AttachmentRef } from "../types";
 import { artifactFromFile } from "./artifact/artifactModel.mjs";
 import { Button } from "./Button";
 import { cn } from "./cn";
-import { SEND_HANDOVER_GRACE_MS, composerButton, explainOff, handoverElapsed } from "./composerButtonModel.mjs";
+import { SEND_HANDOVER_GRACE_MS, composerButton, explainOff, handoverAfterSend, handoverElapsed } from "./composerButtonModel.mjs";
 import { ICON } from "./icons";
 import { Menu, type MenuItem } from "./Menu";
 import { PendingFiles } from "./PendingFiles";
@@ -82,9 +84,6 @@ export interface ComposerStop {
   label?: string;
 }
 
-/** What every message being written is kept under, a key a scope. */
-const DRAFT_PREFIX = "bisa:draft:";
-const draftKey = (scope: string) => `${DRAFT_PREFIX}${scope}`;
 
 /**
  * Discard every message being written, in every conversation — *Forget
@@ -127,13 +126,21 @@ export function Composer({
   mentionables = [],
   files,
   attachItems,
-  stop = null,
+  stop,
   placeholder = tr("ui-composer-write-message"),
   disabled = false,
   sendDisabled = false,
   leading = null,
+  attachable = true,
 }: {
   scope: string;
+  /**
+   * Whether a file may ride the message: off where the far side takes words
+   * alone — a hosted channel. Then there is no attach door, and a drop or a
+   * paste of a file is left to the box, never uploaded to be dropped at the
+   * send.
+   */
+  attachable?: boolean;
   /** What was typed, whom it addresses, the files handed over, and the files shared to be looked at (ide/12). */
   onSend: (text: string, mentions: string[], attachments: AttachmentRef[], artifacts: ArtifactRef[]) => Promise<void> | void;
   mentionables?: Mentionable[];
@@ -141,7 +148,12 @@ export function Composer({
   files?: ComposerFiles;
   /** Ways to attach context, on the attach menu above the OS file picker. */
   attachItems?: MenuItem[];
-  /** A live session: the trailing slot is *Stop* instead of *Send* (`composerButtonModel`). */
+  /**
+   * A live session: the trailing slot is *Stop* instead of *Send*
+   * (`composerButtonModel`). `null` while nothing runs on a surface that can
+   * stop a turn; left out where no Stop is ever drawn, and then a send hands
+   * nothing over — the slot is *Send* again as soon as the message landed.
+   */
   stop?: ComposerStop | null;
   placeholder?: string;
   disabled?: boolean;
@@ -208,10 +220,24 @@ export function Composer({
     setPicked([]);
   }, [scope]);
 
+  /** The words on their way to the node, while they are: no draft of theirs is kept. */
+  const sending = useRef<string | null>(null);
+  /** What the box holds, or `null` once it is gone — read by a send that fails after the room was left. */
+  const boxed = useRef<string | null>(text);
+  boxed.current = text;
+  useEffect(
+    () => () => {
+      boxed.current = null;
+    },
+    [],
+  );
+
   useEffect(() => {
     // The draft is a convenience, not state: an empty one is forgotten, and
-    // a storage that refuses costs nothing (`writePref` never throws).
-    writePref(webStorage(), draftKey(scope), text || null);
+    // a storage that refuses costs nothing (`writePref` never throws). The
+    // words being sent are no draft; what is typed beside them is.
+    const kept = sending.current === null ? text : afterSend(text, sending.current);
+    writePref(webStorage(), draftKey(scope), kept || null);
   }, [scope, text]);
 
   // A draft handed over from elsewhere — a conflict's question for an agent
@@ -324,18 +350,39 @@ export function Composer({
   const send = async () => {
     if (!sendable || busy || disabled) return;
     setHandover({ posting: true });
+    // What is sent is what the box holds at the press. The box stays open
+    // while it goes, so only these words are cleared when it lands
+    // (`composerDraftModel`), and the stored draft is dropped now — a person
+    // who leaves the room before the answer finds no sent message waiting
+    // as a draft.
+    const sent = text;
+    const sentIn = scope;
+    sending.current = sent;
+    writePref(webStorage(), draftKey(sentIn), draftWhileSending());
     try {
-      await onSend(text.trim(), mentions, uploaded, shared);
-      setText("");
+      await onSend(sent.trim(), mentions, uploaded, shared);
+      sending.current = null;
+      setText((current) => afterSend(current, sent));
       uploads.clear();
       setSpan(null);
       setPicked([]);
-      // Posted: the effect above hands the slot to *Stop*, or back to *Send* when the grace lapses.
-      setHandover({ settledAt: Date.now() });
+      // Posted: the effect above hands the slot to *Stop*, or back to *Send* when the grace lapses — at once where no Stop is ever drawn.
+      setHandover(handoverAfterSend(stop, Date.now()));
     } catch (e) {
+      sending.current = null;
+      // Not said: the words are a draft again, in the room they were typed in.
+      writePref(webStorage(), draftKey(sentIn), draftAfterFailure(boxed.current, sent));
       setHandover(null);
       throw e;
     }
+  };
+  // A send that failed was said by whoever sends (`onSend` toasts its own
+  // refusal) and the words are in the box again: the rejection ends here,
+  // not in the log as an error nobody handled.
+  const sendQuietly = () => {
+    void send().catch((e: unknown) => {
+      log.debug("ui", "a send did not land; its sender said why and the words are kept", errorFields(e));
+    });
   };
   // The model's word for the slot, with the reason a *Send* that is off is off.
   const button = explainOff(composerButton({ busy, stop, sendable, disabled }), sendDisabled ? "over-budget" : uploading ? "uploading" : "empty");
@@ -416,10 +463,10 @@ export function Composer({
         onDragOver={(e) => {
           // Only claim the drop when there is actually a file in it, so
           // dragging selected text inside the box still behaves normally.
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          if (attachable && e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          if (!attachable || !e.dataTransfer.files.length) return;
           e.preventDefault();
           take(e.dataTransfer.files);
         }}
@@ -436,7 +483,7 @@ export function Composer({
           }}
         />
         {leading}
-        {attachMenu.length > 0 ? (
+        {!attachable ? null : attachMenu.length > 0 ? (
           <Menu
             label={tr("ui-composer-attach")}
             align="start"
@@ -477,7 +524,7 @@ export function Composer({
           // A screenshot is the commonest attachment there is, and the only
           // way to get one here without saving it to disk first — named as
           // it arrives, since the engine's `image.png` says nothing.
-          onPaste={pasted.onPaste}
+          onPaste={attachable ? pasted.onPaste : undefined}
           onKeyDown={(e) => {
             // Mid-composition (an IME assembling a character) Enter commits
             // the character, not the message.
@@ -496,7 +543,7 @@ export function Composer({
             // Shift held; Shift+Enter alone is a new line.
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
               e.preventDefault();
-              void send();
+              sendQuietly();
             }
           }}
           className="max-h-40 min-h-[1.75rem] flex-1 resize-none bg-transparent text-xs text-text placeholder:text-text-dim focus:outline-none"
@@ -508,7 +555,7 @@ export function Composer({
           disabled={!button.enabled}
           title={button.hint}
           aria-label={button.label}
-          onClick={button.kind === "stop" && stop ? stop.onStop : () => void send()}
+          onClick={button.kind === "stop" && stop ? stop.onStop : sendQuietly}
           className="text-2xs"
         >
           {button.kind !== "send" && <ICON.stop size={12} aria-hidden />}

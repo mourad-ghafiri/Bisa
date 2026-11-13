@@ -39,6 +39,7 @@ import {
 } from "../../ui";
 import { addressChips, answerableAddressed, initialAddressed, parseStored, storedAddressKey as key } from "./addressModel.mjs";
 import { useWorkspace } from "../../shell/useWorkspaceData";
+import { listUnread } from "../../shell/workspaceLoadModel.mjs";
 import { warningFor } from "./participantsModel.mjs";
 import { readPref, webStorage, writePref } from "../../shell/storedPrefModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -93,15 +94,21 @@ export function useAddressed(scope: string, seed: AgentDef[], unreachable: reado
   // refuses a mention by its key, so keeping the chip would have every send
   // from here refused. Only once the roster is read, and again whenever it
   // moves.
-  const { agents, ready } = useWorkspace();
+  //
+  // *Read* means the agents answered: a workspace that loaded without them —
+  // a node still booting, a list that failed — holds an empty roster that is
+  // no evidence of anybody gone, and pruning on it wrote *nobody* over every
+  // scope's addressees.
+  const { agents, ready, degraded, offline } = useWorkspace();
+  const rosterRead = ready && !listUnread(degraded, offline, "agents");
   useEffect(() => {
     setPubkeys((prev) => {
-      const kept = answerableAddressed(prev, agents, ready);
+      const kept = answerableAddressed(prev, agents, rosterRead);
       if (kept.length === prev.length) return prev;
       writePref(webStorage(), key(scope), kept);
       return kept;
     });
-  }, [agents, ready, scope, pubkeys.length]);
+  }, [agents, rosterRead, scope, pubkeys.length]);
 
   const set = useCallback(
     (next: string[]) => {

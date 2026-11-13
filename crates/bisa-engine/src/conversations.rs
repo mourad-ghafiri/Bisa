@@ -193,7 +193,12 @@ pub async fn stop_sessions(inner: &Arc<Inner>, id: ConversationId) -> usize {
 /// so far — for a reader that joins mid-turn; empty when nothing runs.
 pub fn live_turns(inner: &Arc<Inner>, id: ConversationId) -> Result<Vec<LiveTurnRow>, EngineError> {
     inner.ws.get_conversation(id)?;
-    Ok(crate::conversation::live_turns(inner, &id.to_string())
+    Ok(live_rows(inner, &id.to_string()))
+}
+
+/// The turns in flight in any scope, as rows.
+pub(crate) fn live_rows(inner: &Arc<Inner>, scope: &str) -> Vec<LiveTurnRow> {
+    crate::conversation::live_turns(inner, scope)
         .into_iter()
         .map(|(agent, turn)| LiveTurnRow {
             agent,
@@ -202,7 +207,7 @@ pub fn live_turns(inner: &Arc<Inner>, id: ConversationId) -> Result<Vec<LiveTurn
             since: turn.since,
             working: turn.working,
         })
-        .collect())
+        .collect()
 }
 
 /// One turn in flight: who speaks, what it has said and thought, since

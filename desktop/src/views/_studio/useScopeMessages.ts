@@ -22,7 +22,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
-import { useConversationEvents } from "../../bus";
+import { useConversationEvents, useEngineEvents } from "../../bus";
+import { hostedMoved } from "../../shell/hostedModel.mjs";
 import { errorFields, log } from "../../log";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import type { ArtifactRef, AttachmentRef, ContextRef, ConversationFrame, MessageRow, ReactionRow } from "../../types";
@@ -223,6 +224,11 @@ export function useScopeMessages(scope: string | null, kind: ScopeKind, home: Sc
     [change, host, readNewest, scope],
   );
   useConversationEvents(nudge, scope ?? undefined);
+  // A hosted thread hears its host by an engine fact, and by no conversation
+  // frame: what the host relayed is read as it lands (`hostedMoved`).
+  useEngineEvents((e) => {
+    if (hostedMoved(e.payload, host, scope)) readNewest();
+  });
   useReloadOnReconnect(() => nudge());
 
   // Leaving the thread — the hook unmounting, or its scope changing in place — ends every live read of it: none lands in another thread.

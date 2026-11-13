@@ -207,8 +207,26 @@ test("an addressee disabled or removed since it was chosen is let go of — once
   assert.deepEqual(answerableAddressed(null, agents, true), []);
   // The tray lets go in what it shows and in what the scope remembers, so the node never refuses a send for a chip nobody can see the reason of.
   const tray = readFileSync(new URL("./AddressTray.tsx", import.meta.url), "utf8");
-  assert.ok(tray.includes("const kept = answerableAddressed(prev, agents, ready);"));
+  // Read means the agents answered — a workspace that loaded without them holds a roster that is no evidence of anybody gone.
+  assert.ok(tray.includes('const rosterRead = ready && !listUnread(degraded, offline, "agents");'));
+  assert.ok(tray.includes("const kept = answerableAddressed(prev, agents, rosterRead);"));
   assert.ok(tray.includes("writePref(webStorage(), key(scope), kept);"));
   const store = readFileSync(new URL("../../../../crates/bisa-store/src/conversation.rs", import.meta.url), "utf8");
   assert.ok(store.includes("fn check_key_is_addressable"), "the rule the tray keeps to is the store's");
+});
+
+test("a direct channel offers only the agents in its audience", async () => {
+  const { directAudience, offeredIn } = await import("./addressModel.mjs");
+  const scout = { id: "scout", pubkey: "aa" };
+  const ranger = { id: "ranger", pubkey: "bb" };
+  const direct = { kind: "direct", audience: { audience: "restricted", principals: ["me", "aa"] } };
+  assert.deepEqual(directAudience(direct), ["me", "aa"]);
+  assert.equal(directAudience({ kind: "standing", audience: { audience: "workspace" } }), null);
+  assert.equal(directAudience(null), null);
+  assert.deepEqual(directAudience({ kind: "direct" }), [], "a direct channel that names nobody offers nobody");
+  // In it: the participant alone. Named from outside, an agent is refused by the node.
+  assert.deepEqual(offeredIn([scout, ranger], directAudience(direct)), [scout]);
+  // Anywhere else: everyone the scope could address.
+  assert.deepEqual(offeredIn([scout, ranger], null), [scout, ranger]);
+  assert.deepEqual(offeredIn(null, ["aa"]), []);
 });

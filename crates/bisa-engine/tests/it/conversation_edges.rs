@@ -912,3 +912,284 @@ async fn the_decision_making_agent_names_who_answers_an_unaddressed_message() {
     assert!(said_by(ws, "general", mason.pubkey.as_hex()).is_empty());
     engine.shutdown().await;
 }
+
+// --- turns that finish, wakes that stop (the channels hardening) ---
+
+/// A turn of `words` words said one at a time, then its end; the session
+/// stays alive unless `ends`.
+fn wordy(id: &str, words: usize, ends: bool) -> MockAdapter {
+    let mut script = vec![
+        SessionEvent::Lifecycle(LifecycleEvent::Started),
+        SessionEvent::Progress(ProgressEvent::TurnStarted),
+    ];
+    script.extend((0..words).map(|n| {
+        SessionEvent::Progress(ProgressEvent::TextDelta {
+            text: format!("w{n} "),
+        })
+    }));
+    script.push(SessionEvent::Progress(ProgressEvent::TurnEnded));
+    if ends {
+        script.push(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+            outcome: bisa_harness::Outcome::Completed,
+            is_terminal: true,
+        }));
+    }
+    MockAdapter {
+        id: id.into(),
+        script: Some(script),
+        ..Default::default()
+    }
+}
+
+fn whole(reply: &str, words: usize) -> bool {
+    reply.contains("w0 ") && reply.contains(&format!("w{}", words - 1))
+}
+
+fn engine_on(dir: &tempfile::TempDir, adapter: &Arc<MockAdapter>, config: EngineConfig) -> Engine {
+    let mut catalog = bisa_harness::HarnessCatalog::new();
+    catalog.register(Arc::clone(adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(workspace(dir), catalog, config).unwrap();
+    core_on(engine.workspace(), &adapter.id);
+    engine
+}
+
+/// A message sent while the agent is still answering waits behind the turn
+/// in flight: the first reply lands whole, and the second message gets a
+/// reply of its own. Before, the hand-over wiped what the running turn had
+/// said so far, and the reply to the second message was taken for a repeat
+/// of the first and never posted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_sent_while_the_reply_streams_keeps_both_replies_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = Arc::new(MockAdapter {
+        answers_follow_ups: true,
+        ..wordy("chat-harness", 160, false)
+    });
+    let engine = engine_on(&dir, &adapter, design_off_config());
+    let ws = engine.workspace();
+    let general = general_pubkey(ws);
+
+    say(ws, "general", "tell me at length", &[]);
+    until("the turn to be under way", || {
+        (adapter.launches().len() == 1).then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    say(ws, "general", "and one more thing", &[]);
+    until("the second message handed to the live session", || {
+        (adapter.follow_ups().len() == 1).then_some(())
+    })
+    .await;
+    assert!(
+        said_by(ws, "general", &general).is_empty(),
+        "the test needs the second message to arrive mid-turn"
+    );
+
+    let posts = until("both replies", || {
+        let posts = said_by(ws, "general", &general);
+        (posts.len() == 2).then_some(posts)
+    })
+    .await;
+    assert!(whole(&posts[0].content, 160), "{}", posts[0].content);
+    assert!(
+        posts[1].content.starts_with("follow-up:")
+            && posts[1].content.contains("and one more thing"),
+        "{}",
+        posts[1].content
+    );
+    assert_eq!(adapter.launches().len(), 1, "one session answered both");
+    engine.shutdown().await;
+}
+
+/// The idle clock runs between turns. A turn longer than it finishes and
+/// its reply lands; the session parks an interval after the turn is over.
+/// Armed at the launch and blind to the turn, it disposed a reply still
+/// being written once five minutes had passed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_longer_than_the_idle_clock_finishes_and_parks_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = Arc::new(wordy("chat-harness", 120, false));
+    let engine = engine_on(
+        &dir,
+        &adapter,
+        EngineConfig {
+            idle_ttl: Duration::from_millis(150),
+            ..design_off_config()
+        },
+    );
+    let ws = engine.workspace();
+    let general = general_pubkey(ws);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let scope = conversation.id.to_string();
+
+    say(ws, &scope, "take your time", &[]);
+    let posts = until("the long reply", || {
+        let posts = said_by(ws, &scope, &general);
+        (!posts.is_empty()).then_some(posts)
+    })
+    .await;
+    assert!(whole(&posts[0].content, 120), "{}", posts[0].content);
+    assert!(
+        adapter.closes().is_empty(),
+        "the session was let go of under its turn: {:?}",
+        adapter.closes()
+    );
+    let row = row_of(&engine, conversation.id).expect("the turn's row");
+    let session_id = row.session_id.unwrap().to_string();
+    until("the session parks once it is idle", || {
+        ws.session_by_id(&session_id)
+            .unwrap()
+            .filter(|r| r.status == bisa_store::SessionStatus::Parked)
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+/// A harness that takes no follow-up answers one message at a time: the
+/// second waits for the first turn to end and is then answered by a session
+/// of its own. Launched beside the running turn, it was a second session of
+/// one agent in one room, and one of the two replies was never posted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_message_on_a_harness_without_follow_ups_waits_its_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = Arc::new(MockAdapter {
+        caps: bisa_core::HarnessCaps::MCP_SERVERS,
+        ..wordy("one-shot", 80, true)
+    });
+    let engine = engine_on(&dir, &adapter, design_off_config());
+    let ws = engine.workspace();
+    let general = general_pubkey(ws);
+
+    say(ws, "general", "first", &[]);
+    until("the first turn to be under way", || {
+        (adapter.launches().len() == 1).then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    say(ws, "general", "second", &[]);
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert_eq!(
+        adapter.launches().len(),
+        1,
+        "nothing is launched beside the turn in flight"
+    );
+
+    let posts = until("a reply to each", || {
+        let posts = said_by(ws, "general", &general);
+        (posts.len() == 2).then_some(posts)
+    })
+    .await;
+    assert!(posts.iter().all(|p| whole(&p.content, 80)), "{posts:?}");
+    assert_eq!(adapter.launches().len(), 2, "one session a message");
+    engine.shutdown().await;
+}
+
+/// Deleting a channel stops what is running in it and what was about to:
+/// the turn in flight is aborted, and the message queued behind it wakes
+/// nobody after the room is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_channel_stops_its_turn_and_the_wake_queued_behind_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = Arc::new(MockAdapter {
+        caps: bisa_core::HarnessCaps::MCP_SERVERS,
+        ..wordy("one-shot", 400, true)
+    });
+    let engine = engine_on(&dir, &adapter, design_off_config());
+    let ws = engine.workspace();
+    let room = ws
+        .create_channel(
+            "fleeting",
+            None,
+            bisa_core::RosterPolicy::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let scope = room.id.to_string();
+
+    say(ws, &scope, "anyone there?", &[]);
+    until("the turn to be under way", || {
+        (adapter.launches().len() == 1).then_some(())
+    })
+    .await;
+    say(ws, &scope, "and another", &[]);
+    tokio::time::sleep(Duration::from_millis(60)).await;
+
+    bisa_engine::messaging::delete_channel(
+        engine.inner(),
+        bisa_core::DeletableChannel::new(room).unwrap(),
+    )
+    .await
+    .unwrap();
+    until("the turn to be told to stop", || {
+        adapter
+            .closes()
+            .contains(&bisa_harness::mock::Close::Aborted)
+            .then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        adapter.launches().len(),
+        1,
+        "the queued message woke nobody in a room that is gone"
+    );
+    assert!(
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .iter()
+            .all(|row| !row.state.is_live()),
+        "nothing is left running"
+    );
+    engine.shutdown().await;
+}
+
+/// In a direct channel of several agents, an agent's reply wakes whom it
+/// names — nobody for being in the room. Each of the General Agent's
+/// replies woke the other agent again before, though it named nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_reply_in_a_group_wakes_only_whom_it_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Arc::new(MockAdapter {
+        id: "chat-harness".into(),
+        ..Default::default()
+    });
+    let other = Arc::new(MockAdapter {
+        id: "other-harness".into(),
+        ..Default::default()
+    });
+    let mut catalog = bisa_harness::HarnessCatalog::new();
+    catalog.register(Arc::clone(&core) as Arc<dyn bisa_harness::HarnessAdapter>);
+    catalog.register(Arc::clone(&other) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(workspace(&dir), catalog, design_off_config()).unwrap();
+    let ws = engine.workspace();
+    core_on(ws, "chat-harness");
+    let scout = ws
+        .add_agent(NewAgent {
+            name: "Scout".into(),
+            harness: "other-harness".into(),
+            system_prompt: "look ahead".into(),
+            respond: RespondPolicy::OwnerOnly,
+            ..Default::default()
+        })
+        .unwrap();
+    let general = ws.get_agent(&AgentId::general()).unwrap().pubkey;
+    let dm = ws
+        .open_dm(&[general.clone(), scout.pubkey.clone()])
+        .unwrap();
+    let scope = dm.id.to_string();
+
+    say(ws, &scope, "morning, both", &[]);
+    until("a reply from each agent in the room", || {
+        (said_by(ws, &scope, general.as_hex()).len() == 1
+            && said_by(ws, &scope, scout.pubkey.as_hex()).len() == 1)
+            .then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(other.launches().len(), 1, "woken once, by the person");
+    assert_eq!(core.launches().len(), 1);
+    assert_eq!(ws.messages(&scope, None, 50).unwrap().len(), 3);
+    engine.shutdown().await;
+}

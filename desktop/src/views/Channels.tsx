@@ -24,7 +24,7 @@
  * press is worse than no control.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { href, navigate } from "../router";
 import { listUnread } from "../shell/workspaceLoadModel.mjs";
@@ -35,6 +35,7 @@ import {
   AgentPicker,
   Avatar,
   Button,
+  ConfirmDialog,
   CountBadge,
   Dialog,
   EmptyState,
@@ -69,6 +70,25 @@ import { Conversation, ConversationHeader } from "./_studio/Conversation";
 import { usePeopleRosterCandidates, useParticipants, useRosterCandidates } from "./_studio/participants";
 import { resolveRoster } from "./_studio/participantsModel.mjs";
 import { attempt, useAsync } from "./_work/useAsync";
+import { readKey } from "./_work/keptReadsModel.mjs";
+import { dirty, mayClose } from "./_work/agentDraftModel.mjs";
+import { DeleteDialog, useUsage } from "./_work/LibraryRefs";
+import { goneMemberName } from "./rosterModel.mjs";
+import {
+  channelCreateOf,
+  channelDraftOf,
+  channelSaveOf,
+  channelStamp,
+  editsRoster,
+  emptyChannelDraft,
+  mayCreateChannel,
+  mayDeleteChannel,
+  mayEditChannel,
+  reachOf,
+  shownChannel,
+  unresolvedRoster,
+  type ChannelDraft,
+} from "./_studio/channelDraftModel.mjs";
 import { useGonePlace } from "../shell/useGonePlace";
 import { t } from "../i18n/l10n.mjs";
 
@@ -137,6 +157,11 @@ function PeoplePicker({ value, onChange }: { value: string[]; onChange: (next: s
   );
 }
 
+/** A roster entry's name, with *disabled* said of an agent the handle will not reach today. */
+function rosterEntryName(agent: AgentDef, name: string): string {
+  return agent.enabled === false ? t("screens-channels-roster-entry-disabled", { name }) : name;
+}
+
 /**
  * What `@channel` expands to, on demand.
  *
@@ -149,15 +174,21 @@ function RosterPeek({
   name,
   ids,
   agents,
+  reach,
 }: {
   name: string;
   ids: string[];
   agents: AgentDef[];
+  /** How many agents the handle reaches by the node's own answer; `null` until it has answered. */
+  reach: number | null;
 }) {
   const entries = resolveRoster(ids, agents);
   return (
     <div className="flex w-64 flex-col gap-2">
-      <p className="text-2xs font-medium text-text">{t("screens-channels-reaches-agents", { name, agents: entries.length })}</p>
+      {/* The count is the node's: a team's agents are in it, a disabled agent is not, and the two core agents come last. Until it answers, the roster is named and no count is claimed. */}
+      <p className="text-2xs font-medium text-text">
+        {reach === null ? t("screens-channels-roster-of", { name }) : t("screens-channels-reaches-agents", { name, agents: reach })}
+      </p>
       <ScrollArea className="max-h-56">
         <ul className="flex flex-col gap-0.5">
           {entries.map((e) => (
@@ -172,8 +203,8 @@ function RosterPeek({
               ) : (
                 <ICON.warn size={14} aria-hidden className="shrink-0 text-warn" />
               )}
-              <span className={`truncate text-2xs ${e.agent ? "text-text" : "font-mono text-warn"}`}>
-                {e.agent ? e.name : t("screens-channels-unresolved", { e: e.id })}
+              <span className={`truncate text-2xs ${e.agent ? "text-text" : "text-warn"}`}>
+                {e.agent ? rosterEntryName(e.agent, e.name) : goneMemberName("agent", e.id)}
               </span>
             </li>
           ))}
@@ -221,6 +252,62 @@ function RosterPicker({
   );
 }
 
+/**
+ * What both channel dialogs share: one way out. Escape, a click outside, the
+ * ✕ and Cancel are the same door — shut while a write is out, and asking
+ * before it drops what was typed (`agentDraftModel.mayClose`).
+ */
+function useGuardedClose(edited: boolean, busy: boolean, onClose: () => void) {
+  const [discarding, setDiscarding] = useState(false);
+  const requestClose = () => {
+    const leave = mayClose({ dirty: edited, busy });
+    if (leave === "close") onClose();
+    else if (leave === "ask") setDiscarding(true);
+  };
+  return { discarding, setDiscarding, requestClose };
+}
+
+/** The question asked over a dialog whose edits would be dropped: *Keep editing* loses nothing. */
+function DiscardEdits({ open, body, onKeep, onDiscard }: { open: boolean; body: string; onKeep: () => void; onDiscard: () => void }) {
+  return (
+    <ConfirmDialog
+      open={open}
+      onClose={onKeep}
+      onConfirm={onDiscard}
+      title={t("work-draft-discard-title")}
+      body={body}
+      confirmLabel={t("work-draft-discard")}
+      cancelLabel={t("work-draft-keep-editing")}
+      danger
+    />
+  );
+}
+
+/**
+ * The roster names no agent here answers to — a definition deleted, or one
+ * this node has not synced. The picker cannot draw them, so they are listed,
+ * each with a way to take it off: left unseen, they rode every save.
+ */
+function UnresolvedRoster({ ids, onRemove }: { ids: string[]; onRemove: (id: string) => void }) {
+  if (ids.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-1" aria-label={t("screens-channels-roster-unresolved")}>
+      {ids.map((id) => {
+        const name = goneMemberName("agent", id);
+        return (
+          <li key={id} className="flex min-w-0 items-center gap-2 text-2xs text-text-dim">
+            <ICON.warn size={13} aria-hidden className="shrink-0 text-warn" />
+            <span className="min-w-0 flex-1 truncate">{t("screens-channels-roster-unresolved-line", { name })}</span>
+            <Button size="sm" variant="ghost" onClick={() => onRemove(id)} aria-label={t("screens-channels-roster-take-off", { name })}>
+              {t("screens-channels-roster-take-off-short")}
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function NewChannelDialog({
   open,
   onClose,
@@ -230,39 +317,32 @@ function NewChannelDialog({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const [name, setName] = useState("");
-  const [topic, setTopic] = useState("");
-  const [roster, setRoster] = useState<string[]>([]);
-  const [humans, setHumans] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
+  const [d, setD] = useState<ChannelDraft>(emptyChannelDraft);
+  const set = (patch: Partial<ChannelDraft>) => setD((prev) => ({ ...prev, ...patch }));
+  const blank = useRef<ChannelDraft>(d);
   // A refusal is said in the dialog, where the name was typed — as the edit
   // dialog says its own — not in a toast that leaves with the moment.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { discarding, setDiscarding, requestClose } = useGuardedClose(dirty(d, blank.current), busy, onClose);
 
   useEffect(() => {
-    if (open) {
-      setName("");
-      setTopic("");
-      setRoster([]);
-      setHumans([]);
-      setTags([]);
-      setError(null);
-    }
+    if (!open) return;
+    const fresh = emptyChannelDraft();
+    blank.current = fresh;
+    setD(fresh);
+    setError(null);
+    setDiscarding(false);
+    // `setDiscarding` is a state setter: the dialog re-seeds when it opens, and for nothing else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const create = async () => {
-    if (!name.trim() || busy) return;
+    if (!mayCreateChannel(d, busy)) return;
     setBusy(true);
     setError(null);
     const ok = await attempt(async () => {
-      const { channel } = await api.createChannel({
-        name: name.trim(),
-        topic: topic.trim() || undefined,
-        agents: roster,
-        humans,
-        tags,
-      });
+      const { channel } = await api.createChannel(channelCreateOf(d));
       onCreated(channel.id);
     }, setError);
     setBusy(false);
@@ -270,54 +350,73 @@ function NewChannelDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={t("screens-channels-new-channel")}
-      description={t("screens-channels-standing-conversation-whole-workspace-can-read")}
-      footer={
-        <>
-          <Button variant="ghost" disabled={busy} onClick={onClose}>{t("screens-channels-cancel")}</Button>
-          <Button variant="primary" disabled={!name.trim() || busy} onClick={() => void create()}>
-            {busy ? t("screens-channels-creating") : t("screens-channels-create")}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {error && <ErrorNote error={error} />}
-        <Field label={t("screens-channels-name")}>
-          <TextInput
-            autoFocus
-            value={name}
-            placeholder={t("screens-channels-design")}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void create();
-            }}
-          />
-        </Field>
-        <Field label={t("screens-channels-topic")} hint={t("screens-channels-what-channel-optional")}>
-          <TextInput
-            value={topic}
-            placeholder={t("screens-channels-how-looks-why")}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-        </Field>
-        <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
-          <RosterPicker value={roster} onChange={setRoster} />
-        </Labelled>
-        <PeoplePicker value={humans} onChange={setHumans} />
-        <Labelled label={t("screens-channels-tags")}>
-          <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
-        </Labelled>
-      </div>
-    </Dialog>
+    <>
+      <Dialog
+        open={open}
+        onClose={requestClose}
+        title={t("screens-channels-new-channel")}
+        description={t("screens-channels-standing-conversation-whole-workspace-can-read")}
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy} onClick={requestClose}>{t("screens-channels-cancel")}</Button>
+            <Button variant="primary" disabled={!mayCreateChannel(d, busy)} onClick={() => void create()}>
+              {busy ? t("screens-channels-creating") : t("screens-channels-create")}
+            </Button>
+          </>
+        }
+      >
+        {/* Nothing is edited under a write on its way: what is on screen is what was sent. */}
+        <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+          <div className="flex flex-col gap-3">
+          {error && <ErrorNote error={error} />}
+          <Field label={t("screens-channels-name")}>
+            <TextInput
+              autoFocus
+              value={d.name}
+              placeholder={t("screens-channels-design")}
+              onChange={(e) => set({ name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void create();
+              }}
+            />
+          </Field>
+          <Field label={t("screens-channels-topic")} hint={t("screens-channels-what-channel-optional")}>
+            <TextInput
+              value={d.topic}
+              placeholder={t("screens-channels-how-looks-why")}
+              onChange={(e) => set({ topic: e.target.value })}
+            />
+          </Field>
+          <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
+            <RosterPicker value={d.agents} onChange={(agents) => set({ agents })} />
+          </Labelled>
+          <PeoplePicker value={d.humans} onChange={(humans) => set({ humans })} />
+          <Labelled label={t("screens-channels-tags")}>
+            <TagInput value={d.tags} onChange={(tags) => set({ tags })} suggestions={[...TAG_VOCABULARY]} />
+          </Labelled>
+          </div>
+        </fieldset>
+      </Dialog>
+      <DiscardEdits
+        open={discarding}
+        body={t("work-draft-discard-new-channel")}
+        onKeep={() => setDiscarding(false)}
+        onDiscard={() => {
+          setDiscarding(false);
+          onClose();
+        }}
+      />
+    </>
   );
 }
 
 /**
- * Editing: topic, roster and tags, replaced together.
+ * Editing: the topic, the roster and the tags — each written only when this
+ * dialog changed it (`channelDraftModel.channelSaveOf`), so a dialog left
+ * open while the roster moved elsewhere saves its topic and leaves the
+ * roster as it now is. `general` is everyone's room: its roster is a policy
+ * the node keeps whatever is named, so its editor offers the topic and the
+ * tags and no roster.
  *
  * The node refuses this on a DM, so the caller does not offer it there. The
  * refusal is still surfaced in its own words if one ever arrives — a channel
@@ -336,38 +435,42 @@ function EditChannelDialog({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const [topic, setTopic] = useState("");
-  const [roster, setRoster] = useState<string[]>([]);
-  const [humans, setHumans] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
+  const ws = useWorkspace();
+  const [d, setD] = useState<ChannelDraft>(() => channelDraftOf(channel));
+  const set = (patch: Partial<ChannelDraft>) => setD((prev) => ({ ...prev, ...patch }));
+  // The draft as the dialog opened: what *edited* is measured against, and what a save names its changes from.
+  const seeded = useRef<ChannelDraft>(d);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { discarding, setDiscarding, requestClose } = useGuardedClose(dirty(d, seeded.current), busy, onClose);
 
+  // Seeded when the dialog opens — on another channel, or again — and never
+  // under what is being typed: the record moving behind an open dialog (a
+  // reload, another window's edit) leaves the draft as the person has it.
   useEffect(() => {
     if (!open) return;
-    setTopic(channel.topic ?? "");
-    setRoster([...rosterAgents(channel)]);
-    setHumans([...rosterHumans(channel)]);
-    setTags([...(channel.tags ?? [])]);
+    const fresh = channelDraftOf(channel);
+    seeded.current = fresh;
+    setD(fresh);
     setError(null);
-  }, [open, channel]);
+    setDiscarding(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, channel.id]);
+
+  const withRoster = editsRoster(channel);
+  const unresolved = withRoster ? unresolvedRoster(d.agents, ws.agents) : [];
 
   const save = async () => {
     if (busy) return;
+    const body = channelSaveOf(d, channel, seeded.current);
+    // Nothing changed is nothing to write — and nothing to say was updated.
+    if (Object.keys(body).length === 0) {
+      onClose();
+      return;
+    }
     setBusy(true);
     setError(null);
-    const ok = await attempt(
-      () =>
-        api.patchChannel(channel.id, {
-          // An emptied topic is a deliberate clearing, and `null` is how the
-          // route hears it — omitting the field would keep the old one.
-          topic: topic.trim() || null,
-          agents: roster,
-          humans,
-          tags,
-        }),
-      setError,
-    );
+    const ok = await attempt(() => api.patchChannel(channel.id, body), setError);
     setBusy(false);
     if (ok) {
       toast.ok(t("screens-channels-channel-updated", { channel: channel.name }));
@@ -377,39 +480,98 @@ function EditChannelDialog({
   };
 
   return (
-    <Dialog
+    <>
+      <Dialog
+        open={open}
+        onClose={requestClose}
+        title={t("screens-channels-edit-2", { channel: channel.name })}
+        description={withRoster ? t("screens-channels-topic-roster-tags-who-can-read") : t("screens-channels-topic-tags-everyone-belongs")}
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy} onClick={requestClose}>{t("screens-channels-cancel")}</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void save()}>
+              {busy ? t("screens-channels-saving") : t("screens-channels-save")}
+            </Button>
+          </>
+        }
+      >
+        <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+          <div className="flex flex-col gap-3">
+          {error && <ErrorNote error={error} />}
+          <Field label={t("screens-channels-topic")} hint={t("screens-channels-what-channel-clearing-removes")}>
+            <TextInput
+              autoFocus
+              value={d.topic}
+              placeholder={t("screens-channels-how-looks-why")}
+              onChange={(e) => set({ topic: e.target.value })}
+            />
+          </Field>
+          {withRoster && (
+            <>
+              <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
+                <RosterPicker value={d.agents} onChange={(agents) => set({ agents })} />
+                <UnresolvedRoster ids={unresolved} onRemove={(id) => set({ agents: d.agents.filter((a) => a !== id) })} />
+              </Labelled>
+              <PeoplePicker value={d.humans} onChange={(humans) => set({ humans })} />
+            </>
+          )}
+          <Labelled label={t("screens-channels-tags")}>
+            <TagInput value={d.tags} onChange={(tags) => set({ tags })} suggestions={[...TAG_VOCABULARY]} />
+          </Labelled>
+          </div>
+        </fieldset>
+      </Dialog>
+      <DiscardEdits
+        open={discarding}
+        body={t("work-draft-discard-edits-of", { name: channel.name })}
+        onKeep={() => setDiscarding(false)}
+        onDiscard={() => {
+          setDiscarding(false);
+          onClose();
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Delete a channel — a standing one or a direct one, never `general`
+ * (`channelDraftModel.mayDeleteChannel`; the caller offers it by that rule).
+ * Asked what still names the room first (`useUsage`): a workflow that posts
+ * or listens there is listed, with no Delete to press, and a refusal that
+ * arrives all the same is kept in the dialog in the node's words.
+ */
+export function DeleteChannelDialog({
+  open,
+  channel,
+  name,
+  onClose,
+  onDeleted,
+}: {
+  open: boolean;
+  channel: ChannelDef;
+  /** What the room is called where it is asked about: a channel's name, a direct channel's people. */
+  name: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const toast = useToast();
+  // Asked only when the dialog is: a row's menu does not cost every row a request.
+  const usage = useUsage("channel", open ? channel.id : null);
+  const direct = channel.kind === "direct";
+  return (
+    <DeleteDialog
       open={open}
+      title={direct ? t("screens-channels-delete-direct", { name }) : t("screens-channels-delete", { name })}
+      usage={usage}
+      consequence={direct ? t("screens-channels-delete-direct-consequence") : t("screens-channels-delete-consequence")}
+      remove={() => api.deleteChannel(channel.id)}
       onClose={onClose}
-      title={t("screens-channels-edit-2", { channel: channel.name })}
-      description={t("screens-channels-topic-roster-tags-who-can-read")}
-      footer={
-        <>
-          <Button variant="ghost" disabled={busy} onClick={onClose}>{t("screens-channels-cancel")}</Button>
-          <Button variant="primary" disabled={busy} onClick={() => void save()}>
-            {busy ? t("screens-channels-saving") : t("screens-channels-save")}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {error && <ErrorNote error={error} />}
-        <Field label={t("screens-channels-topic")} hint={t("screens-channels-what-channel-clearing-removes")}>
-          <TextInput
-            autoFocus
-            value={topic}
-            placeholder={t("screens-channels-how-looks-why")}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-        </Field>
-        <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
-          <RosterPicker value={roster} onChange={setRoster} />
-        </Labelled>
-        <PeoplePicker value={humans} onChange={setHumans} />
-        <Labelled label={t("screens-channels-tags")}>
-          <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
-        </Labelled>
-      </div>
-    </Dialog>
+      onDeleted={() => {
+        toast.ok(direct ? t("screens-channels-direct-deleted") : t("screens-channels-channel-deleted", { name }));
+        onDeleted();
+      }}
+    />
   );
 }
 
@@ -419,7 +581,7 @@ const INDEX_PLACE = placeOf({ name: "channels" });
 /**
  * The Channels page: every standing channel as a row — the name, the topic,
  * when it last moved and who said what last (`latest`, kept live by the
- * bus), the roster's faces when nothing was said yet, its tags, a working
+ * bus), the roster's names when nothing was said yet, its tags, a working
  * dot, the **live** unread count (`ws.unread`, never the load's snapshot)
  * and a `⋮` with *Open* and *Edit…*. One toolbar in the Goals screen's
  * grammar: the words, the count, *New channel*, the tag facets. The order
@@ -432,10 +594,14 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
   // The tags picked and the words typed are the index's memory: it comes back narrowed as it was left.
   const [filter, setFilter] = useViewState<TagFilterState>(INDEX_PLACE, "tags", NO_TAG_FILTER, parseTagFilter);
   const [search, setSearch] = useViewState(INDEX_PLACE, "search", "", textValue);
-  /** *Edit…* picked on a row: the same dialog the channel's own header opens. */
-  const [editing, setEditing] = useState<ChannelDef | null>(null);
+  /** *Edit…* picked on a row: the same dialog the channel's own header opens. Held by id, so the dialog edits the record as the list now has it. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  /** *Delete…* picked on a row, by id: a room that left the list takes its question with it. */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const entries = ws.channels;
+  const editing = shownChannel(entries, editingId, null);
+  const deleting = shownChannel(entries, deletingId, null);
   const shown = useMemo(() => sortChannels(filterChannels(entries, search, filter)), [entries, search, filter]);
   const narrowed = search.trim() !== "" || filter.selected.length > 0;
   const clear = () => {
@@ -525,7 +691,10 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
                       label={t("screens-channels-menu", { channel: channel.name })}
                       items={[
                         { label: t("screens-channels-open"), icon: ICON.forward, onSelect: () => navigate({ name: "channel", id: channel.id }) },
-                        { label: t("screens-channels-edit-2", { channel: channel.name }), icon: ICON.edit, onSelect: () => setEditing(channel) },
+                        { label: t("screens-channels-edit-2", { channel: channel.name }), icon: ICON.edit, onSelect: () => setEditingId(channel.id) },
+                        ...(mayDeleteChannel(channel)
+                          ? [{ label: t("screens-channels-delete-menu", { channel: channel.name }), icon: ICON.delete, danger: true, onSelect: () => setDeletingId(channel.id) }]
+                          : []),
                       ]}
                     />
                   </span>
@@ -539,9 +708,21 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
         <EditChannelDialog
           open
           channel={editing}
-          onClose={() => setEditing(null)}
+          onClose={() => setEditingId(null)}
           onSaved={() => {
-            setEditing(null);
+            setEditingId(null);
+            ws.refresh();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteChannelDialog
+          open
+          channel={deleting}
+          name={`#${deleting.name}`}
+          onClose={() => setDeletingId(null)}
+          onDeleted={() => {
+            setDeletingId(null);
             ws.refresh();
           }}
         />
@@ -554,24 +735,35 @@ export default function Channels({ id }: { id?: string }) {
   const ws = useWorkspace();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => onDoor(NEW_CHANNEL, () => setCreating(true)), []);
 
+  // The list's copy of this channel follows every write of its record, here
+  // or anywhere — so it is what the page draws, and the page's own read
+  // (who the handle reaches) is asked again whenever that copy moves. Kept
+  // under the channel's key: another channel's page never draws this one's
+  // answer while its own is on its way.
+  const listed = shownChannel(ws.channels, id, null);
   const { data, loading, reload, error, missing } = useAsync(
     (s) => (id ? api.channel(id, s) : Promise.resolve(null)),
-    [id],
+    [id, channelStamp(listed)],
+    { keep: readKey("channel", id) },
   );
-  // A channel deleted raises no fact on the bus: the node answers that there
-  // is none, the place is forgotten, and a person who had been on it is left
-  // at the list (`useGonePlace`).
+  // A channel deleted — here or in another window — leaves the list on its
+  // removed frame, the read above is asked again and answers that there is
+  // none, the place is forgotten, and a person who had been on it is left at
+  // the list (`useGonePlace`).
   useGonePlace(missing, id ? { name: "channel", id } : { name: "channels" });
-  const channel: ChannelDef | null = data?.channel ?? null;
+  const channel: ChannelDef | null = shownChannel(ws.channels, id, data?.channel ?? null);
   const { inAudience } = useParticipants(channel);
   const working = (id && ws.working[id]) || [];
   const roster = rosterAgents(channel);
   const people = rosterHumans(channel);
   // Only a standing channel is editable. A DM has an audience, and an audience
-  // is what a past message was encrypted to.
-  const editable = channel !== null && channel.kind === "standing";
+  // is what a past message was encrypted to. Any channel but `general` may be
+  // deleted (`channelDraftModel`).
+  const editable = mayEditChannel(channel);
+  const deletable = mayDeleteChannel(channel);
 
   const dialog = (
     <NewChannelDialog
@@ -663,7 +855,7 @@ export default function Channels({ id }: { id?: string }) {
                       </span>
                     }
                   >
-                    <RosterPeek name={channel.name} ids={roster} agents={ws.agents} />
+                    <RosterPeek name={channel.name} ids={roster} agents={ws.agents} reach={reachOf(data)} />
                   </Popover>
                 )}
                 {working.length > 0 && <WorkingDot title={t("screens-channels-agent-writing-here")} />}
@@ -675,12 +867,30 @@ export default function Channels({ id }: { id?: string }) {
                   <Button size="sm" onClick={() => setEditing(true)}>
                     <ICON.edit size={13} aria-hidden />{t("screens-channels-edit")}</Button>
                 )}
+                {deletable && channel && (
+                  <MoreMenu
+                    label={t("screens-channels-menu", { channel: channel.name })}
+                    items={[{ label: t("screens-channels-delete-menu", { channel: channel.name }), icon: ICON.delete, danger: true, onSelect: () => setDeleting(true) }]}
+                  />
+                )}
               </>
             }
           />
         }
       />
-      {editable && (
+      {deletable && channel && (
+        <DeleteChannelDialog
+          open={deleting}
+          channel={channel}
+          name={`#${channel.name}`}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            ws.refresh();
+            navigate({ name: "channels" });
+          }}
+        />
+      )}
+      {editable && channel && (
         <EditChannelDialog
           open={editing}
           channel={channel}

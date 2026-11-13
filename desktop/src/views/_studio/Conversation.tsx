@@ -25,6 +25,7 @@ import type { ChangedFilesBarProps } from "./ChangedFilesBar";
 import type { ScopeKind } from "./scope";
 import { clearContext, removeContext, useAgentPane } from "../_workbench/agentPaneStore";
 import { chatKey } from "./chatScopeModel.mjs";
+import { scopeKey } from "../../shell/hostedModel.mjs";
 import { publishChatTarget } from "./chatTargetStore";
 import type { ChannelDef, Directory } from "../../types";
 
@@ -126,17 +127,21 @@ export function Conversation({
   // annotations — to attach to (ide/18); and its own chip tray, kept under
   // its kind and id, when the caller brings none (the IDE's Agent pane does).
   useEffect(() => publishChatTarget({ kind, id: scope }), [kind, scope]);
-  const own = useAgentPane(chatKey(kind, scope));
+  // Kept under the scope's own key — with its host for a hosted one
+  // (`scopeKey`): a hosted room and this workspace's of the same id each
+  // have their chips.
+  const paneKey = chatKey(kind, scopeKey(scope, hosted?.host));
+  const own = useAgentPane(paneKey);
   const chips = context ?? own.context;
-  const removeChip = onRemoveContext ?? ((index: number) => removeContext(chatKey(kind, scope), index));
-  const clearChips = onClearContext ?? (() => clearContext(chatKey(kind, scope)));
+  const removeChip = onRemoveContext ?? ((index: number) => removeContext(paneKey, index));
+  const clearChips = onClearContext ?? (() => clearContext(paneKey));
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
       <div className="min-h-0 flex-1">
         {/* Keyed by scope: a switch of channel or of conversation starts the thread afresh — where it was being read, else at its bottom, with its own entry marker — as the Inbox's does. */}
         <Chat
-          key={`${kind}:${scope}`}
+          key={paneKey}
           scope={scope}
           kind={kind}
           originKind={originKind}

@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bisa_core::tags::TagEntity;
 use bisa_core::Localize as _;
-use bisa_core::{AgentId, ChannelKind, DeletableChannel, PrincipalId, RosterPolicy, TeamId};
+use bisa_core::{AgentId, ChannelKind, PrincipalId, RosterPolicy, TeamId};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,9 +27,10 @@ pub(crate) fn routes() -> Router<Shared> {
             "/channels/{id}/messages",
             get(channel_messages).post(channel_post),
         )
+        .route("/channels/{id}/live", get(channel_live))
         .route("/dms", get(list_dms).post(open_dm))
         .route("/messages/{id}", get(get_message))
-        .route("/messages/{id}/retract", post(retract))
+        .route("/messages/{id}/retract", post(retract_message))
         .route("/messages/{id}/react", post(react))
         .route("/reactions/{id}/retract", post(retract))
         .route("/read", post(mark_read))
@@ -214,7 +215,9 @@ async fn get_channel(
 }
 
 /// Edit a standing channel's topic, roster and tags. Omitted fields keep their
-/// current value.
+/// current value, and the edit is made on the record as it stands, under the
+/// store's one writer: the handler names what the body named and merges
+/// nothing itself.
 ///
 /// A DM is refused by the store — it has no roster and no topic, and its
 /// audience is what past messages were encrypted to — and that refusal
@@ -225,62 +228,36 @@ async fn patch_channel(
     AxPath(id): AxPath<String>,
     crate::Body(body): crate::Body<PatchChannelBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let ws = state.engine.workspace();
     let id = channel_id(&id)?;
-    let stored = ws.get_channel(&id)?;
-    // A roster edit replaces the roster; either list omitted keeps what is
-    // stored for that half.
-    let roster = match (body.agents, body.teams, body.humans) {
-        (None, None, None) => stored.roster,
-        (agents, teams, humans) => {
-            let (kept_agents, kept_teams, kept_humans) = match &stored.roster {
-                RosterPolicy::Listed {
-                    agents,
-                    teams,
-                    humans,
-                } => (
-                    agents.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-                    teams.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-                    humans
-                        .iter()
-                        .map(|h| h.as_hex().to_string())
-                        .collect::<Vec<_>>(),
-                ),
-                RosterPolicy::Everyone => (vec![], vec![], vec![]),
-            };
-            roster_of(
-                &agents.unwrap_or(kept_agents),
-                &teams.unwrap_or(kept_teams),
-                &humans.unwrap_or(kept_humans),
-            )?
-        }
+    let edit = bisa_engine::messaging::ChannelEdit {
+        topic: body.topic,
+        agents: body
+            .agents
+            .map(|ids| ids.iter().map(|a| agent_id(a)).collect::<Result<_, _>>())
+            .transpose()?,
+        teams: body
+            .teams
+            .map(|ids| ids.iter().map(|t| team_id(t)).collect::<Result<_, _>>())
+            .transpose()?,
+        humans: body.humans.as_deref().map(parse_principals).transpose()?,
+        tags: body.tags.as_deref().map(parse_tags).transpose()?,
     };
-    let tags = match &body.tags {
-        Some(raw) => parse_tags(raw)?,
-        None => stored.tags,
-    };
-    let channel = bisa_engine::messaging::update_channel(
-        state.engine.inner(),
-        &id,
-        body.topic.or(stored.topic).as_deref(),
-        roster,
-        tags,
-    )?;
+    let channel = bisa_engine::messaging::edit_channel(state.engine.inner(), &id, edit)?;
     Ok(Json(json!({"channel": channel})))
 }
 
 /// Delete a channel. `general` is permanent: the type refuses to name it as
 /// deletable, and that refusal is a 409 — the record is fine, the request is
-/// not. A channel something still points at is refused by the store.
+/// not. A channel something still points at is refused by the store. A
+/// record nobody can read is deleted by its id.
 async fn delete_channel(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let ws = state.engine.workspace();
     let id = channel_id(&id)?;
-    let channel = ws.get_channel(&id)?;
-    let deletable = DeletableChannel::new(channel).map_err(|e| conflict(e.text()))?;
-    bisa_engine::messaging::delete_channel(state.engine.inner(), deletable).await?;
+    let deletable =
+        bisa_core::DeletableChannelId::new(id.clone()).map_err(|e| conflict(e.text()))?;
+    bisa_engine::messaging::delete_channel_by_id(state.engine.inner(), &deletable).await?;
     Ok(Json(json!({"ok": true, "channel": id})))
 }
 
@@ -330,7 +307,24 @@ async fn channel_post(
     AxPath(id): AxPath<String>,
     crate::Body(body): crate::Body<NewMessageBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // The channel first, as the page asks: this door posts into a channel
+    // and nothing else — a goal's thread and a conversation have their own,
+    // with their own rules — and a channel that is gone is a 404 here too.
+    state.engine.workspace().get_channel(&channel_id(&id)?)?;
     scope_post(&state, &id, body)
+}
+
+/// The turns in flight in a channel or a direct channel: each agent's words
+/// and thinking so far; `{turns: []}` when nothing runs. 404 when unknown.
+async fn channel_live(
+    State(state): State<Shared>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<LiveTurnsResponse>, ApiError> {
+    let turns = bisa_engine::messaging::live_turns(state.engine.inner(), &channel_id(&id)?)?
+        .into_iter()
+        .map(LiveTurnView::from)
+        .collect();
+    Ok(Json(LiveTurnsResponse { turns }))
 }
 
 // --- DMs --------------------------------------------------------------------
@@ -368,6 +362,28 @@ async fn open_dm(
 
 // --- reactions / retractions ------------------------------------------------
 
+/// Retract a message: one that is not here is a 404, as it is to read.
+async fn retract_message(
+    state: State<Shared>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    a_message(&state, &id)?;
+    retract(state, AxPath(id)).await
+}
+
+fn a_message(state: &Shared, id: &str) -> Result<(), ApiError> {
+    state
+        .engine
+        .workspace()
+        .get_message(id)?
+        .map(drop)
+        .ok_or_else(|| {
+            crate::not_found(bisa_core::text!(
+                "error-node-conversation-no-message-with-id"
+            ))
+        })
+}
+
 async fn retract(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
@@ -381,11 +397,14 @@ async fn react(
     AxPath(id): AxPath<String>,
     crate::Body(body): crate::Body<ReactBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if body.emoji.trim().is_empty() || body.emoji.chars().count() > 64 {
+    // One bound, the store's — 64 bytes, said in its words; this door
+    // answers for an emoji of nothing and for a message that is not here.
+    if body.emoji.trim().is_empty() {
         return Err(bad_request(bisa_core::text!(
             "error-node-collab-emoji-must-be-1-64-chars"
         )));
     }
+    a_message(&state, &id)?;
     // A person reacting from the app reacts as themselves.
     let event = bisa_engine::messaging::react(state.engine.inner(), &id, body.emoji.trim())?;
     Ok(Json(json!({"id": event})))
@@ -435,12 +454,12 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "PATCH",
         path: "/channels/{id}",
-        summary: "Edit topic, roster (`agents`, `teams`, `humans` — each half replaced when present) and tags. Refused on a direct channel.",
+        summary: "Edit topic, roster (`agents`, `teams`, `humans` — each half replaced when present) and tags; each field absent keeps what is stored, and an empty `topic` clears it. Made on the record as it stands: two edits at once of different fields both stand. `general` keeps its roster whatever is named. Refused on a direct channel.",
     },
     RouteDoc {
         method: "DELETE",
         path: "/channels/{id}",
-        summary: "Delete a channel, stopping any turn an agent runs in it; `general` answers 409, and so does a channel a workflow step still names. Its message log stays on disk as history.",
+        summary: "Delete a channel or a direct channel, first stopping every turn an agent runs in it — the one still launching and the message queued behind one among them; `general` answers 409, and so does a channel a workflow step still names. The room is forgotten — its messages leave every page, count and search — and its log is kept aside on disk; a channel made again under the name starts empty. Said on `GET /events` as the channel's snapshot frame with `removed: true`.",
     },
     RouteDoc {
         method: "GET",
@@ -450,7 +469,12 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/channels/{id}/messages",
-        summary: "Post a message: `{content, reply_to?, mentions?, attachments?, artifacts?}` — words or nothing (blank `content` with nothing attached is a 400), at most 256 KiB of them (a 400 in words, never a bare 413: what is a file goes as an attachment); an artifact is an uploaded file described with its title and kind, rendered live where it is read.",
+        summary: "Post a message into a channel or a direct channel — 404 for one that is not here, and nothing else is posted into through this door (a goal's thread and a conversation have their own): `{content, context?, reply_to?, mentions?, attachments?, artifacts?}` — words or nothing (blank `content` with nothing attached is a 400), at most 256 KiB of them (a 400 in words, never a bare 413: what is a file goes as an attachment); an artifact is an uploaded file described with its title and kind, rendered live where it is read.",
+    },
+    RouteDoc {
+        method: "GET",
+        path: "/channels/{id}/live",
+        summary: "The turns in flight in a channel or a direct channel — each agent's words and thinking so far, as `GET /conversations/{id}/live` answers them — for a reader that joins mid-turn; `{turns: []}` when nothing runs, 404 when unknown.",
     },
     RouteDoc {
         method: "GET",
@@ -465,12 +489,12 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/messages/{id}/retract",
-        summary: "Retract a message you authored.",
+        summary: "Retract a message you authored; 404 when it is not here.",
     },
     RouteDoc {
         method: "POST",
         path: "/messages/{id}/react",
-        summary: "React to a message: `{emoji}`.",
+        summary: "React to a message: `{emoji}` — at most 64 bytes; 404 when the message is not here. Reacting again with the same emoji answers the reaction that stands.",
     },
     RouteDoc {
         method: "POST",

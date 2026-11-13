@@ -45,7 +45,7 @@ import { ideModeNow, setIdeMode, toggleIdeMode } from "../views/_workbench/ideMo
 import { BOARD_COMMAND, MODE_COMMAND, modeSwitchLabel, modeWords } from "../views/_workbench/workbenchChromeModel.mjs";
 import { HolderBadge } from "../views/_goals/HolderBadge";
 import type { ProjectRow, TeamDef, WorkItemRef, WorkflowRow, WorkstreamRef } from "../types";
-import { audiencePrincipals } from "../types";
+import { dmHead, dmLabel, sortDms } from "../views/_studio/channelListModel.mjs";
 import { usePrimaryNav } from "./navOrderStore";
 import { goToSection } from "./sectionDoor";
 import { settingsSearch } from "../views/_settings/settingsLink.mjs";
@@ -906,10 +906,10 @@ export function Omnibox({
       });
     }
 
-    for (const { channel } of ws.dms) {
-      const others = audiencePrincipals(channel).filter((p) => p !== ws.me);
-      const label = others.map((p) => ws.nameOf(p)).join(", ") || tr("shell-omnibox-just");
-      const head = others[0] ?? channel.id;
+    // The lists' order and the lists' name (`channelListModel`): the direct channel that moved last first.
+    for (const { channel } of sortDms(ws.dms)) {
+      const label = dmLabel(channel, ws.me, ws.nameOf);
+      const head = dmHead(channel, ws.me);
       push({
         key: `d:${channel.id}`,
         label,

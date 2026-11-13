@@ -15,6 +15,8 @@
 import { isMember } from "./hostedModel.mjs";
 
 import { href } from "../routeModel.mjs";
+import { draftKey } from "../ui/composerDraftModel.mjs";
+import { storedAddressKey } from "../views/_studio/addressModel.mjs";
 
 /** A route's path, without its hash mark. */
 function pathFor(route) {
@@ -54,6 +56,45 @@ export function gonePaths(payload) {
     default:
       return [];
   }
+}
+
+/** The wire kind of a channel's record (`KIND_CHANNEL`). */
+const KIND_CHANNEL = 33405;
+
+/**
+ * The channel a `conversation` frame says was **removed** — a standing one
+ * or a direct one, deleted here or in another window — or `null` for any
+ * other frame. Its place goes ({@link channelPaths}) and what was kept of
+ * it by its scope: the draft in its box, whom it addressed, where its
+ * thread was being read.
+ * @param {{scope?: string, kind?: number, snapshot?: boolean, removed?: boolean} | null | undefined} frame
+ * @returns {string | null}
+ */
+export function goneChannel(frame) {
+  if (!frame || frame.snapshot !== true || frame.removed !== true || frame.kind !== KIND_CHANNEL) return null;
+  return typeof frame.scope === "string" && frame.scope ? frame.scope : null;
+}
+
+/**
+ * The places a channel stood at: its page as a channel and as a direct
+ * channel — the id alone does not say which it was, and forgetting a place
+ * nobody kept costs nothing.
+ * @param {string} id
+ * @returns {string[]}
+ */
+export function channelPaths(id) {
+  return [pathFor({ name: "channel", id }), pathFor({ name: "dm", id })];
+}
+
+/**
+ * What the browser's storage keeps by a scope that is gone: the draft in
+ * its box and whom it addressed. A channel made again under the id starts
+ * with neither.
+ * @param {string} scope
+ * @returns {string[]}
+ */
+export function scopePrefKeys(scope) {
+  return [draftKey(scope), storedAddressKey(scope)];
 }
 
 /**

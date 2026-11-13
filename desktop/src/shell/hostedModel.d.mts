@@ -27,3 +27,7 @@ export declare function hostedPhotoOf(directory: readonly Directory[] | null | u
 export declare function hostedMentionables(directory: readonly Directory[] | null | undefined, me: string): Mentionable[];
 /** What a hosted channel's screen draws from what the shell holds — the thread, a skeleton while the workspace is unread, or which of three things is missing. */
 export declare function hostedScreen(held: { ready: boolean; section: HostedSection | null | undefined; channel: ChannelDef | null | undefined }): "thread" | "reading" | "unknown-host" | "not-member" | "unreached";
+/** Whether an engine fact says this hosted thread moved. */
+export declare function hostedMoved(payload: { type?: string; host?: unknown; scope?: unknown } | null | undefined, host: string | null | undefined, scope: string | null | undefined): boolean;
+/** The key a scope's own things are kept under in this window: the scope, with its host for a hosted one. */
+export declare function scopeKey(scope: string, host: string | null | undefined): string;

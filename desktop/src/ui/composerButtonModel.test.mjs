@@ -52,3 +52,12 @@ test("the handover lapses after the grace, never before, and never while posting
   assert.equal(handoverElapsed(1000, 1000 + 50, 50), true, "the grace is a parameter");
   assert.ok(SEND_HANDOVER_GRACE_MS >= 500 && SEND_HANDOVER_GRACE_MS <= 3000, "long enough for a roster frame, short enough to notice");
 });
+
+test("a surface with no Stop hands nothing over after a send", async () => {
+  const { handoverAfterSend } = await import("./composerButtonModel.mjs");
+  // A conversation that can stop its turn waits the grace for the roster to name it — nothing running yet is `null`.
+  assert.deepEqual(handoverAfterSend(null, 5000), { settledAt: 5000 });
+  assert.deepEqual(handoverAfterSend({ label: "Stop" }, 5000), { settledAt: 5000 });
+  // A channel wires no stop at all: the slot is Send again at once.
+  assert.equal(handoverAfterSend(undefined, 5000), null);
+});

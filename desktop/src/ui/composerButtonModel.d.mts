@@ -9,3 +9,5 @@ export declare function composerButton(state: { busy: boolean; stop: { label?: s
   enabled: boolean;
 };
 export declare function explainOff<B extends { kind: "send" | "sending" | "stop"; label: string; hint: string; enabled: boolean }>(button: B, why: "empty" | "uploading" | "over-budget"): B;
+/** What the slot holds once a send landed: the grace to name a session to stop, or nothing where no Stop is ever drawn. */
+export declare function handoverAfterSend(stop: { label?: string } | null | undefined, now: number): { settledAt: number } | null;

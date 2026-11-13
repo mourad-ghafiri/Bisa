@@ -90,7 +90,13 @@ as one read, the newest answer the one that stands — and a host that could not
 in the chrome until a read of it answers again. A hosted channel is the same conversation surface, read and written through the
 host: text, mentions of the people there, and replies. No files, no artifacts, no agents of your
 own — a message that names one of the host's agents by mention wakes it there, on the host, if
-your role may. Reactions and retractions work; a retraction is of your own only.
+your role may. Reactions and retractions work; a retraction is of your own only, and a reaction
+pressed again is the one that stands. What the host says lands in the open thread as it arrives,
+and is read when you have seen it; the composer there offers no file door. A hosted room keeps
+its own draft, its own reading place and its own addressees in your window — a host's `general`
+and your own are two rooms. Your copy of a hosted room keeps the host's rules: a read mark never
+moves back, unread counts the messages the thread shows, and a message past 256 KiB is refused
+before it is sent.
 
 **Your name and your face travel with you.** Both are set once, on your own node, in Settings ›
 You › Identity; every workspace you are a member of hears them the moment you save — right after you

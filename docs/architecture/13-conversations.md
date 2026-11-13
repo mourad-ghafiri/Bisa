@@ -401,6 +401,24 @@ store row alike — an abort ends it, and deleting or archiving a conversation s
 (`default_wall_clock_secs`, measured from the turn's start; the idle TTL owns the gaps between
 turns): past it the session is aborted and its row reads *failed: wall clock exceeded*, one note
 on the conversation — a harness that never answers cannot hold a conversation's turn for ever.
+
+**The idle clock runs between turns, never under one.** A session knows whether a turn is owed or
+running — from its launch, and from each follow-up handed over, until the harness ends the turn —
+and the idle TTL counts only from there: a reply that takes longer than the TTL is a reply. A turn
+that never ends is the wall clock's.
+
+**A message sent while the agent is answering waits behind that turn.** The live session is handed
+it as a follow-up; a harness that queues it answers when the turn in flight is over, and the pump
+opens the next turn's books at that boundary — what the running turn said so far is its own, and
+the next reply is posted as its own. A harness that takes no follow-up is busy until its turn is
+over: the message waits in the one queued slot and is answered by a session of its own, never by a
+second session beside the first. A session that cannot take a message is let go of before another
+is launched in its place.
+
+**A reply to a run's message is that run's consequence.** When what woke a turn was a `notify`
+step's announcement or a worker's post through its tool, the reply is posted with that run's
+causal chain (I34, [02 — Domain model](02-domain-model.md)): a workflow that starts on what agents say does not
+start again on the answer to its own step.
 The roster row says the turn's origin: its scope — the string `agent_thinking` spells — and the
 person on another node whose message woke it. A turn that is **stopped** — its row's *Terminate*,
 its goal's stop, close or deletion — is aborted where it stands, then let go of: the harness's

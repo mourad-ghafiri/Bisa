@@ -269,3 +269,45 @@ export function reloadsWorkspace(type) {
   return typeof type === "string" && RELOADS_WORKSPACE.includes(type);
 }
 
+
+/**
+ * What the bus said of each scope while a load was out: the newest message
+ * frame a scope, kept so the load's answer — read before they landed — is
+ * not put over them. A badge that dropped back to what the load had read,
+ * and a row's last words with it, stayed wrong until the room moved again.
+ *
+ * `begin()` when a load starts, `heard(frame)` for every message frame,
+ * `over(...)` when the answer is applied.
+ * @returns {{begin: () => void, heard: (frame: {scope?: string, snapshot?: boolean} | null | undefined) => void, since: () => object[]}}
+ */
+export function framesSinceLoad() {
+  /** @type {Map<string, object>} */
+  let since = new Map();
+  return {
+    begin() {
+      since = new Map();
+    },
+    heard(frame) {
+      if (!frame?.scope || frame.snapshot) return;
+      since.set(frame.scope, frame);
+    },
+    since() {
+      return [...since.values()];
+    },
+  };
+}
+
+/**
+ * The unread counts a load answered, with what the bus said since it was
+ * asked put over them: a frame's count is newer than the load's.
+ * @param {Record<string, number>} loaded
+ * @param {readonly {scope?: string, unread_count?: number}[]} frames
+ * @returns {Record<string, number>}
+ */
+export function unreadOver(loaded, frames) {
+  const next = { ...loaded };
+  for (const frame of frames ?? []) {
+    if (frame?.scope && typeof frame.unread_count === "number") next[frame.scope] = frame.unread_count;
+  }
+  return next;
+}

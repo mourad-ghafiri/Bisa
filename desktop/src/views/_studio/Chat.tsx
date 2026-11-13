@@ -115,7 +115,7 @@ import {
   copyText,
   harnessMark,
 } from "../../ui";
-import { messageVerbs, verbWords } from "./messageVerbsModel.mjs";
+import { messageVerbs, quotedWords, verbWords } from "./messageVerbsModel.mjs";
 import { TIMELINE_END } from "./turnChangesModel.mjs";
 import { ChangedFilesBar } from "./ChangedFilesBar";
 import type { ChangedFilesBarProps } from "./ChangedFilesBar";
@@ -136,12 +136,12 @@ import type {
 import { planSummary } from "../../types";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { useArtifactLibraries } from "../../shell/artifactSettings";
-import { hostedUnread } from "../../shell/hostedModel.mjs";
+import { hostedUnread, scopeKey } from "../../shell/hostedModel.mjs";
 import { useVisible } from "../../shell/visibility";
 import { atBottomOf, firstUnreadId as firstUnreadOf, shownToReader } from "./readModel.mjs";
 import { useReadAsShown } from "./useReadAsShown";
 import { chatKey } from "./chatScopeModel.mjs";
-import { placeFrom, restoreStep } from "./threadPlaceModel.mjs";
+import { linkedPlace, messageLink, placeFrom, prepended, restoreStep } from "./threadPlaceModel.mjs";
 import type { ThreadPlace, ThreadRow } from "./threadPlaceModel.mjs";
 import { useThreadPlace } from "./useThreadPlace";
 import { RESTORE_GRACE_MS } from "../../ui/keptScrollModel.mjs";
@@ -161,7 +161,7 @@ import {
 } from "./attachmentModel.mjs";
 import { QUICK_EMOJI, groupReactions, type ScopeKind } from "./scope";
 import { useScopeMessages } from "./useScopeMessages";
-import { thinkingOpen } from "./liveTurnModel.mjs";
+import { liveRouteOf, thinkingOpen } from "./liveTurnModel.mjs";
 import { contentOf, isCompact, threads } from "./timelineModel.mjs";
 import { primeLiveTurns, retireLandedTurns, useLiveTurn, useLiveTurnAgents } from "./liveTurnsStore";
 import { setThinkingMode, useThinkingMode } from "./thinkingStore";
@@ -599,7 +599,7 @@ function Row({
                 <ICON.react size={13} aria-hidden />
               </span>
             }
-            label={tr("studio-chat-react-message")}
+            label={tr("studio-chat-react-to", { name })}
           >
             <div className="flex items-center gap-0.5">
               {QUICK_EMOJI.map((e) => (
@@ -626,7 +626,7 @@ function Row({
           <Tooltip label={tr("studio-chat-reply")}>
             <button
               type="button"
-              aria-label={tr("studio-chat-reply")}
+              aria-label={tr("studio-chat-reply-to", { name })}
               onClick={onReply}
               className="anim flex h-5 w-5 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
             >
@@ -636,7 +636,7 @@ function Row({
           <Tooltip label={tr("studio-chat-copy")}>
             <button
               type="button"
-              aria-label={tr("studio-chat-copy")}
+              aria-label={tr("studio-chat-copy-of", { name })}
               onClick={onCopy}
               className="anim flex h-5 w-5 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
             >
@@ -644,7 +644,7 @@ function Row({
             </button>
           </Tooltip>
           <Menu
-            label={tr("studio-chat-more-actions")}
+            label={tr("studio-chat-more-for", { name })}
             items={items}
             trigger={
               <span className="anim flex h-5 w-5 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
@@ -659,6 +659,15 @@ function Row({
 }
 
 /** What says the person has taken over: any of these ends a restore, as the kit's `useKeptScroll` has it. */
+/** What the retraction's question says: the words it takes back, quoted, when the message has any. */
+function retractBody(message: MessageRow | undefined): string {
+  const words = quotedWords(message);
+  return words ? tr("studio-chat-retract-body-quoted", { words }) : tr("studio-chat-retract-body");
+}
+
+/** Nobody working: one array, so a room with nobody in it re-renders nothing for it. */
+const NOBODY_WORKING: string[] = [];
+
 const HANDS = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
 
 /** The message rows a viewport draws, measured from its content's top — what `placeFrom` reads. */
@@ -790,7 +799,12 @@ export function Chat({
   // A remembered addressee a conversation of this kind cannot reach — the
   // Workflow Agent on a checkout — is neither drawn nor sent.
   const unreachable = useMemo(() => ws.agents.filter((a) => !reachableIn(a, originKind ?? kind)).map((a) => a.pubkey), [ws.agents, kind, originKind]);
-  const addressed = useAddressed(scope, inAudience, unreachable);
+  // What this window keeps by the scope — the draft in its box, whom it
+  // addresses, where it was being read — is kept under the scope's own key:
+  // with its host for a hosted one (`scopeKey`), so a hosted `general` and
+  // this workspace's never share a draft or an addressee.
+  const own = scopeKey(scope, hosted?.host);
+  const addressed = useAddressed(own, inAudience, unreachable);
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
   /** The chat's root: where the person's first wheel, click or key is heard. */
   const root = useRef<HTMLDivElement>(null);
@@ -801,9 +815,12 @@ export function Chat({
   const pinnedBox = useRef<HTMLDivElement>(null);
   // Where this thread was being read, under the chat's own key — one place
   // whichever screen shows the thread. Read once, here; kept on scroll.
-  const place = useThreadPlace(chatKey(kind, scope));
+  const place = useThreadPlace(chatKey(kind, own));
   /** The place being put back; `null` once the restore has ended — reached and left alone, given up, or taken over by the person. */
-  const restoring = useRef<ThreadPlace | null>(place.kept);
+  // A link to one message opens the thread at that message, before the place it kept (`linkedPlace`) — read once, as the thread mounts.
+  const opened = useRef<ThreadPlace | null | undefined>(undefined);
+  if (opened.current === undefined) opened.current = linkedPlace(window.location.hash) ?? place.kept;
+  const restoring = useRef<ThreadPlace | null>(opened.current);
   /** How many older pages the restore has read to reach the kept message, and the page it last asked from — one ask a page. */
   const pagesRead = useRef(0);
   const askedFrom = useRef<readonly MessageRow[] | null>(null);
@@ -811,7 +828,7 @@ export function Chat({
   const grace = useRef(0);
   const keeping = useRef(0);
   /** Whether the reader stands at the thread's bottom — following the newest, and seeing it. A thread with a place kept does not start there. */
-  const [atBottom, setAtBottom] = useState(() => place.kept === null);
+  const [atBottom, setAtBottom] = useState(() => opened.current === null);
   /** Scroll height captured just before a page of older messages lands. */
   const beforePrepend = useRef<number | null>(null);
 
@@ -826,7 +843,7 @@ export function Chat({
    */
   const entryUnread = useRef<{ scope: string; count: number }>({ scope: "", count: 0 });
   if (entryUnread.current.scope !== scope) {
-    entryUnread.current = { scope, count: ws.unread[scope] ?? 0 };
+    entryUnread.current = { scope, count: hosted ? hostedUnread(ws.hosted, hosted.host, scope) : (ws.unread[scope] ?? 0) };
   }
   // The thread reads itself as it is shown: the newest message on screen — the
   // window visible, the reader at the bottom, the first page landed — for a
@@ -841,22 +858,27 @@ export function Chat({
   });
 
   const grouped = useMemo(() => threads(conv.messages), [conv.messages]);
-  const workingHere = ws.working[scope] ?? [];
+  // Who is working, and the turns in flight, are this workspace's agents in
+  // this workspace's scopes: a hosted room of the same id shows none of them.
+  const workingHere = hosted ? NOBODY_WORKING : (ws.working[scope] ?? NOBODY_WORKING);
   // The agents with a turn in flight here — words, thinking or a tool to
   // show. An agent working with nothing said yet is the footer's line, not
   // a row. A stable array: a frame moves one row, never this list.
-  const liveAgents = useLiveTurnAgents(scope);
+  const liveAgents = useLiveTurnAgents(own);
   const liveSet = useMemo(() => new Set(liveAgents), [liveAgents]);
   const workingNames = workingHere
     .filter((id) => !liveSet.has(id))
     .map((id) => ws.agents.find((a) => a.id === id)?.name ?? id)
     .filter(Boolean);
   // A reader that joins mid-turn is given the node's whole turn once; the
-  // frames from here on append to it. Only a conversation has the route.
+  // frames from here on append to it. A conversation, a channel and a
+  // direct channel have the route (`liveRouteOf`); a hosted scope's turns
+  // run on its host.
   useEffect(() => {
-    if (kind !== "conversation" || hosted) return;
+    const route = hosted ? null : liveRouteOf(kind);
+    if (!route) return;
     const ctl = new AbortController();
-    void primeLiveTurns(scope, ctl.signal);
+    void primeLiveTurns(scope, route, ctl.signal);
     return () => ctl.abort();
   }, [scope, kind, hosted]);
   const thinkingMode = useThinkingMode();
@@ -879,12 +901,21 @@ export function Chat({
   // A page of older messages lands above the reader. Adding back exactly the
   // height it took keeps the message they were looking at under their eye —
   // without this, "Load older" throws you a screen and a half backwards.
+  //
+  // The height is given back when the page **lands above** — the first row
+  // is another than it was (`prepended`) — and for nothing else: a reply
+  // arriving at the foot while the page was on its way spent the anchor,
+  // and the page then landed with the reader thrown back after all.
+  const firstRow = conv.messages[0]?.id ?? null;
+  const firstWas = useRef<string | null>(firstRow);
   useLayoutEffect(() => {
+    const was = firstWas.current;
+    firstWas.current = firstRow;
     const el = viewport.current;
-    if (!el || beforePrepend.current === null) return;
+    if (!el || beforePrepend.current === null || !prepended(was, firstRow)) return;
     el.scrollTop += el.scrollHeight - beforePrepend.current;
     beforePrepend.current = null;
-  }, [conv.messages.length]);
+  }, [firstRow]);
 
   /** The restore is over: where it left the thread is where the reader stands. */
   const endRestore = useCallback(() => {
@@ -994,7 +1025,7 @@ export function Chat({
   };
 
   const copyLink = (id: string) => {
-    const url = `${window.location.origin}${window.location.pathname}#${window.location.hash.replace(/^#/, "").split("?")[0]}?item=${id}`;
+    const url = messageLink(window.location.origin, window.location.pathname, window.location.hash, id);
     void copyText(url).then((ok) => (ok ? toast.ok(tr("studio-chat-link-copied")) : toast.error(tr("studio-chat-clipboard-refused"))));
   };
   /** The message's text as its author wrote it — the Markdown source, nothing around it. */
@@ -1152,13 +1183,13 @@ export function Chat({
             is written, in the place its message will take. */}
         {liveAgents.map((id) => {
           const def = hosted ? undefined : ws.agents.find((a) => a.id === id);
-          return <LiveTurnRow key={`live:${id}`} scope={scope} agentId={id} agent={def} name={def?.name ?? id} />;
+          return <LiveTurnRow key={`live:${id}`} scope={own} agentId={id} agent={def} name={def?.name ?? id} />;
         })}
         {/* Mounted whether or not a turn is out, so its first words are heard. */}
         <span role="status" className="sr-only">
           {liveAgents.map((id) => {
             const def = hosted ? undefined : ws.agents.find((a) => a.id === id);
-            return <LiveTurnWords key={`words:${id}`} scope={scope} agentId={id} name={def?.name ?? id} />;
+            return <LiveTurnWords key={`words:${id}`} scope={own} agentId={id} name={def?.name ?? id} />;
           })}
         </span>
         </div>
@@ -1235,13 +1266,16 @@ export function Chat({
             somebody, or somebody already addressed. Gating it on the offer
             alone is how a remembered addressee ended up on the wire with no
             chip anywhere on screen. */}
-        <AddressTray
-          addressed={addressed}
-          candidates={addressCandidates}
-          known={ws.agents}
-          working={workingHere}
-          lead={addressee}
-        />
+        {/* A hosted room has no tray: the agents it could address are its host's, and this workspace's are not in it. */}
+        {!hosted && (
+          <AddressTray
+            addressed={addressed}
+            candidates={addressCandidates}
+            known={ws.agents}
+            working={workingHere}
+            lead={addressee}
+          />
+        )}
 
         <ContextTray
           frame={frame ?? []}
@@ -1253,7 +1287,9 @@ export function Chat({
 
         <div onKeyDownCapture={onComposerKeyDownCapture}>
           <Composer
-            scope={scope}
+            scope={own}
+            // A hosted channel takes words alone: no file is offered a door it would be dropped behind.
+            attachable={!hosted}
             mentionables={mentionables}
             placeholder={placeholder}
             files={files}
@@ -1267,7 +1303,7 @@ export function Chat({
               try {
                 // Everyone addressed in the tray is mentioned, whether or not
                 // the text names them — that is what the tray promises.
-                const all = [...new Set([...mentions, ...addressed.pubkeys])];
+                const all = hosted ? mentions : [...new Set([...mentions, ...addressed.pubkeys])];
                 await conv.post(text, all, attachments, replyTo?.id, [...attached], artifacts);
                 onClearContext?.();
                 setReplyTo(null);
@@ -1302,7 +1338,7 @@ export function Chat({
             if (id) guard(conv.retract(id), tr("studio-chat-could-not-retract"));
           }}
           title={tr("studio-chat-retract-title")}
-          body={tr("studio-chat-retract-body")}
+          body={retractBody(conv.messages.find((m) => m.id === retractConfirm))}
           confirmLabel={tr("studio-message-verbs-retract")}
           danger
         />

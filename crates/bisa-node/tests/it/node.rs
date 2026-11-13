@@ -12907,3 +12907,389 @@ async fn a_blank_prompt_is_refused_on_create_and_on_an_edit_that_blanks_it() {
     assert_eq!(kept["agent"]["name"], json!("Scout"), "one write or none");
     node.shutdown().await;
 }
+
+// --- channels and direct messages on the wire (the channels hardening) ---
+
+/// Two edits of one channel at once, of different fields, both stand: the
+/// edit is made on the record as it stands. Read, merged and written back
+/// whole in the handler, the later one undid the earlier — a topic edit took
+/// an agent off the roster.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_channel_patches_of_different_fields_both_stand() {
+    let node = Node::start().await;
+    let scout = scout_on(&node).await;
+    let room = node.post("/channels", json!({"name": "Design"})).await["channel"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let path = format!("/channels/{room}");
+    for round in 0..6 {
+        let on = round % 2 == 1;
+        let roster: Vec<String> = if on { vec![scout.clone()] } else { vec![] };
+        let topic = format!("round {round}");
+        let mut patches = vec![
+            json!({"agents": roster}),
+            json!({"topic": topic}),
+            json!({"tags": [format!("r{round}")]}),
+        ];
+        for n in 0..8 {
+            patches.push(json!({"humans": []}));
+            patches.push(json!({"teams": []}));
+            let _ = n;
+        }
+        let sent = patches
+            .iter()
+            .map(|body| node.req("PATCH", &path, Some(body.clone())));
+        for (code, answer) in futures::future::join_all(sent).await {
+            assert_eq!(code, 200, "{answer}");
+        }
+        let stored = node.get(&path).await["channel"].clone();
+        assert_eq!(stored["topic"], json!(topic), "round {round}: {stored}");
+        assert_eq!(
+            stored["roster"]["agents"],
+            json!(roster),
+            "round {round}: {stored}"
+        );
+        assert_eq!(
+            stored["tags"],
+            json!([format!("r{round}")]),
+            "round {round}: {stored}"
+        );
+    }
+    node.shutdown().await;
+}
+
+/// A topic of nothing clears it, and a field not named keeps what is
+/// stored. `null` and an absent field read the same to the node, so an
+/// editor that sent `null` to clear a topic was told *updated* and the topic
+/// stayed.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_topic_clears_it_and_an_absent_one_keeps_it() {
+    let node = Node::start().await;
+    let room = node
+        .post(
+            "/channels",
+            json!({"name": "Design", "topic": "how it looks"}),
+        )
+        .await["channel"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let path = format!("/channels/{room}");
+    let (code, v) = node
+        .req("PATCH", &path, Some(json!({"tags": ["ux"]})))
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["channel"]["topic"], json!("how it looks"), "{v}");
+    let (code, v) = node.req("PATCH", &path, Some(json!({"topic": ""}))).await;
+    assert_eq!(code, 200, "{v}");
+    assert!(v["channel"].get("topic").is_none(), "{v}");
+    assert_eq!(v["channel"]["tags"], json!(["ux"]), "{v}");
+    assert!(
+        node.get(&path).await["channel"].get("topic").is_none(),
+        "cleared on disk"
+    );
+    // `general` takes a topic and keeps its roster whatever is named.
+    let (code, v) = node
+        .req(
+            "PATCH",
+            "/channels/general",
+            Some(json!({"topic": "all hands", "agents": []})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["channel"]["roster"]["policy"], json!("everyone"), "{v}");
+    node.shutdown().await;
+}
+
+/// The channel routes are a channel's: a post into anything else is refused
+/// here — a goal's thread and a conversation have their own doors, with
+/// their own rules — and so are a react and a retract of a message that is
+/// not here, and the live read of a channel that is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_post_to_a_channel_route_needs_a_channel() {
+    let node = Node::start().await;
+    let (code, made) = node
+        .req(
+            "POST",
+            "/conversations",
+            Some(json!({"origin": {"kind": "workspace"}})),
+        )
+        .await;
+    assert_eq!(code, 201, "{made}");
+    let conversation = made["conversation"]["id"].as_str().unwrap().to_string();
+    // A conversation's id is no channel's — refused as an id — and a room
+    // that is not here is not found; neither is posted into.
+    for (scope, refusal) in [(conversation.as_str(), 400), ("no-such-room", 404)] {
+        let (code, v) = node
+            .req(
+                "POST",
+                &format!("/channels/{scope}/messages"),
+                Some(json!({"content": "hello"})),
+            )
+            .await;
+        assert_eq!(code, refusal, "{scope}: {v}");
+    }
+    let page = node
+        .get(&format!("/conversations/{conversation}/messages"))
+        .await;
+    assert_eq!(page["messages"], json!([]), "{page}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/channels/general/messages",
+            Some(json!({"content": "hello"})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let said = v["id"].as_str().unwrap().to_string();
+
+    let ghost = "0".repeat(64);
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/messages/{ghost}/react"),
+            Some(json!({"emoji": "👍"})),
+        )
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req("POST", &format!("/messages/{ghost}/retract"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+    // One bound for an emoji, the store's, in bytes.
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/messages/{said}/react"),
+            Some(json!({"emoji": "👍".repeat(17)})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/messages/{said}/react"),
+            Some(json!({"emoji": "👍"})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+
+    let (code, v) = node.req("GET", "/channels/general/live", None).await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["turns"], json!([]), "{v}");
+    let (code, v) = node.req("GET", "/channels/no-such-room/live", None).await;
+    assert_eq!(code, 404, "{v}");
+    node.shutdown().await;
+}
+
+/// A deleted channel is said on the stream — the channel's snapshot frame
+/// and `removed` — so a second window drops the room without being asked;
+/// a direct channel is deleted the same way; and a frame's `snippet` is the
+/// words of a post, never its stored JSON.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_channel_is_said_on_the_stream_and_a_snippet_is_words() {
+    let node = Node::start().await;
+    let scout = scout_on(&node).await;
+    let room = node.post("/channels", json!({"name": "Fleeting"})).await["channel"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let heard = sse_frame_with(
+        node.socket.clone(),
+        vec!["\"event_id\"".into(), format!("\"scope\":\"{room}\"")],
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    node.post(
+        &format!("/channels/{room}/messages"),
+        json!({"content": "what the room says"}),
+    )
+    .await;
+    let line = tokio::time::timeout(Duration::from_secs(10), heard)
+        .await
+        .expect("a frame for the post")
+        .unwrap()
+        .expect("the stream ended");
+    let frame: Value = serde_json::from_str(line.trim_start_matches("data:").trim()).expect(&line);
+    assert_eq!(
+        frame["payload"]["snippet"],
+        json!("what the room says"),
+        "{frame}"
+    );
+
+    let scout_key = node.get(&format!("/agents/{scout}")).await["agent"]["pubkey"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let dm = node.post("/dms", json!({"members": [scout_key]})).await["channel"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for id in [room, dm] {
+        let heard = sse_frame_with(
+            node.socket.clone(),
+            vec!["\"removed\":true".into(), format!("\"scope\":\"{id}\"")],
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (code, v) = node.req("DELETE", &format!("/channels/{id}"), None).await;
+        assert_eq!(code, 200, "{v}");
+        let line = tokio::time::timeout(Duration::from_secs(10), heard)
+            .await
+            .unwrap_or_else(|_| panic!("no removed frame for {id}"))
+            .unwrap()
+            .expect("the stream ended");
+        let frame: Value =
+            serde_json::from_str(line.trim_start_matches("data:").trim()).expect(&line);
+        assert_eq!(frame["payload"]["snapshot"], json!(true), "{frame}");
+        let (code, _) = node.req("GET", &format!("/channels/{id}"), None).await;
+        assert_eq!(code, 404);
+        let (code, _) = node
+            .req("GET", &format!("/channels/{id}/messages"), None)
+            .await;
+        assert_eq!(code, 404);
+    }
+    let (code, v) = node.req("DELETE", "/channels/general", None).await;
+    assert_eq!(code, 409, "{v}");
+    // A record nobody can read is deleted by its id; one that is not here
+    // is not found.
+    let torn = node
+        .ws
+        .paths()
+        .state_dir("channels")
+        .join(format!("{}-torn.json", bisa_core::kind::KIND_CHANNEL));
+    std::fs::write(&torn, b"{ not a record").unwrap();
+    let (code, v) = node.req("GET", "/channels/torn", None).await;
+    assert_ne!(code, 200, "{v}");
+    let (code, v) = node.req("DELETE", "/channels/torn", None).await;
+    assert_eq!(code, 200, "{v}");
+    assert!(!torn.exists());
+    let (code, v) = node.req("DELETE", "/channels/torn", None).await;
+    assert_eq!(code, 404, "{v}");
+    node.shutdown().await;
+}
+
+/// A page's `limit` is held between one and two hundred, whatever is asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_limit_is_held_between_one_and_two_hundred() {
+    let node = Node::start().await;
+    for n in 0..3 {
+        node.post(
+            "/channels/general/messages",
+            json!({"content": format!("m{n}")}),
+        )
+        .await;
+    }
+    let count = |v: &Value| v["messages"].as_array().unwrap().len();
+    assert_eq!(
+        count(&node.get("/channels/general/messages?limit=0").await),
+        1,
+        "a page of nothing is a page of one"
+    );
+    assert_eq!(
+        count(&node.get("/channels/general/messages?limit=2").await),
+        2
+    );
+    assert_eq!(
+        count(&node.get("/channels/general/messages?limit=100000").await),
+        3
+    );
+    node.shutdown().await;
+}
+
+/// What a person on another node says reaches the owner's event stream as
+/// any post does — the window shows it, counts it and previews it as it
+/// arrives — and a channel written from another node is said as a channel
+/// written. Neither was said before: the owner saw a guest's message at the
+/// next reload.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guests_message_and_an_admins_channel_reach_the_owners_event_stream() {
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+    let node = Node::start().await;
+    let admin_dir = tempfile::tempdir().unwrap();
+    let admin = Workspace::open_with_keystore(
+        admin_dir.path(),
+        Box::new(bisa_store::MemoryKeyStore::default()),
+    )
+    .unwrap();
+    node.ws
+        .add_member(
+            admin.owner_principal(),
+            bisa_core::MemberRole::Admin,
+            bisa_store::Admission::default(),
+        )
+        .unwrap();
+
+    let said = EventBuilder::new(
+        Kind::from(bisa_core::kind::KIND_MESSAGE),
+        serde_json::to_string(&bisa_core::MessageBody::post("hello from another node")).unwrap(),
+    )
+    .tag(
+        Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:general",
+                bisa_core::kind::KIND_CHANNEL,
+                node.ws.owner_keys().public_key().to_hex()
+            ),
+        ])
+        .unwrap(),
+    )
+    .finalize(admin.owner_keys())
+    .unwrap();
+    let heard = sse_frame_with(
+        node.socket.clone(),
+        vec![format!("\"event_id\":\"{}\"", said.id.to_hex())],
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    node.ws.ingest_remote_event(&said).unwrap();
+    let line = tokio::time::timeout(Duration::from_secs(10), heard)
+        .await
+        .expect("a frame for the guest's message")
+        .unwrap()
+        .expect("the stream ended");
+    let frame: Value = serde_json::from_str(line.trim_start_matches("data:").trim()).expect(&line);
+    assert_eq!(frame["stream"], json!("conversation"), "{frame}");
+    assert_eq!(
+        frame["payload"]["snippet"],
+        json!("hello from another node"),
+        "{frame}"
+    );
+    assert_eq!(frame["payload"]["unread_count"], json!(1), "{frame}");
+
+    admin
+        .create_channel(
+            "blue",
+            Some("sky"),
+            bisa_core::RosterPolicy::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let record = admin
+        .paths()
+        .state_dir("channels")
+        .join(format!("{}-blue.json", bisa_core::kind::KIND_CHANNEL));
+    let written: nostr::event::Event =
+        serde_json::from_str(&std::fs::read_to_string(record).unwrap()).unwrap();
+    let heard = sse_frame_with(
+        node.socket.clone(),
+        vec!["\"snapshot\":true".into(), "\"scope\":\"blue\"".into()],
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    node.ws.ingest_remote_event(&written).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), heard)
+        .await
+        .expect("a frame for the admin's channel")
+        .unwrap()
+        .expect("the stream ended");
+    let listed = node.get("/channels").await;
+    assert!(
+        listed["channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["channel"]["id"] == json!("blue")),
+        "{listed}"
+    );
+    node.shutdown().await;
+}

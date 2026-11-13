@@ -130,7 +130,7 @@ const READER_VERBS: &[&str] = &[
     // `put_change_blob`.
     "change",
     // `validate_workflow` writes nothing: it is the pure check a route runs
-    // on a draft mid-edit; `refuse_channel_delete_if_used` is the answer a
+    // on a draft mid-edit; `refuse_channel_delete_by_id` is the answer a
     // delete would give, asked before anything is stopped or removed.
     "validate",
     "refuse",

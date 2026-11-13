@@ -80,7 +80,7 @@ test("a thread left above its bottom comes back on the message it was on — in 
 
 test("the thread's wiring: the place is the chat's own, a restore never fights the hand, and the messages are the window's", () => {
   const chat = read("views/_studio/Chat.tsx");
-  inOrder(chat, ["const place = useThreadPlace(chatKey(kind, scope));", "const restoring = useRef<ThreadPlace | null>(place.kept);", "useState(() => place.kept === null);"], "read once, before the thread decides where it starts");
+  inOrder(chat, ["const place = useThreadPlace(chatKey(kind, own));", "const restoring = useRef<ThreadPlace | null>(opened.current);", "useState(() => opened.current === null);"], "read once, before the thread decides where it starts");
   assert.ok(chat.includes("for (const hand of HANDS) el.addEventListener(hand, endRestore, true);") && chat.includes("window.setTimeout(endRestore, RESTORE_GRACE_MS)"), "the hand ends it, and the grace");
   assert.ok(chat.includes("if (restoring.current) scrollToPlace(el, restoring.current);"), "what grows above is followed while the restore is on");
   const messages = read("views/_studio/useScopeMessages.ts");

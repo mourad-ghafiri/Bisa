@@ -438,6 +438,14 @@ struct ConvSession {
     /// unanswered. A counter, not a clock: a follow-up handed over in the
     /// same second as the turn began is still a new turn.
     epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// Whether a turn is owed or running: set when the session is launched
+    /// and when a follow-up is handed over, cleared when the harness ends a
+    /// turn. The idle clock runs between turns and never under one, and a
+    /// harness that takes no follow-up is not woken again while this holds.
+    turn_open: std::sync::atomic::AtomicBool,
+    /// How many turns the harness has ended — with `epoch`, what the idle
+    /// clock reads to tell a session that moved from one nobody used.
+    turns: std::sync::atomic::AtomicU64,
     supports_follow_up: bool,
     /// Where the session runs — the guard judges a relative path against it.
     cwd: std::path::PathBuf,
@@ -456,6 +464,32 @@ struct ConvSession {
 }
 
 impl ConvSession {
+    /// A turn is owed or under way.
+    fn turn_begins(&self) {
+        self.turn_open
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The harness ended a turn: the gap the idle clock owns begins.
+    fn turn_over(&self) {
+        self.turn_open
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.turns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn in_a_turn(&self) -> bool {
+        self.turn_open.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// What the idle clock compares between two looks: the follow-ups
+    /// handed over and the turns ended.
+    fn moved(&self) -> (u64, u64) {
+        (
+            self.epoch.load(std::sync::atomic::Ordering::SeqCst),
+            self.turns.load(std::sync::atomic::Ordering::SeqCst),
+        )
+    }
+
     /// The conversation and its mode as it stands now — a person changes it
     /// between turns, and the next call is judged by the new one.
     fn reach(&self, inner: &Inner) -> Option<crate::inputs::ConversationReach> {
@@ -505,6 +539,12 @@ pub struct ConversationState {
     sessions: DashMap<(String, String), Arc<ConvSession>>,
     /// The turn in flight per (scope, agent): its words and thinking so far.
     live: DashMap<(String, String), LiveTurn>,
+    /// The run whose message woke the latest turn of a (scope, agent) — a
+    /// `notify` step's announcement, a worker's post through its tool. The
+    /// reply is that run's consequence and is posted as one, so a listener
+    /// that led to the run never hears the answer to its own work as a new
+    /// occurrence. Absent when a person's word woke the turn.
+    caused: DashMap<(String, String), bisa_core::RunId>,
 }
 
 /// The agents whose wake in a scope is held — queued behind a turn already
@@ -880,7 +920,11 @@ fn dispatch_to(
         let pk = agent.pubkey.as_hex().to_string();
         // Addressed by being in the conversation (a DM), by name, or — the
         // default agent alone — by nobody having been named at all.
-        if !(audience.contains(&pk) || mentioned.contains(&pk) || (triage && is_default)) {
+        // An agent's own post wakes whom it names and nobody for being in
+        // the room: in a direct channel of several agents, each reply of
+        // one woke the others again, though it named none of them.
+        let in_the_room = !author_is_agent && audience.contains(&pk);
+        if !(in_the_room || mentioned.contains(&pk) || (triage && is_default)) {
             continue;
         }
         // An announcement carries the owner's authority: the respond policy
@@ -940,6 +984,11 @@ fn dispatch_to(
             continue;
         }
 
+        let key = (scope.to_string(), agent.id.to_string());
+        match crate::listen::run_of_message(inner, &event.id.to_hex()) {
+            Some(run) => inner.conversation.caused.insert(key, run),
+            None => inner.conversation.caused.remove(&key).map(|(_, run)| run),
+        };
         schedule(
             inner,
             scope.to_string(),
@@ -1027,7 +1076,8 @@ pub fn may_respond(inner: &Arc<Inner>, agent: &Agent, author_hex: &str) -> bool 
 }
 
 /// One wake in flight per `(scope, agent)`; a message arriving during a wake
-/// queues exactly one follow-up, so a burst produces one reply, then one more.
+/// — or during the turn of a harness that takes no follow-up — queues
+/// exactly one follow-up, so a burst produces one reply, then one more.
 fn schedule(
     inner: &Arc<Inner>,
     scope: String,
@@ -1044,6 +1094,21 @@ fn schedule(
         }
     }
     if inner.conversation.waking.insert(key.clone(), ()).is_some() {
+        inner.conversation.pending.insert(key, on_behalf_of);
+        return;
+    }
+    // A harness that takes no follow-up is busy until its turn is over: the
+    // message waits its turn in the same one slot, and the pump wakes it
+    // when the turn ends. Launched beside the running turn instead, the
+    // second session answered over the first — and the first, dropped from
+    // the desk, could no longer be stopped.
+    let busy = inner
+        .conversation
+        .sessions
+        .get(&key)
+        .is_some_and(|conv| !conv.supports_follow_up && conv.in_a_turn());
+    if busy {
+        inner.conversation.waking.remove(&key);
         inner.conversation.pending.insert(key, on_behalf_of);
         return;
     }
@@ -1488,6 +1553,11 @@ async fn wake_attempt(
                     }
                     None => text,
                 };
+                // Counted and owed before it is handed over: a harness that
+                // answers at once ends the turn before this call returns,
+                // and the pump must already know a turn began.
+                conv.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                conv.turn_begins();
                 if session
                     .follow_up(bisa_harness::Steer {
                         text,
@@ -1496,14 +1566,16 @@ async fn wake_attempt(
                     .await
                     .is_ok()
                 {
-                    conv.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     emit_thinking(inner, scope, agent_id);
                     return;
                 }
             } // LCOV_EXCL_LINE: the session taken by the idle clock under the follow-up; a window
         }
-        // Stale handle — drop it and launch fresh below.
-        inner.conversation.sessions.remove(&key);
+        // A session that cannot take this message — its harness takes no
+        // follow-up, or it has ended — is let go of before another is
+        // launched in its place: left running, it was a second session of
+        // one agent in one scope that no stop could reach.
+        retire_session(inner, &key, &conv).await;
     }
 
     // A conversation about a workstream or a project runs **in the
@@ -1917,6 +1989,8 @@ async fn wake_attempt(
         goal: facts.goal,
         session: Arc::new(Mutex::new(Some(session))),
         epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        turn_open: std::sync::atomic::AtomicBool::new(true),
+        turns: std::sync::atomic::AtomicU64::new(0),
         supports_follow_up,
         cwd,
         woken_by: std::sync::Mutex::new(on_behalf_of),
@@ -2130,12 +2204,41 @@ fn spawn_reply_pump(
                 }
             };
             inner.presence.apply(&inner, conv.agent_id, &event);
+            let was_open = turn_open;
             turn_open = match &event {
                 SessionEvent::Progress(ProgressEvent::TurnEnded) => false,
                 SessionEvent::Lifecycle(LifecycleEvent::Ended { .. }) => false,
                 SessionEvent::Progress(_) => true,
                 _ => turn_open,
             };
+            // A follow-up the harness answers without announcing a turn
+            // starts one at its first sign of work **after the turn before
+            // it is over**. Handed over while that turn still ran, it waits
+            // behind it: the turn in flight keeps its own words and its own
+            // boundary. Read at any word instead, the hand-over wiped what
+            // the running turn had said and counted its reply as the next
+            // turn's, so that one was never posted.
+            let works = matches!(
+                &event,
+                SessionEvent::Progress(p)
+                    if !matches!(p, ProgressEvent::TurnStarted | ProgressEvent::TurnEnded)
+            );
+            if works && !was_open {
+                let epoch = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
+                if epoch != seen_epoch {
+                    seen_epoch = epoch;
+                    said.clear();
+                    streamer.reset();
+                    inner.conversation.live.remove(&key);
+                    turn_started = now_secs();
+                    spoken_before = agent_posts(&inner, &scope, &agent_id);
+                    turn_landed = false;
+                    turn_settled = false;
+                }
+            }
+            if turn_open {
+                conv.turn_begins();
+            }
             // The harness child announced: its pid goes on the record, so a
             // boot after a crash can end it as it ends a worker's.
             if let SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid }) = &event {
@@ -2200,17 +2303,6 @@ fn spawn_reply_pump(
                 SessionEvent::Progress(ProgressEvent::TextDelta { text })
                 | SessionEvent::Progress(ProgressEvent::ThinkingDelta { text }) => {
                     progressed = true;
-                    // A follow-up delivered while the harness stayed silent
-                    // about turn boundaries starts a new turn here.
-                    let epoch = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
-                    if epoch != seen_epoch {
-                        seen_epoch = epoch;
-                        said.clear();
-                        streamer.reset();
-                        inner.conversation.live.remove(&key);
-                        turn_started = now_secs();
-                        spoken_before = agent_posts(&inner, &scope, &agent_id);
-                    }
                     let thinking = matches!(
                         &event,
                         SessionEvent::Progress(ProgressEvent::ThinkingDelta { .. })
@@ -2283,6 +2375,8 @@ fn spawn_reply_pump(
                         settle_empty_turn(&inner, &scope, &agent_id);
                         turn_settled = true;
                     }
+                    conv.turn_over();
+                    wake_queued(&inner, &key);
                 }
                 SessionEvent::Lifecycle(LifecycleEvent::Ended {
                     outcome,
@@ -2345,9 +2439,11 @@ fn spawn_reply_pump(
                         settle_empty_turn(&inner, &scope, &agent_id);
                         turn_settled = true;
                     }
+                    conv.turn_over();
                     if *is_terminal {
                         break;
                     }
+                    wake_queued(&inner, &key);
                 }
                 // A boundary — a tool, a sub-agent, a cost — lets what has
                 // gathered go out rather than wait for the next word.
@@ -2363,6 +2459,9 @@ fn spawn_reply_pump(
         }
         inner.conversation.live.remove(&key);
         forget_session(&inner, &key, &conv);
+        // The message that waited behind this session's turn is answered
+        // now, by a session of its own.
+        wake_queued(&inner, &key);
         // Nobody is left to hear an answer: the session's asks are a no —
         // a checkout's tool asks and any conversation's questions alike.
         if let Some(conversation) = conv.conversation {
@@ -2672,15 +2771,24 @@ async fn finish_turn(
             Some(thinking) => MessageBody::post_with_thinking(part, thinking),
             None => MessageBody::post(part),
         };
-        match inner.ws.post_message(
-            scope,
-            body,
-            None,
-            &[],
-            &[],
-            Some(&agent_key),
-            PostOrigin::Asked,
-        ) {
+        // The reply to a run's message is that run's consequence.
+        let cause = inner
+            .conversation
+            .caused
+            .get(&(scope.to_string(), agent_id.to_string()))
+            .map(|run| *run);
+        let posted = crate::listen::post_for_run(inner, cause, || {
+            inner.ws.post_message(
+                scope,
+                body,
+                None,
+                &[],
+                &[],
+                Some(&agent_key),
+                PostOrigin::Asked,
+            )
+        });
+        match posted {
             Ok(id) => landed = Some(id),
             Err(e) => {
                 tracing::warn!(agent = %agent_id, "posting chat reply failed: {e}");
@@ -2736,6 +2844,29 @@ pub(crate) async fn dispose_live_sessions(inner: &Arc<Inner>, scope: &str) {
         drop(guard);
         park(inner, &conv);
     }
+}
+
+/// End everything an agent is doing in a scope that is going away — what a
+/// channel's deletion does first. The message queued behind a turn is
+/// dropped; every turn of the scope on the roster is stopped by its row,
+/// the one still launching among them (its stop is honoured when its
+/// session stands); and a session the roster did not name is disposed.
+/// Ended, never parked: nothing revives a session of a room that is gone.
+pub(crate) async fn end_scope_sessions(inner: &Arc<Inner>, scope: &str) {
+    inner
+        .conversation
+        .pending
+        .retain(|(pending_scope, _), _| pending_scope != scope);
+    for row in inner.presence.snapshot() {
+        let in_scope = matches!(
+            &row.origin,
+            bisa_core::SessionOrigin::Turn { scope: of, .. } if of == scope
+        );
+        if in_scope && row.state.is_live() {
+            crate::sessions::stop_row(inner, &row, crate::sessions::EndCause::Close);
+        }
+    }
+    dispose_live_sessions(inner, scope).await;
 }
 
 /// End every live session one agent holds, in whatever scope — what its
@@ -2852,6 +2983,11 @@ fn park(inner: &Arc<Inner>, conv: &ConvSession) {
     }
 }
 
+/// How far back a turn looks for its agent's own posts: the transcript a
+/// session is handed, so a busy room does not scroll a tool's post out of
+/// sight and have the reply said twice.
+const POSTS_WINDOW: usize = 50;
+
 /// The ids of this agent's standing posts among the newest messages of the
 /// scope — the snapshot a turn starts from.
 fn agent_posts(inner: &Arc<Inner>, scope: &str, agent_id: &str) -> HashSet<String> {
@@ -2866,7 +3002,7 @@ fn agent_posts(inner: &Arc<Inner>, scope: &str, agent_id: &str) -> HashSet<Strin
     let pk = def.pubkey.as_hex().to_string();
     inner
         .ws
-        .messages(scope, None, 10)
+        .messages(scope, None, POSTS_WINDOW)
         .unwrap_or_default()
         .into_iter()
         .filter(|m| m.author == pk && !m.retracted)
@@ -2887,16 +3023,59 @@ fn spoke_already(
         .any(|id| !spoken_before.contains(id))
 }
 
+/// Wake the agent for the message that waited behind its turn, if one did.
+/// The Workflow Agent's wake in a goal the guided cycle holds stays queued:
+/// the cycle drains it when it ends ([`drain_deferred`]).
+fn wake_queued(inner: &Arc<Inner>, key: &(String, String)) {
+    if key.1 == AgentId::WORKFLOW && guided_holds_this_scope(inner, &key.0) {
+        return; // LCOV_EXCL_LINE: the Workflow Agent's chat turn ending as the guided cycle takes its goal; a window
+    }
+    if inner.conversation.waking.contains_key(key) {
+        return; // the wake in flight drains the slot itself
+    }
+    if let Some((_, for_whom)) = inner.conversation.pending.remove(key) {
+        schedule(inner, key.0.clone(), key.1.clone(), for_whom);
+    }
+}
+
+/// Let go of a session another is about to replace: off the desk, disposed,
+/// its row ended. Its pump finds the session taken and leaves the row as
+/// this left it.
+async fn retire_session(inner: &Arc<Inner>, key: &(String, String), conv: &Arc<ConvSession>) {
+    forget_session(inner, key, conv);
+    let Some(session) = conv.session.lock().await.take() else {
+        return; // LCOV_EXCL_LINE: taken by a stop or the idle clock under the replacement, which said what became of it; a window
+    };
+    warn_on_err(session.dispose().await, "disposing a chat session replaced");
+    settle_turn_row(
+        inner,
+        conv.agent_id,
+        &conv.session_id,
+        &crate::events::ExecutionOutcome::Completed,
+    );
+}
+
+/// The idle clock: a session nobody used for `idle_ttl` **between turns** is
+/// disposed and parked. A turn owed or running holds it off — a reply that
+/// takes longer than the clock is a reply, not an idle session — up to the
+/// workers' wall clock, past which a turn that never ended is nobody's.
 fn arm_idle_ttl(inner: &Arc<Inner>, key: (String, String), conv: Arc<ConvSession>) {
     let inner = Arc::clone(inner);
     let ttl = inner.config.idle_ttl;
+    let wall = Duration::from_secs(inner.config.default_wall_clock_secs);
     tokio::spawn(async move {
-        let mut seen = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
+        let mut seen = conv.moved();
+        let mut held = Duration::ZERO;
         loop {
             tokio::time::sleep(ttl).await;
-            let now = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
+            let now = conv.moved();
             if now != seen {
-                seen = now; // touched by a follow-up — wait another interval
+                seen = now; // a follow-up or a turn's end — wait another interval
+                held = Duration::ZERO;
+                continue;
+            }
+            if conv.in_a_turn() && held < wall {
+                held += ttl;
                 continue;
             }
             // Already let go of — stopped by a person, parked with its

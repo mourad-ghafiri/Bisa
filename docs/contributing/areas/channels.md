@@ -13,7 +13,9 @@ turns and the streamed reply in the engine, and routes in the node.
 - `crates/bisa-store/src/channels.rs`, `crates/bisa-store/src/conversation.rs`, `crates/bisa-store/src/conversations.rs` — the logs, mentions, read marks, the conversation records.
 - `crates/bisa-engine/src/conversation.rs`, `crates/bisa-engine/src/conversations.rs`, `crates/bisa-engine/src/messaging.rs`, `crates/bisa-engine/src/framing.rs` — triage and wakes, a turn and its streamed reply, posting, what a session is told.
 - `crates/bisa-node/src/conversation.rs`, `crates/bisa-node/src/conversations.rs`, `crates/bisa-node/src/attachments.rs`, `crates/bisa-node/src/inbox.rs` — channels, direct channels and messages; conversations; attachments and artifacts; the Inbox.
-- `desktop/src/views/_studio/` — the conversation surface, the timeline, the Inbox; `desktop/src/ui/artifact/` — the artifact viewers.
+- `crates/bisa-store/src/ingest.rs` (`remote_channel_admissible`), `crates/bisa-net/src/host.rs`, `crates/bisa-guest/src/{store,session}.rs` — a channel written on another node, what each person is told they reach, a guest's copy.
+- `crates/bisa-cli/src/studio.rs` — `channels`, `msg`, `msgs`, `dm`, `read`; `crates/bisa-engine/src/intake.rs` and `crates/bisa-mcp/src/server.rs` — an agent's `post_message`.
+- `desktop/src/views/Channels.tsx`, `desktop/src/views/Messages.tsx`, `desktop/src/views/Hosted.tsx`; `desktop/src/views/_studio/` — the conversation surface, the timeline, the Inbox, `channelDraftModel.mjs`, `channelListModel.mjs`, `addressModel.mjs`; `desktop/src/ui/Composer.tsx` with `composerDraftModel.mjs`; `desktop/src/ui/artifact/` — the artifact viewers.
 
 ## Read first
 
@@ -28,7 +30,11 @@ turns and the streamed reply in the engine, and routes in the node.
 - `general` cannot be deleted: `delete` takes a `DeletableChannel`, which cannot be made for it (I16).
 - Implicit membership is never stored: a roster that means everyone stores no list (I18).
 - A disabled agent cannot be addressed and an unknown mention is refused (I20, I21); a message that names nobody wakes the General Agent alone, a chain is two hops by construction, and an announcement wakes only whom it names (I22, [05 § Triage](../../architecture/05-channels.md#triage-a-message-that-names-nobody)).
-- A direct channel is one stored object with a restricted audience and needs somebody else; a surface that means "rooms you can join" asks for standing channels, and the filter lives in the store.
+- A direct channel is one stored object with a restricted audience and needs somebody else; a surface that means "rooms you can join" asks for standing channels, and the filter lives in the store. It is between its participants: a mention, a post and a reaction there are theirs alone.
+- A channel has one writer (`roster_writer`): an edit is made on the record as it stands (`update_channel_with`) and names the fields it changes — at the node, the command line and the desktop alike; nobody reads, merges and writes a record back whole.
+- A delete is whole and is asked again when it stopped: the cache first, then the record, then `DefinitionRemoved`, the log kept aside; a room made again under the name starts empty ([05 § One writer](../../architecture/05-channels.md#one-writer-and-a-delete-that-is-whole)).
+- A channel written on another node is read before it is stored (`remote_channel_admissible`); a refusal is final.
+- A turn in flight keeps its own words and its own end: a message handed over while it runs waits behind it, and the idle clock runs between turns ([13](../../architecture/13-conversations.md)).
 - A post is words or nothing and at most 256 KiB (`MAX_TEXT_BYTES`), refused in words with the way to send a file; a page's `limit` is clamped to 1–200, and a page cut inside one second loses nothing.
 - Nothing an agent session receives is absent from the chips the person sees above the composer (I43).
 - A conversation is not a channel and not a goal's thread: an origin instead of a name, no roster, nothing triaged between conversations; the platform summarises nothing.
@@ -37,7 +43,8 @@ turns and the streamed reply in the engine, and routes in the node.
 
 ## Testing a change
 
-- `scripts/test module store channels`, `scripts/test module store conversations`, `scripts/test module store artifacts`.
+- `scripts/test module store channels`, `scripts/test lib store channels`, `scripts/test lib store ingest`, `scripts/test module store conversations`, `scripts/test module store artifacts`.
+- `scripts/test module engine conversation_edges` (the turn, the idle clock, a delete under a turn), `scripts/test crate guest`, `scripts/test module net host_edges`.
 - `scripts/test module engine conversation`, `scripts/test module engine conversations`, `scripts/test module engine artifacts`.
 - `scripts/test module node node` (channels, messages, direct channels), `scripts/test module node conversations`.
 - `scripts/test desktop views/_studio`, `scripts/test desktop ui/artifact`; the scenarios `desktop/src/scenarios/channelsAndMessages.test.mjs` and `desktop/src/scenarios/conversations.test.mjs`.
@@ -62,6 +69,8 @@ turns and the streamed reply in the engine, and routes in the node.
 ## Review focus
 
 - Can a message wake more than it names, or start a loop between agents ([code review](../review/code.md))?
+- Does a write name what it changes, under the one writer — or read a record, merge and write it back?
+- What is still open is listed, not hidden: [05 § What is open](../../architecture/05-channels.md#what-is-open).
 - Does what an agent made stay behind both walls, and does nothing beyond the chips reach a session ([security review](../review/security.md))?
 - Are pages cut by a cursor that loses nothing, live turns settled, stores bounded by what is on screen ([performance review](../review/performance.md))?
 - Do the words follow the vocabulary — a direct channel, a conversation, a goal's thread ([docs and language review](../review/docs-and-language.md))?

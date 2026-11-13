@@ -168,3 +168,12 @@ test("a turn that settles where no timeline reads is cleared, and a scope's froz
   assert.equal(dropSettled(watched, "c1").has("c1"), false, "the scope's only turn was settled: the scope goes with it");
 });
 
+
+test("a channel and a direct channel read their turns in flight by the channel's route", async () => {
+  const { liveRouteOf } = await import("./liveTurnModel.mjs");
+  assert.equal(liveRouteOf("conversation"), "conversation");
+  assert.equal(liveRouteOf("channel"), "channel");
+  assert.equal(liveRouteOf("dm"), "channel");
+  assert.equal(liveRouteOf("goal"), null, "a goal's thread has no route");
+  assert.equal(liveRouteOf(undefined), null);
+});

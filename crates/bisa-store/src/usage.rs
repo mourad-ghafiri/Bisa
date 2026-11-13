@@ -413,15 +413,7 @@ impl Workspace {
             UsageKind::Channel => {
                 let cid = bisa_core::ChannelId::new(id)?;
                 self.get_channel(&cid)?;
-                for wf in self.list_workflows()? {
-                    if workflow_uses_conversation(&wf, id) {
-                        refs.push(Reference::new(
-                            ReferenceKind::Workflow,
-                            wf.id.to_string(),
-                            &wf.name,
-                        ));
-                    }
-                }
+                self.push_channel_holders(&mut refs, id)?;
             }
             UsageKind::Workflow => {
                 let wid: WorkflowId = id
@@ -587,6 +579,20 @@ impl Workspace {
         self.push_gate_policies(refs, &format!("team:{id}"))
     }
 
+    /// What points at a channel, by its id; the record itself is not read.
+    fn push_channel_holders(&self, refs: &mut Vec<Reference>, id: &str) -> Result<(), StoreError> {
+        for wf in self.list_workflows()? {
+            if workflow_uses_conversation(&wf, id) {
+                refs.push(Reference::new(
+                    ReferenceKind::Workflow,
+                    wf.id.to_string(),
+                    &wf.name,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn push_rostering_channels(
         &self,
         refs: &mut Vec<Reference>,
@@ -616,6 +622,7 @@ impl Workspace {
         let mut refs = Vec::new();
         match kind {
             UsageKind::Team => self.push_team_holders(&mut refs, id)?,
+            UsageKind::Channel => self.push_channel_holders(&mut refs, id)?,
             _ => self.push_agent_holders(&mut refs, id, pubkey)?,
         }
         self.refuse_usage(kind, id, Usage(refs))

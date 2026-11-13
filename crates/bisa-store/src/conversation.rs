@@ -283,76 +283,114 @@ impl Workspace {
         )))
     }
 
+    /// The participants of a direct channel, when `scope` is one: a
+    /// conversation between exactly them, which a mention cannot widen.
+    fn direct_audience(&self, scope: &str) -> Option<Vec<PrincipalId>> {
+        let id = ChannelId::new(scope).ok()?;
+        match self.get_channel(&id).ok()?.audience {
+            bisa_core::Audience::Restricted(participants) => Some(participants),
+            bisa_core::Audience::Workspace => None,
+        }
+    }
+
     /// Resolve mention tokens for one scope into principals.
     ///
     /// **The one place a mention becomes a pubkey.** A token is the 64-hex
     /// key of the owner, a member or an enabled agent, an agent id, a team id (expands to its enabled agents), or
     /// the scope's own channel id — the **channel handle**, which expands to
     /// the roster. Unknown tokens are an error rather than a silent drop.
+    ///
+    /// In a direct channel a mention names somebody who is in it: anybody
+    /// else would be woken on a conversation that is not theirs, and could
+    /// not answer in it. There the handle is the participants' agents.
     pub fn resolve_mentions(
         &self,
         scope: &str,
         tokens: &[String],
     ) -> Result<Vec<PrincipalId>, StoreError> {
+        let direct = self.direct_audience(scope);
         let mut out: Vec<PrincipalId> = Vec::new();
         for token in tokens {
-            if token == scope {
-                if let Ok(id) = ChannelId::new(scope) {
-                    out.extend(self.channel_roster_pubkeys(&id)?);
-                    continue;
+            let named = self.resolve_mention(scope, token, direct.as_deref())?;
+            if let Some(participants) = &direct {
+                if named.iter().any(|key| !participants.contains(key)) {
+                    return Err(StoreError::Invalid(bisa_core::text!(
+                        "error-store-invalid-cannot-address-outside-direct-channel",
+                        token = format!("{token:?}")
+                    )));
                 }
             }
-            if let Ok(pk) = PrincipalId::new(token.clone()) {
-                self.check_key_is_addressable(&pk, token)?;
-                out.push(pk);
-                continue;
-            }
-            if let Ok(id) = AgentId::new(token) {
-                match self.get_agent(&id) {
-                    // A disabled agent is refused: addressing it posts a `p`
-                    // tag nothing answers, and makes the message *addressed*,
-                    // which stops triage from picking it up.
-                    Ok(def) if !def.enabled => {
-                        return Err(StoreError::Invalid(bisa_core::text!(
-                            "error-store-invalid-cannot-address-agent-disabled-so-would-answer",
-                            token = format!("{token:?}")
-                        )))
-                    }
-                    Ok(def) => {
-                        out.push(def.pubkey);
-                        continue;
-                    }
-                    Err(_) => {}
-                }
-            }
-            if let Ok(id) = TeamId::new(token) {
-                if let Ok(team) = self.get_team(&id) {
-                    if !team.enabled {
-                        return Err(StoreError::Invalid(bisa_core::text!(
-                            "error-store-invalid-cannot-address-team-disabled",
-                            token = format!("{token:?}")
-                        )));
-                    }
-                    for a in self.team_agents(&id)? {
-                        if let Ok(def) = self.get_agent(&a) {
-                            if def.enabled {
-                                out.push(def.pubkey);
-                            }
-                            // LCOV_EXCL_START: a team member whose record is gone; the team names ids, the records are read after
-                        }
-                        // LCOV_EXCL_STOP
-                    }
-                    continue;
-                }
-            }
-            return Err(StoreError::Invalid(bisa_core::text!(
-                "error-store-invalid-cannot-address-not-pubkey-agent-id-team",
-                token = format!("{token:?}")
-            )));
+            out.extend(named);
         }
         let mut seen = std::collections::HashSet::new();
         out.retain(|p| seen.insert(p.as_hex().to_string()));
         Ok(out)
+    }
+
+    /// Whom one token names, by the rules of [`Self::resolve_mentions`].
+    fn resolve_mention(
+        &self,
+        scope: &str,
+        token: &str,
+        direct: Option<&[PrincipalId]>,
+    ) -> Result<Vec<PrincipalId>, StoreError> {
+        if token == scope {
+            if let Some(participants) = direct {
+                return Ok(self
+                    .list_agents()?
+                    .into_iter()
+                    .filter(|a| a.enabled && participants.contains(&a.pubkey))
+                    .map(|a| a.pubkey)
+                    .collect());
+            }
+            if let Ok(id) = ChannelId::new(scope) {
+                return self.channel_roster_pubkeys(&id);
+            }
+        }
+        if let Ok(pk) = PrincipalId::new(token.to_string()) {
+            self.check_key_is_addressable(&pk, token)?;
+            return Ok(vec![pk]);
+        }
+        if let Ok(id) = AgentId::new(token) {
+            match self.get_agent(&id) {
+                // A disabled agent is refused: addressing it posts a `p`
+                // tag nothing answers, and makes the message *addressed*,
+                // which stops triage from picking it up.
+                Ok(def) if !def.enabled => {
+                    return Err(StoreError::Invalid(bisa_core::text!(
+                        "error-store-invalid-cannot-address-agent-disabled-so-would-answer",
+                        token = format!("{token:?}")
+                    )))
+                }
+                Ok(def) => return Ok(vec![def.pubkey]),
+                Err(_) => {}
+            }
+        }
+        if let Ok(id) = TeamId::new(token) {
+            if let Ok(team) = self.get_team(&id) {
+                if !team.enabled {
+                    return Err(StoreError::Invalid(bisa_core::text!(
+                        "error-store-invalid-cannot-address-team-disabled",
+                        token = format!("{token:?}")
+                    )));
+                }
+                let mut out = Vec::new();
+                for a in self.team_agents(&id)? {
+                    if let Ok(def) = self.get_agent(&a) {
+                        if def.enabled {
+                            out.push(def.pubkey);
+                        }
+                        // LCOV_EXCL_START: a team member whose record is gone; the team names ids, the records are read after
+                    }
+                    // LCOV_EXCL_STOP
+                }
+                return Ok(out);
+            }
+        }
+        Err(StoreError::Invalid(bisa_core::text!(
+            "error-store-invalid-cannot-address-not-pubkey-agent-id-team",
+            token = format!("{token:?}")
+        )))
     }
 
     // ------------------------------------------------------------------
@@ -369,10 +407,18 @@ impl Workspace {
     ) -> Result<(), StoreError> {
         // Index first: a fact the cache refuses (a reply to a parent this
         // node has not seen, a reaction to nothing) must not land in the log
-        // as if it had been accepted.
-        self.index_conversation_fact(scope, event)?;
+        // as if it had been accepted. And one transaction around both: a
+        // line the log would not take leaves no row either — nothing is
+        // shown that a rebuild would lose, and a retry is the one post.
         let path = self.paths.conversation_log(&scope.id)?;
-        crate::paths::append_line(&path, &serde_json::to_string(event)?)?;
+        let line = serde_json::to_string(event)?;
+        {
+            let idx = self.idx();
+            idx.in_transaction(|| {
+                self.index_conversation_fact_in(&idx, scope, event)?;
+                crate::paths::append_line(&path, &line)
+            })?;
+        }
         if let Some(origin) = emit {
             self.emit_store_event(StoreEvent::ConversationAppended {
                 scope: scope.id.clone(),
@@ -386,6 +432,18 @@ impl Workspace {
 
     /// Index side effects of one conversation fact (used on write, ingest, rebuild).
     fn index_conversation_fact(&self, scope: &ScopeRef, event: &Event) -> Result<(), StoreError> {
+        let idx = self.idx();
+        self.index_conversation_fact_in(&idx, scope, event)
+    }
+
+    /// [`Self::index_conversation_fact`] under the index guard the caller
+    /// holds.
+    fn index_conversation_fact_in(
+        &self,
+        idx: &crate::index::Index,
+        scope: &ScopeRef,
+        event: &Event,
+    ) -> Result<(), StoreError> {
         let author = event.pubkey.to_hex();
         let at = event.created_at.as_secs();
         match event.kind.as_u16() {
@@ -401,7 +459,6 @@ impl Workspace {
                     MessageBody::Post { context, .. } => serde_json::to_string(context)?,
                     MessageBody::Membership(_) => "[]".to_string(),
                 };
-                let idx = self.idx();
                 let first = idx.upsert_message(
                     &event.id.to_hex(),
                     scope.kind.as_str(),
@@ -438,7 +495,7 @@ impl Workspace {
                 // The feed's row, through the same one arm: a post or a
                 // membership change in a channel, a direct message or a
                 // conversation, with its excerpt.
-                self.feed_row_in(&idx, &message_activity(scope, event, &body, at, &author))?;
+                self.feed_row_in(idx, &message_activity(scope, event, &body, at, &author))?;
                 // A conversation keeps facts beside its record: the counts,
                 // the first post's first line, who took part.
                 if scope.kind == ScopeKind::Conversation {
@@ -468,7 +525,6 @@ impl Workspace {
                         "error-store-invalid-reaction-has-no-e-tag"
                     )));
                 };
-                let idx = self.idx();
                 if !idx.has_reaction(target, &author, &event.content)? {
                     idx.upsert_reaction(
                         &event.id.to_hex(),
@@ -486,7 +542,6 @@ impl Workspace {
                         "error-store-invalid-retraction-has-no-e-tag"
                     )));
                 };
-                let idx = self.idx();
                 // A retraction of a fact this node does not hold is refused,
                 // as a reaction to nothing is: a peer's retraction that
                 // overtook its message is offered again once the message is
@@ -625,7 +680,10 @@ impl Workspace {
         }
         let scope = self.resolve_scope(scope)?;
         if let Some(parent) = &reply_to {
-            let known = self.idx().fact_scope(parent)?;
+            // A message alone is a parent: a reaction has an id too, and a
+            // reply to one is refused in the same words as a reply to
+            // nothing here.
+            let known = self.idx().message_scope(parent)?;
             if known.as_deref() != Some(scope.id.as_str()) {
                 return Err(StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-cannot-reply-not-message-conversation",
@@ -641,6 +699,16 @@ impl Workspace {
             if !aud.contains(&author) {
                 return Err(StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-author-not-participant-conversation"
+                )));
+            }
+            // Whoever a post names here is in the conversation: the doors
+            // that take tokens refuse by the token
+            // ([`Self::resolve_mentions`]), and this holds it for every
+            // other caller.
+            if let Some(outsider) = mentions.iter().find(|m| !aud.contains(m)) {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-cannot-address-outside-direct-channel",
+                    token = format!("{:?}", outsider.as_hex())
                 )));
             }
         }
@@ -661,8 +729,18 @@ impl Workspace {
             },
         )?;
         self.apply_conversation_fact(&scope, &event, Some(origin))?;
-        self.mark_seen(&event)?;
+        self.seen_or_warned(&event);
         Ok(event.id.to_hex())
+    }
+
+    /// Note a fact this node just wrote as seen, so its own echo is not
+    /// taken twice. The fact is in its log and said by then: a seen-list
+    /// that would not take the line is a warning, never the post's failure —
+    /// answered as one, the caller posted again and the words stood twice.
+    fn seen_or_warned(&self, event: &Event) {
+        if let Err(e) = self.mark_seen(event) {
+            tracing::warn!(id = %event.id.to_hex(), "a fact written here was not noted as seen: {e}");
+        }
     }
 
     /// Record a membership change in its channel, as an owner-signed
@@ -820,7 +898,7 @@ impl Workspace {
             },
         )?;
         self.apply_conversation_fact(&scope, &event, Some(PostOrigin::Asked))?;
-        self.mark_seen(&event)?;
+        self.seen_or_warned(&event);
         Ok(event.id.to_hex())
     }
 
@@ -854,6 +932,15 @@ impl Workspace {
             return Ok(standing);
         }
         let scope = self.resolve_scope(&scope_id)?;
+        // A reaction is said in the conversation as a post is: in a direct
+        // channel, by one of its participants alone.
+        if let EventAudience::Restricted(aud) = &scope.audience {
+            if !aud.iter().any(|p| p.as_hex() == author) {
+                return Err(StoreError::Invalid(bisa_core::text!(
+                    "error-store-invalid-author-not-participant-conversation"
+                )));
+            }
+        }
         let event = self.build_fact(
             &scope,
             Fact {
@@ -867,7 +954,7 @@ impl Workspace {
             },
         )?;
         self.apply_conversation_fact(&scope, &event, Some(PostOrigin::Asked))?;
-        self.mark_seen(&event)?;
+        self.seen_or_warned(&event);
         Ok(event.id.to_hex())
     }
 

@@ -26,8 +26,9 @@ import { audiencePrincipals, rosterAgents } from "../../types";
 import type { AgentCandidate, Mentionable } from "../../ui";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { useInstalledHarnesses } from "../../shell/useHarnesses";
-import { addressable, canAnswer, orderByRoster, reachableIn, rosterable, suggestedIn, teamMentionables } from "./addressModel.mjs";
+import { addressable, canAnswer, directAudience, offeredIn, orderByRoster, reachableIn, rosterable, suggestedIn, teamMentionables } from "./addressModel.mjs";
 import { candidateOf } from "./participantsModel.mjs";
+import { roleLabel } from "../_settings/peopleModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 interface Participants {
@@ -86,7 +87,7 @@ export function usePeopleRosterCandidates(): AgentCandidate[] {
           id: m.pubkey,
           name: m.label ?? `${m.pubkey.slice(0, 8)}…`,
           kind: "human" as const,
-          description: m.role === "guest" ? t("studio-participants-guest-reaches-channel-only-when-listed") : t("studio-participants-reaches-every-standing-channel", { role: m.role }),
+          description: m.role === "guest" ? t("studio-participants-guest-reaches-channel-only-when-listed") : t("studio-participants-reaches-every-standing-channel", { role: roleLabel(m.role) }),
           group: t("studio-inbox-people"),
         })),
     [ws.members, ws.me],
@@ -113,7 +114,7 @@ export function useDirectMessageCandidates(): AgentCandidate[] {
         id: m.pubkey,
         name: m.label ?? `${m.pubkey.slice(0, 8)}…`,
         kind: "human" as const,
-        description: m.role,
+        description: roleLabel(m.role),
         group: t("studio-inbox-people"),
       }));
     return [...agents, ...people];
@@ -123,7 +124,8 @@ export function useDirectMessageCandidates(): AgentCandidate[] {
 /**
  * A channel with an empty audience is the whole workspace, so *any* agent can
  * be pulled into it by addressing them. A DM has an explicit audience, and
- * the agents in it are the ones already listening.
+ * the agents in it are the ones already listening — and the only ones it
+ * offers.
  *
  * `originKind` is what a conversation is about (13 § Origins) when the scope
  * is one — a workflow, a checkout, a drawing — and decides who is reachable
@@ -153,7 +155,12 @@ export function useParticipants(channel?: ChannelDef | null, kind?: string | nul
     // because addressing it posts a mention nothing will ever answer. Both
     // lists below are built from this one, so the tray and the `@`-picker can
     // no longer disagree about who is pickable.
-    const agents = addressable(ordered);
+    //
+    // In a direct channel that is its participants alone (`offeredIn`): a
+    // mention there names somebody who is in it — the node refuses any
+    // other — so nobody outside it is offered, by the tray or by `@`.
+    const direct = directAudience(channel);
+    const agents = offeredIn(addressable(ordered), direct);
 
     const mentionables: Mentionable[] = [
       // The channel handle only exists inside a standing channel: a DM has no
@@ -168,13 +175,13 @@ export function useParticipants(channel?: ChannelDef | null, kind?: string | nul
             },
           ]
         : []),
-      ...ws.members
+      ...offeredIn(ws.members, direct)
         .filter((m) => m.pubkey !== ws.me)
         .map((m) => ({
           id: m.pubkey,
           name: m.label ?? `${m.pubkey.slice(0, 8)}…`,
           kind: "human" as const,
-          description: m.role,
+          description: roleLabel(m.role),
         })),
       // A disabled agent is out of the *directory*, not merely out of the
       // dropdown: resolving its name would put a `p` tag on an agent that
@@ -195,7 +202,7 @@ export function useParticipants(channel?: ChannelDef | null, kind?: string | nul
       // (`suggestedIn`): the Workflow Agent in a conversation about a
       // workflow answers what names nobody, and a person looking for it by
       // name finds it.
-      ...ordered
+      ...offeredIn(ordered, direct)
         .filter(canAnswer)
         .filter((a) => reachableIn(a, originKind ?? kind))
         .map((a) => ({
@@ -205,7 +212,9 @@ export function useParticipants(channel?: ChannelDef | null, kind?: string | nul
       // Teams, in every kind: one handle the store expands to its enabled
       // members' pubkeys at post time — the docs' promise that team handles
       // work here as everywhere, kept by the picker too.
-      ...teamMentionables(ws.teams),
+      // — but a direct channel, whose participants a team handle would
+      // reach past.
+      ...(direct ? [] : teamMentionables(ws.teams)),
     ];
 
     const addressCandidates = agents.map((a) => candidateOf(a, a.pubkey, installed));

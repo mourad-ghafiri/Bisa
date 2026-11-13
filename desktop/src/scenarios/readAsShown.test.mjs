@@ -16,7 +16,7 @@ const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 test("the thread reads itself as it is shown, and no route marks anything read", () => {
   const chat = src("../views/_studio/Chat.tsx");
   // A thread with a place kept does not start at its bottom, so one put back above new replies stays unread.
-  for (const fact of ["useReadAsShown({", "shown: shownToReader({ visible, atBottom, loaded: !conv.loading })", "hostedUnread(ws.hosted, hosted.host, scope)", "const [atBottom, setAtBottom] = useState(() => place.kept === null);", "atBottomOf(el.scrollHeight, el.scrollTop, el.clientHeight)", "data-message={m.id}"]) {
+  for (const fact of ["useReadAsShown({", "shown: shownToReader({ visible, atBottom, loaded: !conv.loading })", "hostedUnread(ws.hosted, hosted.host, scope)", "const [atBottom, setAtBottom] = useState(() => opened.current === null);", "atBottomOf(el.scrollHeight, el.scrollTop, el.clientHeight)", "data-message={m.id}"]) {
     assert.ok(chat.includes(fact), `the chat ${fact}`);
   }
   assert.ok(!chat.includes("pinnedToBottom"), "the bottom is a fact the read reads, not a ref");
@@ -25,12 +25,12 @@ test("the thread reads itself as it is shown, and no route marks anything read",
   const app = src("../App.tsx");
   assert.ok(!app.includes("markRead") && !app.includes("scopeOf"), "the shell has no read duty");
   assert.ok(!src("../router.ts").includes("scopeOf"), "no route knows a conversation scope for reading");
-  assert.ok(src("../views/_studio/Conversation.tsx").includes("key={`${kind}:${scope}`}"), "a switch of scope starts the thread afresh");
+  assert.ok(src("../views/_studio/Conversation.tsx").includes("key={paneKey}") && src("../views/_studio/Conversation.tsx").includes("const paneKey = chatKey(kind, scopeKey(scope, hosted?.host));"), "a switch of scope — or of host — starts the thread afresh");
 });
 
 test("a thread comes back where it was being read, and reading waits for the reader to come down", () => {
   const chat = src("../views/_studio/Chat.tsx");
-  assert.ok(chat.includes("useThreadPlace(chatKey(kind, scope))"), "one place a thread, under the chat's own key, whichever screen shows it");
+  assert.ok(chat.includes("useThreadPlace(chatKey(kind, own))") && chat.includes("const own = scopeKey(scope, hosted?.host);"), "one place a thread, under the chat's own key, whichever screen shows it");
   assert.ok(chat.includes("restoreStep({ kept, loading: out, ids, hasOlder: conv.hasOlder, pagesLoaded: pagesRead.current })"), "the model says what a restore does next");
   assert.ok(chat.includes("if (restoring.current) return;") && chat.includes("if (!el.isConnected || restoring.current) return;"), "a scroll the restore made is not kept, nor one read off a detached viewport");
   assert.ok(chat.includes("pinnedBox.current?.contains(document.activeElement)"), "an ask that took the focus wins over a kept place");

@@ -1782,3 +1782,59 @@ async fn deleting_or_closing_a_goal_withdraws_its_pending_gate_and_stops_its_ses
     assert!(engine.inbox().iter().all(|g| g.id != gate), "withdrawn");
     engine.shutdown().await;
 }
+
+/// What an agent says through its tool is redacted as what it says in its
+/// reply is, and an archived conversation takes no more words through the
+/// tool than through a person's own door. Both went in as they came before.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_post_is_redacted_and_an_archived_conversation_takes_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![yielding("mock", json!({"ok": true}))]);
+    let ws = engine.workspace();
+    let sock = engine.socket_path().to_path_buf();
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+
+    let r = intake_roundtrip(
+        &sock,
+        json!({"op": "post_message", "scope": "general",
+               "content": format!("the key is {token}, keep it safe")}),
+    )
+    .await;
+    assert_eq!(r["ok"], true, "{r}");
+    let said = ws.messages("general", None, 10).unwrap();
+    let last = said.last().expect("the post");
+    assert!(!last.content.contains(&token), "{}", last.content);
+    assert!(last.content.contains("keep it safe"), "{}", last.content);
+
+    let conversation = ws
+        .create_conversation(bisa_store::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workspace,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let scope = conversation.id.to_string();
+    bisa_engine::conversations::set_archived(engine.inner(), conversation.id, true)
+        .await
+        .unwrap();
+    let r = intake_roundtrip(
+        &sock,
+        json!({"op": "post_message", "scope": scope, "content": "one more thing"}),
+    )
+    .await;
+    assert!(
+        r.to_string().contains("archived"),
+        "an archived conversation is refused by name: {r}"
+    );
+    assert!(ws.messages(&scope, None, 10).unwrap().is_empty());
+    bisa_engine::conversations::set_archived(engine.inner(), conversation.id, false)
+        .await
+        .unwrap();
+    let r = intake_roundtrip(
+        &sock,
+        json!({"op": "post_message", "scope": scope, "content": "one more thing"}),
+    )
+    .await;
+    assert_eq!(r["ok"], true, "{r}");
+    engine.shutdown().await;
+}

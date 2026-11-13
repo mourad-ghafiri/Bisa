@@ -105,3 +105,86 @@ test("an agent's long reply lands as several messages: each frame reads its own 
   assert.ok(pane.includes("useEffect(() => setGallery([]), [scope]);"), "another conversation's artifacts are never listed under this one");
 });
 
+
+// --- nothing stale, nothing lost, a delete (the channels hardening) ---
+
+test("a topic edited beside a roster changed in another window keeps the roster", async () => {
+  const { channelDraftOf, channelSaveOf, shownChannel } = await import("../views/_studio/channelDraftModel.mjs");
+  const asOpened = { id: "design", name: "Design", topic: "how it looks", kind: "standing", roster: { policy: "listed", agents: ["scout"], teams: [], humans: [] }, tags: [] };
+  // The dialog opens on the record as the list has it.
+  const seeded = channelDraftOf(asOpened);
+  // Another window puts Ranger on the roster; the list follows the frame, and so does the page.
+  const elsewhere = { ...asOpened, roster: { ...asOpened.roster, agents: ["scout", "ranger"] } };
+  assert.equal(shownChannel([{ channel: elsewhere }], "design", asOpened), elsewhere, "the page draws the list's fresh copy");
+  // The person saves a new topic from the dialog they had open: the roster is not in the body, so Ranger stays.
+  const body = channelSaveOf({ ...seeded, topic: "the look of it" }, asOpened, seeded);
+  assert.deepEqual(body, { topic: "the look of it" });
+  assert.equal("agents" in body, false);
+});
+
+test("a room deleted in another window leaves the lists, its place and what its box held", async () => {
+  const { channelPaths, goneChannel, scopePrefKeys } = await import("../shell/gonePlacesModel.mjs");
+  const { shownChannel, mayDeleteChannel } = await import("../views/_studio/channelDraftModel.mjs");
+  const design = { id: "design", name: "Design", kind: "standing" };
+  const general = { id: "general", name: "general", kind: "standing" };
+  // The node says so on the stream; the same frame reloads the lists.
+  const frame = { scope: "design", kind: 33405, snapshot: true, removed: true };
+  const gone = goneChannel(frame);
+  assert.equal(gone, "design");
+  assert.deepEqual(channelPaths(gone), ["/channels/design", "/messages/design"]);
+  assert.deepEqual(scopePrefKeys(gone), ["bisa:draft:design", "bisa:address:design"]);
+  // The list no longer holds it: a delete or an edit asked of that row has no record to open on.
+  assert.equal(shownChannel([{ channel: general }], "design", null), null);
+  // And the one room nobody deletes is offered no delete at all.
+  assert.equal(mayDeleteChannel(general), false);
+  assert.equal(mayDeleteChannel(design), true);
+  const screen = readFileSync(new URL("../views/Channels.tsx", import.meta.url), "utf8");
+  assert.ok(screen.includes("...(mayDeleteChannel(channel)"), "the row's menu offers Delete by the model's rule");
+  assert.ok(screen.includes('useUsage("channel", open ? channel.id : null)'), "what still names the room is asked before Delete is offered");
+});
+
+test("a message sent and the room left at once is no draft when the person comes back", async () => {
+  const { afterSend, draftAfterFailure, draftKey, draftWhileSending } = await import("../ui/composerDraftModel.mjs");
+  const stored = new Map();
+  const write = (scope, value) => (value === null ? stored.delete(draftKey(scope)) : stored.set(draftKey(scope), value));
+  // Typed, so kept as a draft.
+  write("design", "ship it");
+  // Enter: the draft is dropped at the press, and the person clicks another room before the node answers.
+  write("design", draftWhileSending());
+  assert.equal(stored.has(draftKey("design")), false, "nothing waits in the box to be said twice");
+  // Had they stayed and typed on, only what was sent is cleared when it lands.
+  assert.equal(afterSend("ship it\nand tag it", "ship it"), "and tag it");
+  // A send the node refused puts the words back — in the room they were typed in, even after it was left.
+  write("design", draftAfterFailure(null, "ship it"));
+  assert.equal(stored.get(draftKey("design")), "ship it");
+  const composer = readFileSync(new URL("../ui/Composer.tsx", import.meta.url), "utf8");
+  assert.ok(composer.includes("setText((current) => afterSend(current, sent));"), "the box clears what it sent, by the model");
+  assert.ok(composer.includes("writePref(webStorage(), draftKey(sentIn), draftWhileSending());"), "the draft goes at the press");
+});
+
+test("a reply that lands while the lists are being read again is not lost to the answer", async () => {
+  const { framesSinceLoad, unreadOver } = await import("../shell/workspaceLoadModel.mjs");
+  const { withLatest } = await import("../views/_studio/channelListModel.mjs");
+  const frames = framesSinceLoad();
+  frames.begin();
+  // The load was asked; an agent's reply lands in #ops before it answers.
+  const reply = { scope: "ops", kind: 3407, event_id: "e1", unread_count: 1, latest: { author: "aa", snippet: "done", at: 9 } };
+  frames.heard(reply);
+  // The answer, read before the reply: nothing unread, the old last words.
+  const loaded = [{ channel: { id: "ops" }, unread_count: 0, latest: { author: "me", snippet: "go", at: 5 } }];
+  const rows = frames.since().reduce(withLatest, loaded);
+  assert.equal(rows[0].latest.snippet, "done");
+  assert.deepEqual(unreadOver({ ops: 0 }, frames.since()), { ops: 1 });
+});
+
+test("a direct channel offers its people and agents alone, and its turns in flight are read like a channel's", async () => {
+  const { directAudience, offeredIn } = await import("../views/_studio/addressModel.mjs");
+  const { liveRouteOf } = await import("../views/_studio/liveTurnModel.mjs");
+  const dm = { id: "dm-01", kind: "direct", audience: { audience: "restricted", principals: ["me", "aa"] } };
+  const agents = [{ id: "reviewer", pubkey: "aa" }, { id: "developer", pubkey: "bb" }];
+  assert.deepEqual(offeredIn(agents, directAudience(dm)).map((a) => a.id), ["reviewer"]);
+  assert.equal(liveRouteOf("dm"), "channel");
+  const participants = readFileSync(new URL("../views/_studio/participants.ts", import.meta.url), "utf8");
+  assert.ok(participants.includes("const agents = offeredIn(addressable(ordered), direct);"));
+  assert.ok(participants.includes("...(direct ? [] : teamMentionables(ws.teams)),"), "a team handle would reach past the participants");
+});

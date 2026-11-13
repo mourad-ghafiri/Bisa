@@ -67,3 +67,25 @@ test("what is no place reads back as nothing", () => {
   assert.deepEqual(parseThreadPlace({ message: "m3", offset: -10 }), { message: "m3", offset: -10 });
   assert.deepEqual(parseThreadPlace(JSON.parse(JSON.stringify(placeFrom(ROWS, 112)))), KEPT, "what was kept reads back as it was");
 });
+
+test("a link to a message is read by the thread it opens", async () => {
+  const { linkedPlace, messageLink } = await import("./threadPlaceModel.mjs");
+  const link = messageLink("app://bisa", "/index.html", "#/channels/design?item=old", "e1");
+  assert.equal(link, "app://bisa/index.html#/channels/design?message=e1");
+  // The thread opened by it is put at that message, at its top.
+  assert.deepEqual(linkedPlace(new URL(link).hash), { message: "e1", offset: 0 });
+  // An address that names no message names no place: the Inbox's own `item` is its row, not a message.
+  assert.equal(linkedPlace("#/channels/design"), null);
+  assert.equal(linkedPlace("#/inbox?item=design"), null);
+  assert.equal(linkedPlace("#/channels/design?message="), null);
+  assert.equal(linkedPlace(`#/channels/design?message=${"x".repeat(300)}`), null, "an id longer than any of ours is none");
+  assert.equal(linkedPlace(null), null);
+});
+
+test("only a page landing above the reader moves the reader", async () => {
+  const { prepended } = await import("./threadPlaceModel.mjs");
+  assert.equal(prepended("m5", "m1"), true, "older messages landed: the first row is another");
+  assert.equal(prepended("m5", "m5"), false, "a reply at the foot leaves the first row where it was");
+  assert.equal(prepended(null, "m1"), false, "the first page is no prepend");
+  assert.equal(prepended("m5", undefined), false);
+});

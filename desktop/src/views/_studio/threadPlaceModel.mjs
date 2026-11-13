@@ -79,3 +79,44 @@ export function restoreStep({ kept, loading, ids, hasOlder, pagesLoaded }) {
   if (hasOlder && (Number(pagesLoaded) || 0) < RESTORE_PAGES) return { do: "older" };
   return { do: "bottom", forget: true };
 }
+
+/** The word a link to one message carries its id under. */
+const LINK_PARAM = "message";
+
+/**
+ * A link to one message of the thread on screen: the page's own address —
+ * whatever it carried after `?` dropped — with the message named.
+ * @param {string} origin @param {string} pathname @param {string} hash the window's, with or without its mark
+ * @param {string} id the message
+ */
+export function messageLink(origin, pathname, hash, id) {
+  const route = String(hash ?? "").replace(/^#/, "").split("?")[0];
+  return `${origin}${pathname}#${route}?${LINK_PARAM}=${encodeURIComponent(id)}`;
+}
+
+/**
+ * The place a link names: the message it carries, at its top — what a
+ * thread opened by that link is put at, before the place it kept. `null`
+ * for an address that names no message. A link that named one and was read
+ * by nobody opened the thread at its bottom, as if it had named nothing.
+ * @param {string | null | undefined} hash the window's
+ * @returns {{message: string, offset: number} | null}
+ */
+export function linkedPlace(hash) {
+  const query = String(hash ?? "").split("?")[1];
+  if (!query) return null;
+  const id = new URLSearchParams(query).get(LINK_PARAM);
+  if (!id || id.length > MAX_ID) return null;
+  return { message: id, offset: 0 };
+}
+
+/**
+ * Whether a page of older messages just landed above the reader: the first
+ * row is another than it was. A row appended at the foot leaves the first
+ * as it stood — and is no reason to move the reader, though it changes how
+ * many rows there are.
+ * @param {string | null | undefined} was the first row's id before @param {string | null | undefined} now and after
+ */
+export function prepended(was, now) {
+  return !!was && !!now && was !== now;
+}

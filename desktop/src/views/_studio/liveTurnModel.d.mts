@@ -36,3 +36,6 @@ export declare function sameAgents(a: readonly string[], b: readonly string[]): 
 export declare function glimpse(text: string, n?: number): string;
 export declare function lengthWords(chars: number): string;
 export declare function thinkingWords(chars: number, open: boolean, live?: boolean, elapsedS?: number): { label: string; length: string; hint: string };
+/** The route a scope's turns in flight are read by, from its kind; `null` where none answers. */
+export type LiveRoute = "conversation" | "channel";
+export declare function liveRouteOf(kind: string | null | undefined): LiveRoute | null;

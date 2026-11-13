@@ -169,12 +169,44 @@ function messageRow(m) {
 function reactionRows(m) {
   return (m.reactions ?? []).map((r) => ({
     id: `${m.id}:${r.author}:${r.emoji}`,
-    target: m.id,
+    // `target_id` is the field the fold and the thread's join read
+    // (`reactionModel.groupReactions`, `threadCacheModel`): under any other
+    // name no hosted reaction was ever drawn, nor a person's own found to
+    // take back.
+    target_id: m.id,
     scope_id: m.scope,
     author: r.author,
     emoji: r.emoji,
     created_at: m.at,
+    retracted: false,
   }));
+}
+
+/**
+ * Whether an engine fact says a hosted thread moved: something landed in
+ * this scope of this host — or in the host at large, which a thread reads
+ * as its own. The thread on screen reads again on it: a host's message
+ * arrives by this fact and by no `conversation` frame, so a thread that
+ * followed only those never drew it, and marked it read unseen.
+ * @param {{type?: string, host?: string, scope?: string | null} | null | undefined} payload
+ * @param {string | null | undefined} host @param {string | null | undefined} scope
+ */
+export function hostedMoved(payload, host, scope) {
+  if (!host || !scope || payload?.type !== "hosted_changed" || payload.host !== host) return false;
+  return payload.scope === undefined || payload.scope === null || payload.scope === scope;
+}
+
+/**
+ * The key a scope's own things are kept under in this window — the draft
+ * in its box, whom it addresses, where it was being read, its chips: the
+ * scope itself for one of this workspace's, and the host with it for a
+ * hosted one. A hosted `general` and this workspace's `general` are two
+ * rooms; under the bare id they shared a draft, one Enter from being said
+ * in another organisation.
+ * @param {string} scope @param {string | null | undefined} host
+ */
+export function scopeKey(scope, host) {
+  return host ? `${host}/${scope}` : scope;
 }
 
 /** A page of hosted messages as the chat's page: rows and their reactions. */

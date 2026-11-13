@@ -5551,3 +5551,91 @@ async fn a_restart_of_a_listening_goal_keeps_it_listening_when_its_workflow_stil
     assert_eq!(after.run, Some(again.id));
     engine.shutdown().await;
 }
+
+/// A workflow that starts on what agents say, and whose `notify` step names
+/// an agent, hears that agent's answer as its own run's consequence — and
+/// does not start again on it. The answer carried no run before, so the
+/// workflow restarted itself for as long as the fire-rate brake allowed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_to_a_notify_step_does_not_start_its_workflow_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let general = bisa_core::ChannelId::general().to_string();
+    let herald = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Herald".into(),
+            harness: "mock".into(),
+            system_prompt: "do the work".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let draft = new_workflow(
+        "ask the herald on every deploy",
+        vec![
+            start_with(
+                "said",
+                StartOn::Message {
+                    filter: MessageFilter {
+                        r#in: Some(general.clone().into()),
+                        from: MessageFrom::Agents.into(),
+                        mentions: None,
+                        contains: Some("deploy".into()),
+                        ..MessageFilter::default()
+                    },
+                },
+                &[],
+                Guard::default(),
+                "tell",
+            ),
+            {
+                let mut tell = step(
+                    "tell",
+                    StepKind::Notify {
+                        scope: Some(general.clone()),
+                        template: "the deploy is asked about".into(),
+                        mentions: vec![ValueRef::Fixed(bisa_core::Assignee::Agent(
+                            herald.id.to_string(),
+                        ))],
+                        author: None,
+                    },
+                );
+                tell.then = vec![Flow::to(sid("hold"))];
+                tell
+            },
+            hold(),
+        ],
+    );
+    let (_, host) = library(&engine, draft);
+    turn_on(&engine, host);
+
+    ws.post_message(
+        &general,
+        MessageBody::post("ready to deploy"),
+        None,
+        &[],
+        &[],
+        Some(&herald.id),
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    heard_signals(&engine, &host, 1).await;
+    // The step announces, the herald answers — in words that say deploy.
+    let herald_key = herald.pubkey.as_hex().to_string();
+    assert_eq!(engine.drain_signals().await, 1);
+    until("the herald's answer to the announcement", || {
+        let said: Vec<_> = ws
+            .messages(&general, None, 50)
+            .unwrap()
+            .into_iter()
+            .filter(|m| m.author == herald_key)
+            .collect();
+        (said.len() >= 2 && said.last().is_some_and(|m| m.content.contains("deploy"))).then_some(())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    engine.drain_signals().await;
+    let heard = signals(&engine, &host);
+    assert_eq!(heard.len(), 1, "started once: {heard:?}");
+    engine.shutdown().await;
+}

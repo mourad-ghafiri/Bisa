@@ -150,8 +150,17 @@ fn a_channel_is_made_spoken_in_answered_and_read_back() {
         "naming an agent takes no team off the roster: {edited}"
     );
     assert_eq!(edited["channel"]["topic"], "the site, and its survey");
-    let out = ws.bisa(&["channels", "edit", &channel, "--team", "a-team-nobody-made"]);
-    assert!(!out.status.success(), "a team nobody made is refused");
+    let refused = ws.refused(&["channels", "edit", &channel, "--team", "a-team-nobody-made"]);
+    assert!(
+        refused.contains("a-team-nobody-made"),
+        "a team nobody made is refused by name: {refused}"
+    );
+    // A topic edited beside a tag another window set keeps the tag: only
+    // what was named is sent, never the tags this process read a moment ago.
+    ws.json(&["channels", "edit", &channel, "--tag", "ground"]);
+    let edited = ws.json(&["channels", "edit", &channel, "--topic", "the site"]);
+    assert_eq!(edited["channel"]["tags"], json!(["ground"]), "{edited}");
+    assert_eq!(edited["channel"]["roster"], roster, "{edited}");
 
     // --- a message that names an agent --------------------------------------------
     let (scout_key, general_key) = (pubkey(&ws, &scout), pubkey(&ws, "general-agent"));
@@ -407,5 +416,23 @@ fn a_channel_is_made_spoken_in_answered_and_read_back() {
         .find(|c| c["id"] == channel.as_str())
         .expect("the channel");
     assert_eq!(room["roster"], roster);
+
+    // --- removed through the node, and made again -----------------------------------
+    let removed = ws.json(&["channels", "rm", &channel]);
+    assert_eq!(removed["removed"], channel.as_str(), "{removed}");
+    let gone = ws.refused(&["msgs", &channel]);
+    assert!(
+        gone.contains(channel.as_str()),
+        "a removed room is no scope: {gone}"
+    );
+    let again = ws.json(&["channels", "create", "site"]);
+    assert_eq!(again["channel"]["id"], channel.as_str(), "{again}");
+    assert_eq!(
+        ws.json(&["msgs", &channel])["messages"],
+        json!([]),
+        "a room made again under the name starts empty"
+    );
+    let refused = ws.refused(&["channels", "rm", "general"]);
+    assert!(refused.contains("general"), "{refused}");
     ws.stop();
 }

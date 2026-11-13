@@ -313,3 +313,26 @@ test("a list that could not be read is unknown, not empty: the node away, or its
     assert.ok(page.includes("{!ws.ready ? (") && page.includes(`listUnread(ws.degraded, ws.offline, "${name}")`) && page.includes("retry={ws.refresh}"), `${file}: unread is unknown, never empty`);
   }
 });
+
+test("a frame newer than the load's start survives the load", async () => {
+  const { framesSinceLoad, unreadOver } = await import("./workspaceLoadModel.mjs");
+  const frames = framesSinceLoad();
+  frames.heard({ scope: "ops", unread_count: 9 });
+  // A load starts: what was heard before it is in its answer already.
+  frames.begin();
+  assert.deepEqual(frames.since(), []);
+  frames.heard({ scope: "ops", unread_count: 1, latest: { author: "a", snippet: "first", at: 1 } });
+  frames.heard({ scope: "ops", unread_count: 2, latest: { author: "a", snippet: "second", at: 2 } });
+  frames.heard({ scope: "design", unread_count: 1 });
+  // A record's write is no message, and a frame of no scope says nothing here.
+  frames.heard({ scope: "ops", snapshot: true });
+  frames.heard({ unread_count: 4 });
+  frames.heard(null);
+  const since = frames.since();
+  assert.equal(since.length, 2, "the newest frame a scope");
+  assert.equal(since.find((f) => f.scope === "ops").unread_count, 2);
+  // The load read before they landed: its counts are older than theirs.
+  assert.deepEqual(unreadOver({ ops: 0, design: 0, general: 3 }, since), { ops: 2, design: 1, general: 3 });
+  assert.deepEqual(unreadOver({ ops: 5 }, [{ scope: "ops" }, { unread_count: 1 }, null]), { ops: 5 }, "a frame with no count moves none");
+  assert.deepEqual(unreadOver({ ops: 5 }, undefined), { ops: 5 });
+});

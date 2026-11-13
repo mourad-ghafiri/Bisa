@@ -375,6 +375,10 @@ fn accessor_paths() -> Vec<(&'static str, PathBuf)> {
             p.session_meta_file("claude-code", ulid).unwrap(),
         ),
         ("conversation_log", p.conversation_log("general").unwrap()),
+        (
+            "conversation_log_archive",
+            p.conversation_log_archive("design", 1).unwrap(),
+        ),
         ("attachment", p.attachment(&"ab".repeat(32)).unwrap()),
         (
             "attachment_named",

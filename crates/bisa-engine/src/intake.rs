@@ -1541,6 +1541,22 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     Err(reason) => return err(reason),
                 };
             let signer = posting_agent(inner, agent, work_item);
+            // An archived conversation is put away: nobody continues it
+            // through a tool that the person's own door refuses.
+            let archived = scope
+                .parse::<bisa_core::ConversationId>()
+                .ok()
+                .and_then(|id| inner.ws.get_conversation(id).ok())
+                .is_some_and(|c| c.archived);
+            if archived {
+                return err(
+                    bisa_core::text!("error-engine-intake-conversation-archived").to_string(),
+                );
+            }
+            // What an agent says through its tool is redacted as what it
+            // says in its reply is (`finish_turn`): the same words, the same
+            // readers.
+            let content = inner.security.redact_inbound(&content, "agent_post");
             // Resolved by the store, never here: a token may be a pubkey, an
             // agent id or the channel handle, and a second resolver is how two
             // surfaces end up disagreeing about who `@something` meant. An

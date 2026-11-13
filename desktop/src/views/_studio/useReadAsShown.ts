@@ -42,5 +42,7 @@ export function useReadAsShown({
     if (!wanted || !shown) return;
     const t = window.setTimeout(() => markRead(scope, host), READ_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [wanted, shown, scope, host, markRead]);
+    // `unreadCount` restarts the beat: a message that lands while one is
+    // counting is given the whole beat to be drawn before it is read.
+  }, [wanted, shown, scope, host, markRead, unreadCount]);
 }

@@ -26,6 +26,7 @@ import {
   EmptyState,
   ErrorNote,
   ICON,
+  MoreMenu,
   RelativeTime,
   ScreenBar,
   Skeleton,
@@ -40,7 +41,11 @@ import { audiencePrincipals, planSummary } from "../types";
 import { Conversation, ConversationHeader } from "./_studio/Conversation";
 import { useDirectMessageCandidates } from "./_studio/participants";
 import { attempt, useAsync } from "./_work/useAsync";
+import { readKey } from "./_work/keptReadsModel.mjs";
+import { mayDeleteChannel } from "./_studio/channelDraftModel.mjs";
+import { DeleteChannelDialog } from "./Channels";
 import { useGonePlace } from "../shell/useGonePlace";
+import { useHarnessLabels } from "../shell/useHarnesses";
 import { t } from "../i18n/l10n.mjs";
 
 /**
@@ -217,14 +222,21 @@ function DmIndex({ onNew }: { onNew: () => void }) {
 export default function Messages({ id }: { id?: string }) {
   const ws = useWorkspace();
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => onDoor(NEW_MESSAGE, () => setCreating(true)), []);
 
+  // Kept under the direct channel's key — another one's page never draws
+  // this one's record while its own is on its way — and asked again when
+  // the list loses or changes it, so one deleted in another window is found
+  // gone here.
+  const listed = ws.dms.some((entry) => entry.channel.id === id);
   const { data, loading, reload, error, missing } = useAsync(
     (s) => (id ? api.channel(id, s) : Promise.resolve(null)),
-    [id],
+    [id, listed],
+    { keep: readKey("dm", id) },
   );
-  // A direct channel that is gone raises no fact on the bus: the node
-  // answers that there is none, and the place is forgotten (`useGonePlace`).
+  // A direct channel that is gone — deleted here or in another window — is
+  // answered as none, and the place is forgotten (`useGonePlace`).
   useGonePlace(missing, id ? { name: "dm", id } : { name: "messages" });
   const channel: ChannelDef | null = data?.channel ?? null;
 
@@ -243,6 +255,7 @@ export default function Messages({ id }: { id?: string }) {
   }, [channel, ws.agents, ws.me]);
 
   const soloAgent = agents.length === 1 && humans.length === 0 ? agents[0]! : null;
+  const harnessLabels = useHarnessLabels();
   const working = (id && ws.working[id]) || [];
 
   const dialog = (
@@ -287,9 +300,10 @@ export default function Messages({ id }: { id?: string }) {
 
   const title = soloAgent
     ? soloAgent.name
-    : [...agents.map((a) => a.name), ...humans.map((h) => ws.nameOf(h))].join(", ") ||
-      channel?.name ||
-      t("screens-messages-direct-message");
+    : // One name for a direct channel on every surface (`channelListModel.dmLabel`) — never the stored one, which is key prefixes.
+      channel
+      ? dmLabel(channel, ws.me, ws.nameOf)
+      : t("screens-messages-direct-message");
 
   return (
     <>
@@ -325,11 +339,14 @@ export default function Messages({ id }: { id?: string }) {
             title={title}
             subtitle={
               soloAgent
-                ? `${soloAgent.harness} · ${planSummary(soloAgent.models)} · ${
-                    soloAgent.respond === "owner_only"
-                      ? t("screens-messages-answers-you-only")
-                      : t("screens-messages-answers-any-member")
-                  }`
+                ? // An agent that is switched off answers nobody: said here, where a person would wait for it, before what it runs on.
+                  soloAgent.enabled === false
+                  ? t("screens-messages-agent-disabled", { harness: harnessLabels[soloAgent.harness] ?? soloAgent.harness })
+                  : t("screens-messages-agent-line", {
+                      harness: harnessLabels[soloAgent.harness] ?? soloAgent.harness,
+                      plan: planSummary(soloAgent.models),
+                      answers: soloAgent.respond === "owner_only" ? "you" : "members",
+                    })
                 : t("screens-messages-other-others-private-group", { channel: Math.max(audiencePrincipals(channel).length - 1, 0), channel2: audiencePrincipals(channel).length - 1 })
             }
             chips={
@@ -348,11 +365,29 @@ export default function Messages({ id }: { id?: string }) {
                       <ICON.open size={13} aria-hidden />{t("screens-messages-open-agent")}</a>
                   </Button>
                 )}
+                {mayDeleteChannel(channel) && (
+                  <MoreMenu
+                    label={t("screens-messages-menu", { title })}
+                    items={[{ label: t("screens-messages-delete-menu"), icon: ICON.delete, danger: true, onSelect: () => setDeleting(true) }]}
+                  />
+                )}
               </>
             }
           />
         }
       />
+      {channel && mayDeleteChannel(channel) && (
+        <DeleteChannelDialog
+          open={deleting}
+          channel={channel}
+          name={title}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            ws.refresh();
+            navigate({ name: "messages" });
+          }}
+        />
+      )}
       {dialog}
     </>
   );

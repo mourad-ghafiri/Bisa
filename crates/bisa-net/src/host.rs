@@ -457,10 +457,15 @@ async fn send_channels(inner: &Arc<Inner>, person: &PrincipalId, role: MemberRol
         return;
         // LCOV_EXCL_STOP
     };
-    let channels = inner
-        .ws
-        .channels_reached_by(person, role)
-        .unwrap_or_default();
+    // A list that could not be read is never sent as an empty one: told
+    // they reach nothing, a person's copy dropped every room it held.
+    let channels = match inner.ws.channels_reached_by(person, role) {
+        Ok(channels) => channels,
+        Err(e) => {
+            tracing::warn!("the channels {person} reaches could not be read; nothing is sent: {e}");
+            return;
+        }
+    };
     send_control(inner, pk, &Control::ChannelsChanged { channels }).await;
 }
 
@@ -490,14 +495,18 @@ async fn welcome(inner: &Arc<Inner>, person: &PrincipalId, role: MemberRole) {
         return;
         // LCOV_EXCL_STOP
     };
+    // Somebody just admitted holds no room yet, so a list that could not
+    // be read costs them nothing here: they are welcomed, and hear their
+    // rooms at the next change — where a failed read sends nothing at all.
+    let channels = inner
+        .ws
+        .channels_reached_by(person, role)
+        .unwrap_or_default();
     let control = Control::Welcome {
         workspace: host_card(inner).await,
         role,
         members: directory(inner),
-        channels: inner
-            .ws
-            .channels_reached_by(person, role)
-            .unwrap_or_default(),
+        channels,
     };
     send_control(inner, pk, &control).await;
 }
@@ -636,6 +645,16 @@ async fn catch_up(inner: &Arc<Inner>) {
         .store(Timestamp::now().as_secs(), Ordering::Relaxed);
 }
 
+/// A channel was made, changed, rostered or deleted: everyone's reach may
+/// have moved, so everyone hears their channels whole, and the backlog of
+/// any channel new to them.
+async fn tell_everyone_their_channels(inner: &Arc<Inner>) {
+    for p in inner.ws.people().unwrap_or_default() {
+        send_channels(inner, &p.pubkey, p.role).await;
+        backlog_for(inner, &p.pubkey).await;
+    }
+}
+
 async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
     match ev {
         // A peer's drawing landed here: the engine tells the canvas; the host
@@ -644,13 +663,13 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
         StoreEvent::ConversationAppended { event, .. }
         | StoreEvent::RemoteMessageArrived { event, .. } => relay_fact(inner, &event).await,
         StoreEvent::ConversationSnapshot { kind, .. } if kind == KIND_CHANNEL => {
-            // A channel was made, changed or rostered: everyone's reach may
-            // have moved, so everyone hears their channels whole, and the
-            // backlog of any channel new to them.
-            for p in inner.ws.people().unwrap_or_default() {
-                send_channels(inner, &p.pubkey, p.role).await;
-                backlog_for(inner, &p.pubkey).await;
-            }
+            tell_everyone_their_channels(inner).await;
+        }
+        // A channel written elsewhere landed, or one was deleted: reach
+        // moved just the same.
+        StoreEvent::RemoteChannelArrived { .. } => tell_everyone_their_channels(inner).await,
+        StoreEvent::DefinitionRemoved { kind, .. } if kind == KIND_CHANNEL => {
+            tell_everyone_their_channels(inner).await;
         }
         StoreEvent::PeopleChanged { pubkey, change } => match change {
             PeopleChange::Joined { role } => {

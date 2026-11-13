@@ -313,7 +313,10 @@ pub struct MockAdapter {
     pub panic_in_stream_on: Option<String>,
     /// Answer a follow-up with words of its own and a turn's end, with no new
     /// turn marker before them — the shape of a harness that continues the
-    /// open turn rather than starting one.
+    /// open turn rather than starting one. Handed over while a scripted turn
+    /// is still playing, the follow-up waits behind it and is answered when
+    /// the script is through: a real harness queues a message that arrives
+    /// mid-turn, and the turn in flight keeps its own boundary.
     pub answers_follow_ups: bool,
 }
 
@@ -704,6 +707,10 @@ pub struct MockSession {
     pub panic_in_stream_on: Option<String>,
     /// See [`MockAdapter::answers_follow_ups`].
     pub answers_follow_ups: bool,
+    /// Whether a scripted turn is playing, and the follow-ups that wait
+    /// behind it.
+    playing: Arc<std::sync::atomic::AtomicBool>,
+    queued: Arc<Mutex<Vec<String>>>,
     spec: SessionSpec,
 }
 
@@ -733,6 +740,8 @@ impl MockSession {
             closes: Arc::new(Mutex::new(Vec::new())),
             panic_in_stream_on: None,
             answers_follow_ups: false,
+            playing: Arc::default(),
+            queued: Arc::default(),
             spec,
         }
     }
@@ -787,6 +796,8 @@ impl HarnessSession for MockSession {
         let spec = self.spec.clone();
         let refusal = self.refusal.clone();
         let turn_delay = self.turn_delay;
+        let playing = Arc::clone(&self.playing);
+        let queued = Arc::clone(&self.queued);
         let input_request = self.input_request.clone();
         let answer_rx = input_request.as_ref().map(|_| {
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -875,11 +886,32 @@ impl HarnessSession for MockSession {
                     // Only a scripted terminal end flips the phase; a script
                     // without one leaves the session running.
                     let mut ended = false;
+                    playing.store(true, Ordering::SeqCst);
                     for ev in events {
                         // Small gap so subscribers observe ordering reliably.
                         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                         ended |= ev.is_terminal_end();
                         broadcaster.emit(ev);
+                    }
+                    // The follow-ups that waited behind the script are
+                    // answered now, each a turn of its own. The flag falls
+                    // under the queue's lock, so none slips between the two.
+                    loop {
+                        let next = {
+                            let mut waiting = queued.locked();
+                            if waiting.is_empty() {
+                                playing.store(false, Ordering::SeqCst);
+                                None
+                            } else {
+                                Some(waiting.remove(0))
+                            }
+                        };
+                        let Some(text) = next else { break };
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        broadcaster.emit(SessionEvent::Progress(ProgressEvent::TextDelta {
+                            text: format!("follow-up: {text}"),
+                        }));
+                        broadcaster.emit(SessionEvent::Progress(ProgressEvent::TurnEnded));
                     }
                     if ended {
                         *phase.locked() = Phase::Ended;
@@ -935,6 +967,13 @@ impl HarnessSession for MockSession {
         }
         self.followed_up.locked().push(msg.text.clone());
         if self.answers_follow_ups {
+            {
+                let mut waiting = self.queued.locked();
+                if self.playing.load(Ordering::SeqCst) {
+                    waiting.push(msg.text);
+                    return Ok(());
+                }
+            }
             self.broadcaster
                 .emit(SessionEvent::Progress(ProgressEvent::TextDelta {
                     text: format!("follow-up: {}", msg.text),

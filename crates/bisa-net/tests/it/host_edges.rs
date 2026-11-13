@@ -344,3 +344,104 @@ async fn a_pump_with_no_relay_says_nothing_and_keeps_nothing() {
     host.stop().await;
     relays.stop().await;
 }
+
+/// What a person is told they reach follows the rooms as they are: a roster
+/// an admin changed from their own node reaches the guest it names, and a
+/// room deleted on the host leaves their copy. And a list the host could not
+/// read is never sent as an empty one — told they reach nothing, a person's
+/// copy dropped every room it held.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_persons_rooms_follow_an_admins_edit_and_a_delete_and_never_a_failed_read() {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::set_var("BISA_JOIN_WAIT_SECS", "10");
+    let (_relay, url) = start_relay().await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let ws_a = open_ws(dir_a.path());
+    for name in ["design", "attic"] {
+        ws_a.create_channel(name, None, listed(), Default::default())
+            .unwrap();
+    }
+    let (_relays_a, _host) = start_host(&ws_a, dir_a.path(), &url).await;
+    let host_pk = ws_a.owner_keys().public_key();
+
+    let bob = start_guest(&url).await;
+    let code = invite(&ws_a, &url, MemberRole::Guest, &["attic"]);
+    let (b, _) = bob
+        .guests
+        .join(&code, Some("Bob".into()), "desktop")
+        .await
+        .unwrap();
+    let b_id = pid(bob.keys.public_key());
+    let rooms = |session: &bisa_guest::GuestSession| -> Vec<String> {
+        let mut ids: Vec<String> = session
+            .channels()
+            .unwrap()
+            .iter()
+            .map(|c| c.id.to_string())
+            .collect();
+        ids.sort();
+        ids
+    };
+    wait_for("the guest's one room", || rooms(&b) == vec!["attic"]).await;
+
+    // An admin on another node puts the guest on #design from there.
+    let dir_d = tempfile::tempdir().unwrap();
+    let ws_d = open_ws(dir_d.path());
+    ws_a.add_member(
+        ws_d.owner_principal(),
+        MemberRole::Admin,
+        Admission::default(),
+    )
+    .unwrap();
+    ws_d.add_member(b_id.clone(), MemberRole::Guest, Admission::default())
+        .unwrap();
+    let design = ChannelId::new("design").unwrap();
+    ws_d.create_channel("design", None, listed(), Default::default())
+        .unwrap();
+    ws_d.set_roster_humans(&design, vec![b_id.clone()]).unwrap();
+    let pool_d = Relays::start(ws_d.owner_keys().clone(), std::slice::from_ref(&url)).await;
+    pool_d
+        .publish(
+            &wrap_for_member(ws_d.owner_keys(), host_pk, &channel_event(&ws_d, "design")).unwrap(),
+        )
+        .await
+        .unwrap();
+    wait_for("the room the admin put the guest on", || {
+        rooms(&b) == vec!["attic", "design"]
+    })
+    .await;
+
+    // A read that fails sends nothing: the guest keeps what it holds.
+    let state = ws_a.paths().state_dir("channels");
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o000)).unwrap();
+    ws_a.set_role(&b_id, MemberRole::Member).unwrap();
+    wait_for("the role change to arrive", || {
+        b.hosted()
+            .unwrap()
+            .is_some_and(|h| h.role == MemberRole::Member)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let kept = rooms(&b);
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        kept,
+        vec!["attic", "design"],
+        "nothing was taken on a failed read"
+    );
+
+    // Read again, a member reaches every standing room; a deleted one goes.
+    ws_a.set_role(&b_id, MemberRole::Admin).unwrap();
+    wait_for("every room, as an admin reaches them", || {
+        rooms(&b) == vec!["attic", "design", "general"]
+    })
+    .await;
+    let attic = ws_a.get_channel(&ChannelId::new("attic").unwrap()).unwrap();
+    ws_a.delete_channel(bisa_core::DeletableChannel::new(attic).unwrap())
+        .unwrap();
+    wait_for("the deleted room to leave the guest's copy", || {
+        rooms(&b) == vec!["design", "general"]
+    })
+    .await;
+}

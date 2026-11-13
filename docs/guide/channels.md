@@ -51,9 +51,14 @@ write goes through it, so every open window follows; with none, into the record.
 In the desktop, the **Channels** page lists every standing channel — the name, the topic, when it
 last moved and who said what last (`GET /channels` carries each room's latest live post — a post
 withdrawn, a join or a leave, a reaction are nobody's last words, in the list and as they land), the
-roster's faces when nothing was said yet, the tags, the live unread count — `general` first, then in
+roster's names when nothing was said yet, the tags, the live unread count — `general` first, then in
 creation order, with a search over name, topic and tags; the sidebar's section keeps the same order
 ([`the-desktop.md`](the-desktop.md#channels-and-messages)).
+
+Deleting a channel (`DELETE /channels/{id}`; never `general`, and refused by name while a workflow
+still posts or listens there) forgets it: its messages leave every page, count and search, and its
+log is kept aside on disk under `conversation/<id>.<secs>.deleted`. A channel made again under the
+same name starts empty.
 
 The audience and the kind are fixed at creation: changing an audience would change who past
 messages were encrypted to. Eight standing channels are in the catalog
@@ -71,8 +76,10 @@ bisa dm list
 bisa dm send <pubkey> [<pubkey>…] --text "got a minute?"     # opens or reuses the conversation
 ```
 
-An agent in a direct channel's audience answers without being mentioned, which is why messaging an
-agent "just works": `bisa dm send <agent-pubkey> --text "…"`. The reply is signed by the agent. An agent
+A direct channel is between its participants: a mention there names one of them and is refused
+otherwise, and an agent's own reply wakes whom it names, never the other agents for being in the
+room. An agent in a direct channel's audience answers a person without being mentioned, which is
+why messaging an agent "just works": `bisa dm send <agent-pubkey> --text "…"`. The reply is signed by the agent. An agent
 answers while an engine runs: with a node up — `bisa node`, or the desktop's — what you say from the
 command line goes through it; with none, your words are kept and nobody is there to answer them.
 
@@ -84,7 +91,8 @@ order.
 ## Triage: the message that names nobody
 
 An unaddressed message somebody *asked* — in a standing channel, a goal thread or a
-conversation — wakes the General Agent, which answers or hands the question to the agent that should. A direct
+conversation — wakes one core agent — the default agent, the General Agent unless you chose
+another — which answers or hands the question to the agent that should. A direct
 channel never needs it. A workflow's `notify` step *announces* rather than asks — as the agent it
 names, or the Workflow Agent, never as you — and wakes only the agents it mentions — none, by
 default: every post records which it is, so a chatty webhook cannot
