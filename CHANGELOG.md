@@ -8,6 +8,8 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-13
+
 ### Security
 
 - **The spreadsheet reader is SheetJS 0.20.3**, from the copy kept in `desktop/vendor/`. The `xlsx`
@@ -2359,7 +2361,8 @@ The first release: the platform as one application a person can download.
 - `BISA_SIGN`, `just bundle-macos-adhoc` and the shareable zip of the bundle script: a copy to
   give to someone is the release's disk image.
 
-[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.4.0...v0.5.0
