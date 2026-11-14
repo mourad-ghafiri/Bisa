@@ -537,3 +537,280 @@ fn a_workflow_and_a_channel_take_their_notes_with_them_and_a_ghost_of_either_tak
         "and on a channel that does not exist"
     );
 }
+
+#[test]
+fn a_delete_is_never_undone_by_a_write_that_was_in_flight() {
+    // An append reads the note, then writes it back: a delete that landed
+    // between the two used to be undone by the write — the file and the row
+    // came back. Under the one writer's lock a delete waits its turn, and the
+    // append after it finds no note.
+    let (_d, ws) = ws();
+    for round in 0..60 {
+        let n = ws
+            .create_note(note(OwnerScope::Workspace, "Racing", "first"))
+            .unwrap();
+        std::thread::scope(|s| {
+            let ws = &ws;
+            s.spawn(move || {
+                for i in 0..40 {
+                    if ws.append_note(n.id, &format!("block {i}")).is_err() {
+                        break;
+                    }
+                }
+            });
+            s.spawn(move || {
+                std::thread::yield_now();
+                ws.delete_note(n.id).unwrap();
+            });
+        });
+        let path = Paths::note_file_in(
+            &Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None),
+            n.id,
+        );
+        assert!(!path.exists(), "round {round}: the file came back");
+        assert!(
+            matches!(
+                ws.get_note(n.id),
+                Err(StoreError::DefinitionNotFound { kind: "note", .. })
+            ),
+            "round {round}: the note came back"
+        );
+        assert!(ws.list_notes(OwnerFilter::All).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_note_nobody_can_read_and_a_row_with_no_file_can_still_be_deleted() {
+    let (_d, ws) = ws();
+    let dir = Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None);
+    // A hand edit in a clone: a key the block does not have.
+    let odd = ws
+        .create_note(note(OwnerScope::Workspace, "Odd", "words"))
+        .unwrap();
+    let path = Paths::note_file_in(&dir, odd.id);
+    std::fs::write(&path, "---\ntitle: Odd\ntags: x\n---\nwords").unwrap();
+    assert!(matches!(
+        ws.get_note(odd.id),
+        Err(StoreError::Unreadable { .. })
+    ));
+    ws.delete_note(odd.id).unwrap();
+    assert!(!path.exists(), "the file nobody could read is removed");
+    // A file removed by hand, or by a pull: the row is cleared, not kept as
+    // a ghost no door can remove.
+    let ghost = ws
+        .create_note(note(OwnerScope::Workspace, "Ghost", "words"))
+        .unwrap();
+    std::fs::remove_file(Paths::note_file_in(&dir, ghost.id)).unwrap();
+    ws.delete_note(ghost.id).unwrap();
+    // Both rows are gone: a second delete finds nothing, and says so.
+    for id in [odd.id, ghost.id] {
+        assert!(matches!(
+            ws.delete_note(id),
+            Err(StoreError::DefinitionNotFound { kind: "note", .. })
+        ));
+    }
+}
+
+#[test]
+fn the_title_answered_indexed_and_written_is_one_and_the_same() {
+    let (_d, ws) = ws();
+    let n = ws
+        .create_note(note(OwnerScope::Workspace, "  two\nlines\t ", "b"))
+        .unwrap();
+    assert_eq!(n.title, "two lines", "the answer");
+    assert_eq!(ws.get_note(n.id).unwrap().title, "two lines", "the file");
+    let renamed = ws
+        .update_note(
+            n.id,
+            NotePatch {
+                title: Some(" a\r\nb ".into()),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(renamed.title, "a b");
+    assert_eq!(ws.get_note(n.id).unwrap().title, "a b");
+    // The cap, through both doors; what was there stays.
+    let long = "t".repeat(bisa_core::MAX_NOTE_TITLE_CHARS + 1);
+    assert!(ws
+        .create_note(note(OwnerScope::Workspace, &long, "b"))
+        .is_err());
+    let refused = ws.update_note(
+        n.id,
+        NotePatch {
+            title: Some(long),
+            ..Default::default()
+        },
+        None,
+    );
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(ws
+        .update_note(
+            n.id,
+            NotePatch {
+                title: Some(" \n ".into()),
+                ..Default::default()
+            },
+            None,
+        )
+        .is_err());
+    assert_eq!(ws.get_note(n.id).unwrap().title, "a b");
+}
+
+#[test]
+fn a_file_that_arrived_out_of_bounds_can_still_be_pinned_retitled_appended_to_and_deleted() {
+    // A pull, or a hand edit, can bring a note this build would not have
+    // written: no title, a title past the cap, a body past the cap. A write
+    // checks the field it writes, so each can still be put right.
+    let (_d, ws) = ws();
+    let dir = Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None);
+    let untitled = ws
+        .create_note(note(OwnerScope::Workspace, "t", "b"))
+        .unwrap();
+    std::fs::write(
+        Paths::note_file_in(&dir, untitled.id),
+        "---\ntitle:\ncreated_at: 1\nupdated_at: 2\n---\nwords",
+    )
+    .unwrap();
+    assert_eq!(ws.get_note(untitled.id).unwrap().title, "");
+    let pinned = ws
+        .update_note(
+            untitled.id,
+            NotePatch {
+                pinned: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    assert!(pinned.pinned);
+    assert!(ws
+        .append_note(untitled.id, "more")
+        .unwrap()
+        .body
+        .ends_with("more"));
+    let titled = ws
+        .update_note(
+            untitled.id,
+            NotePatch {
+                title: Some("Named".into()),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(titled.title, "Named");
+
+    let heavy = ws
+        .create_note(note(OwnerScope::Workspace, "Heavy", "b"))
+        .unwrap();
+    let body = "x".repeat(MAX_NOTE_BYTES + 10);
+    let long_title = "t".repeat(bisa_core::MAX_NOTE_TITLE_CHARS + 5);
+    std::fs::write(
+        Paths::note_file_in(&dir, heavy.id),
+        format!("---\ntitle: {long_title}\ncreated_at: 1\nupdated_at: 2\n---\n{body}"),
+    )
+    .unwrap();
+    let read = ws.get_note(heavy.id).unwrap();
+    assert_eq!(read.title, long_title, "what is there still reads");
+    assert_eq!(read.body.len(), MAX_NOTE_BYTES + 10);
+    assert!(
+        ws.update_note(
+            heavy.id,
+            NotePatch {
+                pinned: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap()
+        .pinned
+    );
+    // Its body can be cut back to size, with the hash of what is there.
+    let cut = ws
+        .update_note(
+            heavy.id,
+            NotePatch {
+                body: Some("short".into()),
+                ..Default::default()
+            },
+            Some(&body_hash(&body)),
+        )
+        .unwrap();
+    assert_eq!(cut.body, "short");
+    assert_eq!(cut.title, long_title, "a title nobody wrote is left alone");
+    ws.delete_note(heavy.id).unwrap();
+}
+
+#[test]
+fn notes_that_arrived_changed_or_left_under_the_store_are_found_by_a_resync() {
+    // A pull moves files without the store hearing of it: a note another
+    // machine made, one it rewrote, one it deleted. The resync makes the
+    // index say what the folder holds and answers what moved, so each can
+    // be announced.
+    let (_d, ws) = ws();
+    let dir = Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None);
+    let kept = ws
+        .create_note(note(OwnerScope::Workspace, "Kept", "as it was"))
+        .unwrap();
+    let rewritten = ws
+        .create_note(note(OwnerScope::Workspace, "Rewritten", "old words"))
+        .unwrap();
+    let left = ws
+        .create_note(note(OwnerScope::Workspace, "Left", "going"))
+        .unwrap();
+    let broken = ws
+        .create_note(note(OwnerScope::Workspace, "Broken", "fine for now"))
+        .unwrap();
+    let arrived = bisa_core::NoteId::from_ulid(ulid::Ulid::from_parts(4_000_000_000_000, 7));
+    std::fs::write(
+        Paths::note_file_in(&dir, arrived),
+        "---\ntitle: Arrived\ncreated_at: 5\nupdated_at: 6\n---\nfrom the other machine",
+    )
+    .unwrap();
+    std::fs::write(
+        Paths::note_file_in(&dir, rewritten.id),
+        "---\ntitle: Rewritten\ncreated_at: 5\nupdated_at: 9\n---\nnew words",
+    )
+    .unwrap();
+    std::fs::remove_file(Paths::note_file_in(&dir, left.id)).unwrap();
+    std::fs::write(Paths::note_file_in(&dir, broken.id), "<<<<<<< not a note").unwrap();
+    let stale = listed(&ws, OwnerFilter::All);
+    assert_eq!(
+        stale.len(),
+        2,
+        "before: only what the index knew and can read"
+    );
+    assert!(!stale.contains(&arrived), "what arrived is not listed");
+
+    let moved = ws.resync_notes().unwrap();
+    let mut changed: Vec<_> = moved.changed.iter().map(|n| n.id).collect();
+    changed.sort();
+    let mut expected = vec![arrived, rewritten.id];
+    expected.sort();
+    assert_eq!(changed, expected, "what arrived and what was rewritten");
+    assert_eq!(
+        moved.removed,
+        vec![(left.id, OwnerScope::Workspace)],
+        "what left"
+    );
+    let now = listed(&ws, OwnerFilter::All);
+    assert!(now.contains(&arrived) && now.contains(&kept.id) && now.contains(&rewritten.id));
+    assert!(!now.contains(&left.id));
+    assert_eq!(ws.get_note(rewritten.id).unwrap().body, "new words");
+    assert_eq!(ws.get_note(arrived).unwrap().body, "from the other machine");
+    assert!(matches!(
+        ws.get_note(left.id),
+        Err(StoreError::DefinitionNotFound { kind: "note", .. })
+    ));
+    // The one nobody can read keeps its row: it is still there to delete.
+    assert!(matches!(
+        ws.get_note(broken.id),
+        Err(StoreError::Unreadable { .. })
+    ));
+    ws.delete_note(broken.id).unwrap();
+    // A second resync finds nothing to say.
+    let again = ws.resync_notes().unwrap();
+    assert!(again.changed.is_empty() && again.removed.is_empty());
+}

@@ -3693,6 +3693,28 @@ impl Index {
             .optional()?)
     }
 
+    /// What the index remembers of every note beyond where it is — its
+    /// title, when it was last written and whether it is pinned — by id: what
+    /// a resync compares the files against to tell which moved.
+    pub fn note_stamps(
+        &self,
+    ) -> Result<std::collections::HashMap<String, (String, u64, bool)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, updated_at, pinned FROM notes")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                (
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?.max(0) as u64,
+                    r.get::<_, i64>(3)? != 0,
+                ),
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// `(id, scope_kind, scope_id)` of every note a filter admits: no kind is
     /// every note, a kind alone is every note of that kind, a kind and an id
     /// is one scope's. Pinned first, newest first, so a caller that reads
@@ -3749,6 +3771,17 @@ impl Index {
         self.conn
             .execute("DELETE FROM drawings WHERE id = ?1", params![id])?;
         Ok(())
+    }
+
+    /// `(scope_kind, scope_id)` — where a drawing is filed, by its row alone:
+    /// what a deletion goes by when the drawing itself will not read.
+    pub fn drawing_scope(&self, id: &str) -> Result<Option<(String, Option<String>)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT scope_kind, scope_id FROM drawings WHERE id = ?1")?;
+        Ok(stmt
+            .query_row(params![id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?)
     }
 
     /// Every drawing a filter admits, as the listing draws it — pinned first,

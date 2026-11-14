@@ -94,7 +94,7 @@ pub use journal::{EventLog, JournalAddr, JsonlEventLog};
 pub use listening::{ListenerRuntime, ProjectMemory};
 pub use mcp::NewMcp;
 pub use members::Admission;
-pub use notes::{body_hash, NewNote, NotePatch};
+pub use notes::{body_hash, NewNote, NotePatch, NotesResync};
 pub use owner::OwnerFilter;
 pub use paths::{
     append_line, resolve_within, resolve_within_new, sanitise_file_name, write_atomic,

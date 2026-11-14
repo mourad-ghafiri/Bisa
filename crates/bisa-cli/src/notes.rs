@@ -9,7 +9,12 @@
 //! agent you asked — so an edit of the body carries the hash of the body it
 //! read: `--base-hash` as `show` printed it, or, left out, the hash the note
 //! has as the edit begins; a body that moved since is refused in the store's
-//! words, never written over.
+//! words, never written over. An edit that named no hash wrote over whatever
+//! was there — words an agent appended a moment ago included — so it says
+//! what it replaced: the hash and how long ago that body was written, on
+//! stderr and as `replaced` in the JSON. Through a node an edit asks to be
+//! announced (`announce`), so an editor open on the note in the desktop
+//! learns the text moved. `--body-file -` reads the body from stdin.
 
 use crate::ctx::Ctx;
 use crate::output::Out;
@@ -47,7 +52,7 @@ pub enum NoteCmd {
         /// The body, as Markdown
         #[arg(long, conflicts_with = "body_file")]
         body: Option<String>,
-        /// The body, read from this file
+        /// The body, read from this file — `-` for stdin
         #[arg(long, value_name = "PATH")]
         body_file: Option<PathBuf>,
     },
@@ -59,10 +64,10 @@ pub enum NoteCmd {
         /// The new body, as Markdown
         #[arg(long, conflicts_with = "body_file")]
         body: Option<String>,
-        /// The new body, read from this file
+        /// The new body, read from this file — `-` for stdin
         #[arg(long, value_name = "PATH")]
         body_file: Option<PathBuf>,
-        /// The hash of the body you read (`show` prints it); left out, the body as it stands when the edit begins
+        /// The hash of the body you read (`show` prints it); left out, the body as it stands when the edit begins is replaced, and the edit says what that was
         #[arg(long, value_name = "SHA256")]
         base_hash: Option<String>,
         /// Pin it at the top of its list, or unpin it
@@ -106,6 +111,9 @@ pub async fn note(ctx: &Ctx, out: &Out, cmd: NoteCmd) -> Result<()> {
 fn body_text(body: Option<String>, file: Option<PathBuf>) -> Result<Option<String>> {
     match (body, file) {
         (Some(text), _) => Ok(Some(text)),
+        (None, Some(path)) if path.as_os_str() == "-" => std::io::read_to_string(std::io::stdin())
+            .map(Some)
+            .with_context(|| bisa_core::text!("cli-notes-reading-stdin")),
         (None, Some(path)) => std::fs::read_to_string(&path).map(Some).with_context(|| {
             bisa_core::text!("cli-notes-reading-file", path = path.display().to_string())
         }),
@@ -319,16 +327,25 @@ async fn edit(
     if title.is_none() && body.is_none() && pinned.is_none() {
         bail!(bisa_core::text!("cli-notes-nothing-to-edit"));
     }
+    // What an edit that named no hash wrote over: the body's hash and when
+    // it was last written, read as the edit begins.
+    let mut replaced: Option<(String, u64)> = None;
     let note = if let Some(node) = ctx.node_client().await {
         // The hash the edit carries: the one given, else the body's as it
         // stands now — read first, so the write names what it replaces.
         let base_hash = match (&body, base_hash) {
-            (Some(_), None) => node.get(&format!("/notes/{note_id}")).await?["note"]["hash"]
-                .as_str()
-                .map(str::to_string),
+            (Some(_), None) => {
+                let found = node.get(&format!("/notes/{note_id}")).await?;
+                let hash = found["note"]["hash"].as_str().map(str::to_string);
+                replaced = hash
+                    .clone()
+                    .map(|h| (h, found["note"]["updated_at"].as_u64().unwrap_or(0)));
+                hash
+            }
             (_, given) => given,
         };
-        let mut payload = json!({});
+        // Said on the bus: this is nobody's open editor.
+        let mut payload = json!({"announce": true});
         if let Some(title) = title {
             payload["title"] = json!(title);
         }
@@ -345,11 +362,14 @@ async fn edit(
     } else {
         let engine = ctx.quiet_engine().await?;
         let base_hash = match (&body, base_hash) {
-            (Some(_), None) => engine
-                .workspace()
-                .get_note(note_id)
-                .map(|n| body_hash(&n.body))
-                .ok(),
+            (Some(_), None) => {
+                replaced = engine
+                    .workspace()
+                    .get_note(note_id)
+                    .map(|n| (body_hash(&n.body), n.updated_at))
+                    .ok();
+                replaced.as_ref().map(|(hash, _)| hash.clone())
+            }
             (_, given) => given,
         };
         let edited = bisa_engine::notes::update(
@@ -369,7 +389,23 @@ async fn edit(
         "cli-notes-edited",
         id = note_id.to_string()
     ));
-    out.json_value(json!({"note": note}));
+    match replaced {
+        Some((hash, written)) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(written);
+            out.aside(&bisa_core::text!(
+                "cli-notes-replaced",
+                hash = hash.clone(),
+                seconds = now.saturating_sub(written)
+            ));
+            out.json_value(
+                json!({"note": note, "replaced": {"hash": hash, "updated_at": written}}),
+            );
+        }
+        None => out.json_value(json!({"note": note})),
+    }
     Ok(())
 }
 

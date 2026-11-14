@@ -30,6 +30,18 @@ pub const MAX_DESCRIBE_BYTES: usize = 16 * 1024;
 /// Longest title, in characters — a line in a list.
 pub const MAX_DRAWING_TITLE_CHARS: usize = 120;
 
+/// Longest link on an element, in bytes.
+pub const MAX_ELEMENT_LINK_BYTES: usize = 2048;
+/// Farthest an element sits from the origin, and the most it measures, on
+/// either axis — far past any drawing a person makes, and short of the
+/// numbers a canvas cannot place.
+pub const MAX_ELEMENT_COORDINATE: f64 = 1.0e9;
+/// The schemes a link on an element may have. One with no scheme — a path,
+/// a `#fragment`, a `?query` — points inside the app and is allowed; any
+/// other scheme (`javascript:`, `data:`, `file:` …) is refused: a link is
+/// something a person clicks.
+pub const LINK_SCHEMES: &[&str] = &["http", "https", "mailto", "tauri"];
+
 /// The element types a scene may hold — the vector ones. The canvas draws
 /// nothing else, and an agent's skeleton is checked against the same list.
 pub const ELEMENT_TYPES: &[&str] = &[
@@ -130,6 +142,28 @@ impl Scene {
             .unwrap_or(usize::MAX);
         if bytes > MAX_SCENE_BYTES {
             return Err(DrawError::TooLarge { bytes });
+        }
+        Ok(())
+    }
+
+    /// What a scene being **written** must also be, beyond [`Self::validate`]:
+    /// no two elements under one id, every place and size a number a canvas
+    /// can draw, every link one a person may follow. Kept apart from
+    /// `validate` on purpose — a scene already stored that fails one of
+    /// these still reads, lists and deletes; it is the next write of it that
+    /// is refused, with the element named.
+    pub fn validate_for_write(&self) -> Result<(), DrawError> {
+        self.validate()?;
+        let mut seen: HashSet<&str> = HashSet::with_capacity(self.elements.len());
+        for element in &self.elements {
+            let id = id_of(element).unwrap_or_default();
+            if !seen.insert(id) {
+                return Err(DrawError::BadElement {
+                    why: format!("two elements share the id {id:?}"),
+                });
+            }
+            check_numbers(element)?;
+            check_link(element)?;
         }
         Ok(())
     }
@@ -355,6 +389,77 @@ fn check_texts(e: &Value) -> Result<(), DrawError> {
     Ok(())
 }
 
+/// An element's place and size are numbers a canvas can draw: finite and
+/// within [`MAX_ELEMENT_COORDINATE`] of the origin.
+fn check_numbers(e: &Value) -> Result<(), DrawError> {
+    for key in ["x", "y", "width", "height"] {
+        let Some(v) = e.get(key).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        let drawable = v
+            .as_f64()
+            .is_some_and(|n| n.is_finite() && n.abs() <= MAX_ELEMENT_COORDINATE);
+        if !drawable {
+            return Err(DrawError::BadElement {
+                why: format!(
+                    "`{key}` of {} is not a number a canvas can place",
+                    label_of(e)
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// An element's link, when it has one, is text within the cap, with no
+/// control character (a browser reads `java\tscript:` as `javascript:`) and
+/// a scheme off [`LINK_SCHEMES`] — or none.
+fn check_link(e: &Value) -> Result<(), DrawError> {
+    let Some(link) = e.get("link").filter(|l| !l.is_null()) else {
+        return Ok(());
+    };
+    let refused = |why: &str| DrawError::BadElement {
+        why: format!("the link on {} {why}", label_of(e)),
+    };
+    let Some(link) = link.as_str() else {
+        return Err(refused("is not text"));
+    };
+    if link.len() > MAX_ELEMENT_LINK_BYTES {
+        return Err(refused("is too long"));
+    }
+    if link.chars().any(char::is_control) {
+        return Err(refused("holds a control character"));
+    }
+    match link_scheme(link.trim()) {
+        Some(scheme) if !LINK_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()) => {
+            Err(refused(&format!(
+                "is a `{scheme}:` link, which the canvas does not keep"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The scheme a link opens with, as a browser reads one: letters, digits,
+/// `+`, `-` and `.` after a first letter, up to a `:` that comes before any
+/// `/`, `?` or `#`. A link without one is relative.
+fn link_scheme(link: &str) -> Option<&str> {
+    let end = link.find([':', '/', '?', '#'])?;
+    if !link[end..].starts_with(':') {
+        return None;
+    }
+    let scheme = &link[..end];
+    let mut chars = scheme.chars();
+    let named = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    named.then_some(scheme)
+}
+
+/// How a refusal names an element: its id, or that it has none.
+fn label_of(e: &Value) -> String {
+    id_of(e).map_or_else(|| "an element".to_string(), |id| format!("element {id:?}"))
+}
+
 /// What an agent hands `drawing_draw`: a list of skeleton elements — a type,
 /// a place, and what the canvas needs to make the rest (a label, a binding,
 /// a frame's children). Bounded in count and text like a scene's, of the
@@ -373,6 +478,10 @@ pub fn validate_skeleton(elements: &[Value]) -> Result<(), DrawError> {
         }
         check_type(e)?;
         check_texts(e)?;
+        // Said to the agent here, before the canvas draws what the store
+        // would then refuse to keep.
+        check_numbers(e)?;
+        check_link(e)?;
     }
     Ok(())
 }
@@ -393,6 +502,20 @@ pub struct Drawing {
 
 impl Drawing {
     pub fn validate(&self) -> Result<(), DrawError> {
+        self.validate_title()?;
+        self.scene.validate()
+    }
+
+    /// What a drawing being written — by a save here, or by a record a peer
+    /// sent — must be: [`Self::validate`], and its scene
+    /// [`Scene::validate_for_write`].
+    pub fn validate_for_write(&self) -> Result<(), DrawError> {
+        self.validate_title()?;
+        self.scene.validate_for_write()
+    }
+
+    /// What a title being written must be: something, within the cap.
+    pub fn validate_title(&self) -> Result<(), DrawError> {
         let title = self.title.trim();
         if title.is_empty() {
             return Err(DrawError::EmptyTitle);
@@ -401,7 +524,7 @@ impl Drawing {
         if chars > MAX_DRAWING_TITLE_CHARS {
             return Err(DrawError::TitleTooLong { chars });
         }
-        self.scene.validate()
+        Ok(())
     }
 }
 
@@ -462,6 +585,101 @@ mod tests {
             updated_at: 2,
             scene,
         }
+    }
+
+    /// What a scene being written must also be: one element per id, places
+    /// and sizes a canvas can draw, links a person may follow — while the
+    /// same scene, already stored, still passes the reading check.
+    #[test]
+    fn a_scene_being_written_has_one_element_per_id_drawable_numbers_and_followable_links() {
+        let with = |e: Value| Scene {
+            elements: vec![shape("a", "rectangle"), e],
+            ..Default::default()
+        };
+        let why = |s: &Scene| match s.validate_for_write() {
+            Err(DrawError::BadElement { why }) => why,
+            other => panic!("{other:?}"),
+        };
+        let twin = with(shape("a", "ellipse"));
+        assert!(twin.validate().is_ok(), "a stored scene still reads");
+        assert!(why(&twin).contains("share the id \"a\""), "{}", why(&twin));
+
+        let mut far = shape("b", "rectangle");
+        far["x"] = json!(1.0e12);
+        assert!(why(&with(far)).contains("`x` of element \"b\""));
+        let mut wide = shape("b", "rectangle");
+        wide["width"] = json!("wide");
+        assert!(why(&with(wide)).contains("`width`"));
+        let mut unsized_ = shape("b", "line");
+        unsized_["height"] = Value::Null;
+        assert!(
+            with(unsized_).validate_for_write().is_ok(),
+            "a null size is no size"
+        );
+
+        let linked = |link: Value| {
+            let mut e = shape("b", "rectangle");
+            e["link"] = link;
+            with(e)
+        };
+        for ok in [
+            json!("https://example.com/a?b#c"),
+            json!("HTTP://example.com"),
+            json!("mailto:someone@example.com"),
+            json!("tauri://localhost/?element=a"),
+            json!("/notes/x"),
+            json!("#section"),
+            json!("?element=a"),
+            json!("notes/2026:plan"),
+            json!(""),
+            Value::Null,
+        ] {
+            assert!(linked(ok.clone()).validate_for_write().is_ok(), "{ok}");
+        }
+        for (bad, said) in [
+            (json!("javascript:alert(1)"), "`javascript:` link"),
+            (json!("  JavaScript:alert(1)"), "`JavaScript:` link"),
+            (json!("java\tscript:alert(1)"), "control character"),
+            (json!("data:text/html,x"), "`data:` link"),
+            (json!("file:///etc/hosts"), "`file:` link"),
+            (json!(7), "is not text"),
+            (
+                json!(format!(
+                    "https://e.com/{}",
+                    "a".repeat(MAX_ELEMENT_LINK_BYTES)
+                )),
+                "too long",
+            ),
+        ] {
+            let w = why(&linked(bad.clone()));
+            assert!(
+                w.contains(said) && w.contains("element \"b\""),
+                "{bad}: {w}"
+            );
+            assert!(linked(bad).validate().is_ok(), "and it still reads");
+        }
+        // The reading check's own refusals come first.
+        let image = with(json!({"id": "i", "type": "image", "x": 0, "y": 0}));
+        assert!(matches!(
+            image.validate_for_write(),
+            Err(DrawError::ElementRefused { .. })
+        ));
+        // A skeleton is told the same before the canvas draws it.
+        let no_id = json!({"type": "rectangle", "x": 0, "y": 0, "link": "javascript:x"});
+        assert!(matches!(
+            validate_skeleton(&[no_id]),
+            Err(DrawError::BadElement { why }) if why.contains("an element")
+        ));
+        assert!(matches!(
+            validate_skeleton(&[json!({"type": "rectangle", "x": "left"})]),
+            Err(DrawError::BadElement { why }) if why.contains("`x`")
+        ));
+        // The record's own door.
+        let mut d = drawing(twin);
+        assert!(d.validate().is_ok());
+        assert!(d.validate_for_write().is_err());
+        d.title = " ".into();
+        assert_eq!(d.validate_for_write(), Err(DrawError::EmptyTitle));
     }
 
     #[test]

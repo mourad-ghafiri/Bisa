@@ -3,8 +3,8 @@
 //! Six routes over [`bisa_store::notes`], and the notes repository's under
 //! `/notes/git`. An agent is asked about a note in a **conversation** whose
 //! origin is the note (`POST /conversations` with `{"kind":"note","id":…}`,
-//! 13 — Conversations); its only write into the document is the
-//! `note_append` op, which the engine points at that note when the call
+//! 13 — Conversations); its writes into the document are the `note_append`
+//! and `note_write` ops, which the engine points at that note when the call
 //! names none.
 //!
 //! # An edit does not announce itself
@@ -14,9 +14,18 @@
 //! gets the note back in the response. Emitting on it made the writer its own
 //! audience: the frame returned, the overlay refetched, the refetch replaced
 //! the buffer somebody was typing into, and the difference that produced was
-//! saved as another write. `create`, `delete` and the `note_append` op an
-//! agent calls do emit: a note appearing or going is a fact every surface
-//! wants — the list, and the dock's count of every note there is.
+//! saved as another write. `create`, `delete`, an agent's `note_append` and
+//! `note_write`, and a pull that moved notes do emit: a note appearing,
+//! changing under you or going is a fact every surface wants — the list,
+//! and the dock's count of every note there is. A caller that is nobody's
+//! open editor (the command line) passes `announce: true` and its edit is
+//! said too.
+//!
+//! # A note nobody can read
+//!
+//! A file this build cannot read — a merge left in it, a key a hand added —
+//! answers 404 with the code `record_unreadable`, which a client tells from
+//! a note that left; `DELETE` removes it all the same.
 //!
 //! # Two writers, so one guard
 //!
@@ -178,6 +187,7 @@ async fn patch_note(
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
+    let announce = body.announce == Some(true);
     let patched = bisa_engine::notes::update(
         state.engine.inner(),
         id,
@@ -189,8 +199,14 @@ async fn patch_note(
         body.base_hash.as_deref(),
     );
     match patched {
-        // Silent on the bus on purpose; `bisa_engine::notes::update` says why.
-        Ok(note) => Json(json!({"note": row(note)})).into_response(),
+        // Silent on the bus on purpose (`bisa_engine::notes::update` says
+        // why) unless the caller, being nobody's open editor, asks.
+        Ok(note) => {
+            if announce {
+                bisa_engine::notes::emit_changed(state.engine.inner(), &note);
+            }
+            Json(json!({"note": row(note)})).into_response()
+        }
         Err(e) => conflict_or(e, &locale),
     }
 }
@@ -214,22 +230,22 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/notes",
-        summary: "Create a note: `{title, body, scope}`.",
+        summary: "Create a note: `{title, body, scope, id}` — `id` names the goal, project, workflow or channel the scope is.",
     },
     RouteDoc {
         method: "GET",
         path: "/notes/{id}",
-        summary: "One note, with its hash for guarded updates.",
+        summary: "One note, with its hash for guarded updates; 404 with the code `record_unreadable` for a file this build cannot read.",
     },
     RouteDoc {
         method: "PATCH",
         path: "/notes/{id}",
-        summary: "Edit a note with `base_hash`; 409 carries the current text.",
+        summary: "Edit a note with `base_hash`; 409 carries the current text. Silent on the bus unless `announce` is true.",
     },
     RouteDoc {
         method: "DELETE",
         path: "/notes/{id}",
-        summary: "Delete a note.",
+        summary: "Delete a note — one this build cannot read included.",
     },
     RouteDoc {
         method: "GET",
@@ -239,7 +255,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/notes/git/commit",
-        summary: "Commit every change to the notes as one commit: `{message}`; 409 with nobody set to commit or nothing changed.",
+        summary: "Commit every change to the notes as one commit: `{message}`; 400 with nobody set to commit, 409 with nothing changed.",
     },
     RouteDoc {
         method: "POST",
@@ -259,7 +275,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/notes/git/pull",
-        summary: "Fast-forward to origin, a safety ref first; anything a fast-forward cannot take is refused.",
+        summary: "Fast-forward to origin, a safety ref first; anything a fast-forward cannot take is refused. Notes that arrived, changed or left are indexed and announced.",
     },
     RouteDoc {
         method: "PUT",

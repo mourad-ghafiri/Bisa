@@ -33,6 +33,11 @@ const FENCE: &str = "---";
 /// puts the whole body in its first prompt.
 pub const MAX_NOTE_BYTES: usize = 128 * 1024;
 
+/// Longest note title, in characters — a title is a line in a list, in a
+/// front matter block and in a prompt's first words. A file that arrived
+/// with a longer one still reads; the cap is on what is written.
+pub const MAX_NOTE_TITLE_CHARS: usize = 200;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Note {
@@ -50,20 +55,48 @@ pub struct Note {
 
 impl Note {
     pub fn validate(&self) -> Result<(), NoteError> {
-        if self.title.trim().is_empty() {
+        Self::validate_title(&self.title)?;
+        Self::validate_body(&self.body)
+    }
+
+    /// A title as the platform keeps it: one trimmed line. A line break or
+    /// any other control character would break the front matter block — or a
+    /// list row, or a terminal — so each is a space, a `\r\n` pair one. The
+    /// one rule the file, the index and every answer share.
+    pub fn clean_title(raw: &str) -> String {
+        raw.replace("\r\n", "\n")
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }
+
+    /// What a title being written must be: something, within the cap.
+    pub fn validate_title(title: &str) -> Result<(), NoteError> {
+        if title.trim().is_empty() {
             return Err(NoteError::EmptyTitle);
         }
-        if self.body.len() > MAX_NOTE_BYTES {
-            return Err(NoteError::TooLarge(self.body.len()));
+        let chars = title.chars().count();
+        if chars > MAX_NOTE_TITLE_CHARS {
+            return Err(NoteError::TitleTooLong { chars });
+        }
+        Ok(())
+    }
+
+    /// What a body being written must be: within the cap.
+    pub fn validate_body(body: &str) -> Result<(), NoteError> {
+        if body.len() > MAX_NOTE_BYTES {
+            return Err(NoteError::TooLarge(body.len()));
         }
         Ok(())
     }
 
     /// The file: the front matter block, then the body as written. A title
-    /// is one line by construction; a newline in it would break the block,
-    /// so it is folded to a space here rather than trusted.
+    /// is one line by construction ([`Note::clean_title`]); it is cleaned
+    /// here too rather than trusted.
     pub fn to_markdown(&self) -> String {
-        let title = self.title.split(['\n', '\r']).collect::<Vec<_>>().join(" ");
+        let title = Self::clean_title(&self.title);
         let mut out = String::with_capacity(self.body.len() + 128);
         out.push_str(FENCE);
         out.push('\n');
@@ -80,18 +113,25 @@ impl Note {
     /// The note a file holds: the id and scope come from where the file is,
     /// the four facts from its block, the body from what follows it.
     pub fn from_markdown(id: NoteId, scope: OwnerScope, text: &str) -> Result<Self, NoteError> {
+        // A byte-order mark an editor left is not the note's.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let mut lines = text.split_inclusive('\n');
-        let opening = lines.next().map(|l| l.trim_end_matches(['\r', '\n']));
-        if opening != Some(FENCE) {
+        let Some(opening) = lines
+            .next()
+            .filter(|l| l.trim_end_matches(['\r', '\n']) == FENCE)
+        else {
             return Err(NoteError::BadFrontMatter(
                 "the file does not open with a front matter block".into(),
             ));
-        }
+        };
         let mut title = None;
         let mut pinned = None;
         let mut created_at = None;
         let mut updated_at = None;
-        let mut consumed = opening.map(|_| FENCE.len() + 1).unwrap_or(0);
+        // How far the block reaches is counted in the lines as they are in
+        // the file — a `\r\n` ending is two bytes, not one — so the body
+        // starts exactly after the closing fence.
+        let mut consumed = opening.len();
         let mut closed = false;
         for line in lines {
             consumed += line.len();
@@ -150,6 +190,8 @@ pub enum NoteError {
     EmptyTitle,
     #[error("note body is {0} bytes; the cap is {MAX_NOTE_BYTES}")]
     TooLarge(usize),
+    #[error("a note's title is {chars} characters; the cap is {MAX_NOTE_TITLE_CHARS}")]
+    TitleTooLong { chars: usize },
     /// The file's front matter block is not the platform's — a hand edit in
     /// a clone, or not a note at all.
     #[error("the note's front matter is not readable: {0}")]
@@ -250,6 +292,62 @@ mod tests {
         assert!(
             matches!(bad("---\ntitle: t\nno colon here\n---\n"), NoteError::BadFrontMatter(m) if m.contains("key: value"))
         );
+    }
+
+    /// A file a Windows checkout rewrote, one with stray carriage returns on
+    /// its opening line, and one an editor put a byte-order mark on: each
+    /// reads back with the body it was written with, and none panics.
+    #[test]
+    fn a_file_with_other_line_endings_reads_back_with_its_own_body() {
+        let id = NoteId::from_ulid(ulid::Ulid::from_parts(5, 1));
+        let read = |text: &str| Note::from_markdown(id, OwnerScope::Workspace, text).unwrap();
+        let crlf = "---\r\ntitle: t\r\ncreated_at: 1\r\nupdated_at: 2\r\n---\r\nbody\r\n";
+        assert_eq!(read(crlf).body, "body\r\n", "no newline is gained");
+        assert_eq!(read(crlf).title, "t");
+        // The opening line's length is the line's, not the fence's: with the
+        // count short, the body's start fell inside the `é` and the slice
+        // panicked.
+        let stray = "---\r\r\r\r\r\r\ncreated_at: 1\nupdated_at: 2\ntitle: é\n---\nbody";
+        assert_eq!(read(stray).body, "body");
+        assert_eq!(read(stray).title, "é");
+        let marked = "\u{feff}---\ntitle: t\ncreated_at: 1\nupdated_at: 2\n---\nbody";
+        assert_eq!(read(marked).body, "body");
+        assert!(matches!(
+            Note::from_markdown(id, OwnerScope::Workspace, ""),
+            Err(NoteError::BadFrontMatter(m)) if m.contains("does not open")
+        ));
+    }
+
+    /// A title is one trimmed line of at most the cap: what the file can
+    /// hold is what the answer and the index say.
+    #[test]
+    fn a_title_is_one_trimmed_line_within_its_cap() {
+        assert_eq!(Note::clean_title("  a\nb\r\n "), "a b");
+        assert_eq!(Note::clean_title("a\r\nb"), "a b", "one break, one space");
+        assert_eq!(Note::clean_title("tab\there\u{7}"), "tab here");
+        assert_eq!(Note::clean_title(" \n "), "");
+        assert_eq!(Note::validate_title(""), Err(NoteError::EmptyTitle));
+        assert_eq!(
+            Note::validate_title(&"é".repeat(MAX_NOTE_TITLE_CHARS)),
+            Ok(())
+        );
+        assert_eq!(
+            Note::validate_title(&"é".repeat(MAX_NOTE_TITLE_CHARS + 1)),
+            Err(NoteError::TitleTooLong {
+                chars: MAX_NOTE_TITLE_CHARS + 1
+            })
+        );
+        assert_eq!(Note::validate_body(&"x".repeat(MAX_NOTE_BYTES)), Ok(()));
+        let n = Note {
+            id: NoteId::from_ulid(ulid::Ulid::from_parts(5, 1)),
+            scope: OwnerScope::Workspace,
+            title: "bell\u{7}rung".into(),
+            body: String::new(),
+            created_at: 1,
+            updated_at: 2,
+            pinned: false,
+        };
+        assert!(n.to_markdown().contains("title: bell rung\n"));
     }
 
     #[test]

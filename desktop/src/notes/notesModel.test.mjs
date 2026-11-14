@@ -455,13 +455,13 @@ test("a note's refusal is read by its status: a 409 is a lost save, a 404 a note
   // The editor: a save, a re-read and a delete each ask the model; none matches a status number for *gone*, none a word.
   const { readFileSync } = await import("node:fs");
   const editor = readFileSync(new URL("./NoteEditor.tsx", import.meta.url), "utf8");
-  assert.equal(editor.split('noteRefusal(e.status) === "gone"').length - 1, 2, "the re-read and the delete");
-  assert.ok(editor.includes('const refusal = e instanceof ApiError ? noteRefusal(e.status) : "failed";'), "the save");
+  assert.equal(editor.split("noteRefusal(e.status, e.code)").length - 1, 3, "the save, the re-read and the delete — each with the node's code, which tells unreadable from gone");
+  assert.ok(!editor.includes("noteRefusal(e.status)"), "none asks by the status alone");
   assert.ok(!editor.includes("status === 400") && !editor.includes("status === 404") && !/not found/i.test(editor.replace(/\/\/.*$/gm, "")), "no old status and no words of a refusal");
   assert.ok(editor.includes("s.abandoned = true;\n          setGone("), "a note that is gone is saved to no more");
   assert.ok(editor.includes("dirtyRef.current && !live.current.abandoned"), "and holds nobody back at the leave guard");
   const remove = editor.slice(editor.indexOf("const remove = async () => {"), editor.indexOf("return (", editor.indexOf("const remove = async () => {")));
-  assert.ok(remove.includes('noteRefusal(e.status) === "gone"') && remove.indexOf("onDeleted();", remove.indexOf('=== "gone"')) > 0, "a delete of a note already gone leaves, as a delete that happened");
+  assert.ok(remove.includes('noteRefusal(e.status, e.code) === "gone"') && remove.indexOf("onDeleted();", remove.indexOf('=== "gone"')) > 0, "a delete of a note already gone leaves, as a delete that happened");
 });
 
 
@@ -475,4 +475,105 @@ test("a save that lands after the panel moved to another note writes nothing of 
   assert.ok(landed.indexOf("if (s.id !== sending.id) return false;") < landed.indexOf("s.hash = next.hash;"), "the left note's hash is never the baseline of the one on screen — that made the next save a conflict nobody caused");
   const refused = save.slice(save.indexOf("} catch (e) {"), save.indexOf("} finally {"));
   assert.ok(refused.indexOf("if (s.id !== sending.id) return false;") < refused.indexOf("s.conflicted = true;"), "nor its refusal the other note's conflict");
+});
+
+// --- the hardening pass: what the editor sends, what counts as saved, who wrote ---
+
+test("a save sends only what moved: the title when it changed, the body with the hash it was read at", async () => {
+  const { savePatch } = await import("./notesModel.mjs");
+  const confirmed = { title: "Plan", body: "one" };
+  assert.equal(savePatch({ title: "Plan", body: "one" }, confirmed, "h"), null, "nothing moved, nothing sent");
+  assert.deepEqual(savePatch({ title: "Plan", body: "two" }, confirmed, "h"), { body: "two", base_hash: "h" }, "a title nobody touched is not sent — it would undo a rename made elsewhere");
+  assert.deepEqual(savePatch({ title: "Q3 plan", body: "one" }, confirmed, "h"), { title: "Q3 plan" }, "a rename needs no hash");
+  assert.deepEqual(savePatch({ title: " Q3 plan ", body: "two" }, confirmed, "h"), { title: "Q3 plan", body: "two", base_hash: "h" });
+  assert.equal(savePatch({ title: "Plan  ", body: "one" }, confirmed, "h"), null, "spaces at the ends of a title are not a change");
+});
+
+test("a title with spaces at its ends is saved once the store holds its trimmed self", async () => {
+  const { noteClean } = await import("./notesModel.mjs");
+  assert.equal(noteClean({ title: "Plan ", body: "one" }, { title: "Plan", body: "one" }), true);
+  assert.equal(noteClean({ title: "Plan", body: "one " }, { title: "Plan", body: "one" }), false, "a body is kept to the letter");
+  assert.equal(noteClean({ title: "Plans", body: "one" }, { title: "Plan", body: "one" }), false);
+});
+
+test("keep mine saves at the hash the refusal named, whatever the list still holds", async () => {
+  const { conflictHash } = await import("./notesModel.mjs");
+  assert.equal(conflictHash({ error: "…", current: "theirs", current_hash: "abc" }), "abc");
+  assert.equal(conflictHash({ error: "…" }), null);
+  assert.equal(conflictHash(null), null);
+  assert.equal(conflictHash("nope"), null);
+  assert.equal(conflictHash({ current_hash: 7 }), null);
+});
+
+test("a note nobody can read is told from one that is gone, by the node's code", async () => {
+  const { noteRefusal, noteUnreadableWords } = await import("./notesModel.mjs");
+  assert.match(noteUnreadableWords(), /can no longer be read.*stays here to copy.*delete it/, "what happened, that the text is safe, and the one act left");
+  assert.equal(noteRefusal(404, "record_unreadable"), "unreadable");
+  assert.equal(noteRefusal(404, null), "gone");
+  assert.equal(noteRefusal(404), "gone");
+  assert.equal(noteRefusal(409, "record_unreadable"), "conflict", "the code speaks only beside its own status");
+});
+
+test("an append lands as an append when the saved body ended in spaces or blank lines", async () => {
+  // The store trims the end of what is there before it adds the block.
+  assert.deepEqual(adoptIncoming("mine  \n", "mine  \n", "mine\n\ntheirs"), { body: "mine\n\ntheirs", outcome: "appended" }, "nothing typed: the store's copy, so the buffer is clean");
+  assert.deepEqual(adoptIncoming("mine  \nand more", "mine  \n", "mine\n\ntheirs"), { body: "mine  \nand more\n\ntheirs", outcome: "appended" }, "typed since: the block goes under it");
+  assert.deepEqual(adoptIncoming("  \n", "  \n", "theirs"), { body: "theirs", outcome: "appended" }, "a blank note takes the block whole");
+  assert.equal(adoptIncoming("mine  \n", "mine  \n", "mine, rewritten").outcome, "taken", "a rewrite is still a rewrite");
+});
+
+test("a read dropped under a save of the same second is asked for once more when it said something else", async () => {
+  const { rereadDue } = await import("./notesModel.mjs");
+  const saved = new Map([["n1", { id: "n1", hash: "mine", updated_at: 11 }]]);
+  assert.equal(rereadDue([{ id: "n1", hash: "mine", updated_at: 11 }], saved), false, "the same text: nothing was hidden");
+  assert.equal(rereadDue([{ id: "n1", hash: "older", updated_at: 10 }], saved), false, "a read from before the save");
+  assert.equal(rereadDue([{ id: "n1", hash: "with-agent", updated_at: 11 }], saved), true, "same second, other text: an agent's append may be under the save");
+  assert.equal(rereadDue([{ id: "n2", hash: "x", updated_at: 11 }], saved), false);
+  assert.equal(rereadDue([{ id: "n1", hash: "with-agent", updated_at: 11 }], new Map()), false);
+});
+
+test("the notes chord is Alt and the N key — by the key's place, since Option+N types a dead key on a Mac", async () => {
+  const { isNotesChord } = await import("./notesModel.mjs");
+  const k = (o) => ({ altKey: false, metaKey: false, ctrlKey: false, shiftKey: false, key: "", code: "", ...o });
+  assert.equal(isNotesChord(k({ altKey: true, key: "n", code: "KeyN" })), true);
+  assert.equal(isNotesChord(k({ altKey: true, key: "Dead", code: "KeyN" })), true, "macOS: Option+N is the tilde dead key");
+  assert.equal(isNotesChord(k({ altKey: true, key: "˜", code: "KeyN" })), true);
+  assert.equal(isNotesChord(k({ altKey: true, key: "N", code: "" })), true, "no code said: the letter still counts");
+  assert.equal(isNotesChord(k({ altKey: true, metaKey: true, key: "n", code: "KeyN" })), false);
+  assert.equal(isNotesChord(k({ altKey: true, ctrlKey: true, key: "n", code: "KeyN" })), false);
+  assert.equal(isNotesChord(k({ key: "n", code: "KeyN" })), false);
+  assert.equal(isNotesChord(k({ altKey: true, key: "m", code: "KeyM" })), false);
+});
+
+test("the toolbar's placeholder words are the catalogue's, and the link's address is selected whole", () => {
+  const code = wrapSelection("", 0, 0, "code");
+  assert.equal(code.text, "`code`");
+  const link = wrapSelection("", 0, 0, "link");
+  assert.equal(link.text, "[text](url)");
+  assert.equal(link.text.slice(link.from, link.to), "url", "the address is what is still to supply");
+});
+
+test("what the list does with a note that is open and no longer listed", async () => {
+  const { missingVerdict } = await import("./notesModel.mjs");
+  assert.equal(missingVerdict(200, null), "there", "another tab holds it, or the list's read was older than its making");
+  assert.equal(missingVerdict(404, null), "gone");
+  assert.equal(missingVerdict(404, "record_unreadable"), "unreadable");
+  assert.equal(missingVerdict(0, null), "unknown", "no answer is no verdict: the editor stays as it is");
+  assert.equal(missingVerdict(500, null), "unknown");
+});
+
+test("the wiring: the editor asks the model what to send, what is clean and which hash to keep", async () => {
+  const { readFileSync } = await import("node:fs");
+  const editor = readFileSync(new URL("./NoteEditor.tsx", import.meta.url), "utf8");
+  assert.ok(editor.includes("savePatch("), "the patch is the model's");
+  assert.ok(editor.includes("noteClean("), "clean is the model's");
+  assert.ok(editor.includes("conflictHash("), "keep mine reads the refusal's hash");
+  assert.ok(!/title: sending\.title, body: sending\.body, base_hash/.test(editor), "the whole note is no longer sent on every save");
+  const removal = editor.slice(editor.indexOf("const remove = async"), editor.indexOf("return (", editor.indexOf("const remove = async")));
+  assert.ok(removal.indexOf("api.deleteNote") < removal.indexOf("forgetPref"), "a draft is forgotten only after the delete landed");
+  const overlay = readFileSync(new URL("./NoteOverlay.tsx", import.meta.url), "utf8");
+  assert.ok(overlay.includes("ownerGone(e.payload.type)"), "a place leaving with its notes redraws the list");
+  assert.ok(overlay.includes("isNotesChord("), "the chord is the model's");
+  assert.ok(overlay.includes("missingVerdict("), "an open note the list lost is asked after, not dropped");
+  assert.ok(overlay.includes("rereadDue("), "a read dropped under a same-second save is asked for again");
 });

@@ -22082,6 +22082,11 @@
           "type": "string",
           "const": "query_unreadable",
           "description": "The query string was not read (400): a number that is no number, a\nfield the route needs and the address lacks. `detail.reason` is the\nreader's own sentence."
+        },
+        {
+          "type": "string",
+          "const": "record_unreadable",
+          "description": "The record is there and this build cannot read it (404, as for one\nthat is not there): another shape of the code wrote it, a merge was\nleft in it, a hand edited it. A client that shows *gone* for a 404\nshows *unreadable* for this — and may still delete what offers a\ndelete (a note)."
         }
       ],
       "description": "The refusals a client tells apart. Each names one producer that exists;\na message is still the words, the code is what a client switches on."
@@ -24640,6 +24645,14 @@
             "string",
             "null"
           ],
+          "default": null
+        },
+        "announce": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Say the edit on the bus (`note_changed`). An editor leaves it out: it\nholds the answer, and hearing its own save is what it must not. A\ncaller that is nobody's open editor — the command line — sets it, so\nan editor open on the note learns the text moved.",
           "default": null
         }
       },

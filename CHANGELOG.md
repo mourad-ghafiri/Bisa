@@ -36,7 +36,26 @@ notes (`docs/contributing/release.md`).
   *fresh session* beside it. The two carets are one list (`launchMenuModel`), so they cannot
   disagree.
 
+- **`bisa note edit --body-file -`** reads the body from stdin (`note new` too). An edit that names
+  no `--base-hash` still writes over the body as it stands, and now says what it replaced — the
+  hash and how long ago it was written — on stderr and as `replaced` in `--json`. An edit made
+  through a running node is announced (`announce` on `PATCH /notes/{id}`), so a note open in the
+  desktop learns its text moved.
+
+- **`record_unreadable`**: a record that is there and that this build cannot read answers 404 with
+  this code, which a client tells from a record that is gone.
+
 ### Security
+
+- **A drawing's links are ones a person may follow.** A link on an element is `http`, `https`,
+  `mailto`, the app's own, or relative; `javascript:`, `data:`, `file:` and the rest are refused
+  when the scene is saved and when an agent hands a skeleton, as is a link holding a control
+  character. A scene saved before this still opens; it is its next save that is refused, with the
+  element named.
+
+- **A drawing from another machine is checked before it is stored.** It must decode, be filed
+  under its own id and be a scene a save here would accept, or nothing of it is kept; it used to
+  be stored first and judged after.
 
 - **An addon's files are read across origins by its own frame alone.** The route that serves a
   bundle answers without the token, and the node's open CORS let a page on any site that found the
@@ -51,6 +70,47 @@ notes (`docs/contributing/release.md`).
   cannot take a built-in's id.
 
 ### Fixed
+
+- **Notes pulled from another machine appear.** A pull that moved now indexes what arrived, what
+  was rewritten and what was deleted, and says each, so the list, `bisa note list` and an open
+  note follow at once; they used to sit on disk unseen, through a restart.
+
+- **A deleted note or drawing stays deleted.** A delete — one record's, or a goal's, project's,
+  workflow's or channel's whole set — now waits its turn behind a write in flight; a save or an
+  agent's append that had already read the record used to put it back.
+
+- **A note or drawing nobody can read can be deleted.** A note whose file a merge or a hand left
+  unreadable, a drawing whose snapshot is torn, and a list entry whose file is already gone are
+  removed like any other; the desktop says *unreadable* where it used to say *gone*, and a delete
+  no longer claims a success it did not have.
+
+- **A note file with Windows line endings reads back as written** — it gained a blank line at each
+  read — and a crafted front matter block no longer crashes the notes list. A byte-order mark is
+  accepted. A title is one trimmed line everywhere (the answer, the list and the file used to
+  disagree) of at most 200 characters; a longer one already on disk still reads.
+
+- **The note editor no longer undoes a rename made elsewhere**, and *Keep mine* no longer comes
+  back to the same conflict: a save sends only what changed, and *Keep mine* saves over what the
+  refusal named. A title with a space at its end counts as saved. A note deleted elsewhere while
+  open keeps its text on screen, said as gone, instead of dropping to the list with the text. A
+  delete that fails keeps the draft; a save that failed is tried again when the node is back.
+
+- **The notes list follows what happens around it**: a goal, project or workflow deleted, a note
+  opened from a conversation while another tab is showing, an agent's append in the same second
+  as a save. `Alt+N` opens Notes on a Mac, where Option+N types a dead key.
+
+- **This machine's notes stay on it.** The notes repository leaves `node/` out, and a write a crash
+  cut short. A machine note an earlier commit already tracks keeps travelling until it is
+  untracked by hand (`git rm --cached`) — untracking it for you would delete it from your other
+  machines at their next pull.
+
+- **An agent's append with no text is refused** instead of adding a header with nothing under it.
+
+- **A drawing is saved once its record is.** A save whose export file could not be written
+  answered as failed with the record already saved, leaving the canvas with a stale hash; it is
+  now a saved drawing whose file the next write draws. The same scene with its keys in another
+  order is no change. Two elements under one id, and a place or size no canvas can draw, are
+  refused at the save.
 
 - **Bug hunt: no panel over the app, and a hunt that can always be left.** The panel the app drew
   at the top centre while hunting is gone — the strip's *Work* switch and ✕ now stand first in the

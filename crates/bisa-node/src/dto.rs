@@ -498,6 +498,12 @@ pub enum ErrorCode {
     /// field the route needs and the address lacks. `detail.reason` is the
     /// reader's own sentence.
     QueryUnreadable,
+    /// The record is there and this build cannot read it (404, as for one
+    /// that is not there): another shape of the code wrote it, a merge was
+    /// left in it, a hand edited it. A client that shows *gone* for a 404
+    /// shows *unreadable* for this — and may still delete what offers a
+    /// delete (a note).
+    RecordUnreadable,
 }
 
 /// One goal on the `GET /goals` list — and the same row `GET /teams/{id}`
@@ -1931,6 +1937,12 @@ pub struct PatchNoteBody {
     pub pinned: Option<bool>,
     #[serde(default)]
     pub base_hash: Option<String>,
+    /// Say the edit on the bus (`note_changed`). An editor leaves it out: it
+    /// holds the answer, and hearing its own save is what it must not. A
+    /// caller that is nobody's open editor — the command line — sets it, so
+    /// an editor open on the note learns the text moved.
+    #[serde(default)]
+    pub announce: Option<bool>,
 }
 
 /// One note in a list. Carries the body: a scope holds a handful of notes, and

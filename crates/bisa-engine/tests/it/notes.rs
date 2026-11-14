@@ -296,3 +296,142 @@ async fn a_conversation_chooses_the_note_for_a_call_naming_none_and_a_bare_call_
     let left = ws.list_conversations(&ConversationFilter::all(10)).unwrap();
     assert!(left.is_empty(), "{left:?}");
 }
+
+/// What the next announcement about a note says, within a moment.
+async fn next_note_frame(
+    rx: &mut tokio::sync::broadcast::Receiver<bisa_engine::events::EngineEvent>,
+) -> Option<(String, String, String)> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let ev = rx.recv().await.unwrap();
+            if let EnginePayload::NoteChanged {
+                note, scope, hash, ..
+            } = &ev.payload
+            {
+                break (note.clone(), scope.clone(), hash.clone());
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
+/// An agent adds words or adds nothing: an append with no text is refused in
+/// a sentence, at the engine's own door, and no header-only block lands.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_append_with_no_text_is_refused_and_writes_no_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let socket = engine.socket_path().to_path_buf();
+    let note = notes::create(
+        engine.inner(),
+        NewNote {
+            scope: OwnerScope::Workspace,
+            title: "Kept".into(),
+            body: "mine\n".into(),
+        },
+    )
+    .unwrap();
+    for text in ["", "  \n\t "] {
+        let reply = intake_roundtrip(
+            &socket,
+            json!({"op": "note_append", "note": note.id, "agent": "developer", "text": text}),
+        )
+        .await;
+        assert_eq!(reply["ok"], json!(false), "{reply}");
+        assert!(
+            errors_of(&reply).iter().any(|e| e == notes::APPEND_NOTHING),
+            "{reply}"
+        );
+    }
+    assert_eq!(engine.workspace().get_note(note.id).unwrap().body, "mine\n");
+}
+
+/// A note nobody can read is still deleted, and the deletion is said — the
+/// list lets go of it — with where it was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_note_nobody_can_read_is_deleted_and_the_deletion_is_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let ws = engine.workspace();
+    let note = notes::create(
+        engine.inner(),
+        NewNote {
+            scope: OwnerScope::Workspace,
+            title: "Torn".into(),
+            body: "words".into(),
+        },
+    )
+    .unwrap();
+    let file = bisa_store::Paths::note_file_in(
+        &bisa_store::Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None),
+        note.id,
+    );
+    std::fs::write(&file, "<<<<<<< not a note").unwrap();
+    let mut rx = engine.inner().subscribe();
+    notes::delete(engine.inner(), note.id).unwrap();
+    assert!(!file.exists());
+    let (id, scope, _) = next_note_frame(&mut rx)
+        .await
+        .expect("the deletion is said");
+    assert_eq!((id, scope.as_str()), (note.id.to_string(), "workspace"));
+}
+
+/// Files that moved under the engine — a pull — are taken in and each is
+/// said: the note that arrived, the one rewritten, the one that left.
+#[tokio::test(flavor = "multi_thread")]
+async fn notes_a_pull_moved_are_taken_in_and_each_is_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let ws = engine.workspace();
+    let folder = bisa_store::Paths::scoped_dir(&ws.paths().notes_dir(), "workspace", None);
+    let make = |title: &str| {
+        notes::create(
+            engine.inner(),
+            NewNote {
+                scope: OwnerScope::Workspace,
+                title: title.into(),
+                body: "words".into(),
+            },
+        )
+        .unwrap()
+    };
+    let rewritten = make("Rewritten");
+    let left = make("Left");
+    let arrived = bisa_core::NoteId::from_ulid(ulid::Ulid::from_parts(4_000_000_000_000, 7));
+    std::fs::write(
+        bisa_store::Paths::note_file_in(&folder, arrived),
+        "---\ntitle: Arrived\ncreated_at: 5\nupdated_at: 6\n---\nfrom elsewhere",
+    )
+    .unwrap();
+    std::fs::write(
+        bisa_store::Paths::note_file_in(&folder, rewritten.id),
+        "---\ntitle: Rewritten\ncreated_at: 5\nupdated_at: 9\n---\nnew words",
+    )
+    .unwrap();
+    std::fs::remove_file(bisa_store::Paths::note_file_in(&folder, left.id)).unwrap();
+
+    let mut rx = engine.inner().subscribe();
+    notes::adopt_moved(engine.inner()).unwrap();
+    let mut said = std::collections::HashMap::new();
+    for _ in 0..3 {
+        let (id, _, hash) = next_note_frame(&mut rx).await.expect("three frames");
+        said.insert(id, hash);
+    }
+    assert_eq!(
+        said.get(&arrived.to_string()),
+        Some(&body_hash("from elsewhere"))
+    );
+    assert_eq!(
+        said.get(&rewritten.id.to_string()),
+        Some(&body_hash("new words"))
+    );
+    assert!(said.contains_key(&left.id.to_string()), "{said:?}");
+    assert_eq!(
+        ws.list_notes(bisa_store::OwnerFilter::All).unwrap().len(),
+        2
+    );
+    // Nothing moved: nothing said.
+    notes::adopt_moved(engine.inner()).unwrap();
+    assert!(rx.try_recv().is_err());
+}

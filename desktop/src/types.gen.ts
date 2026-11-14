@@ -3285,7 +3285,8 @@ export type ErrorCode =
   | "connector_too_large"
   | "connector_store"
   | "body_unreadable"
-  | "query_unreadable";
+  | "query_unreadable"
+  | "record_unreadable";
 export type GatePolicy =
   | {
       policy: "owner";
@@ -10572,6 +10573,13 @@ export interface PatchNoteBody {
   body?: string | null;
   pinned?: boolean | null;
   base_hash?: string | null;
+  /**
+   * Say the edit on the bus (`note_changed`). An editor leaves it out: it
+   * holds the answer, and hearing its own save is what it must not. A
+   * caller that is nobody's open editor — the command line — sets it, so
+   * an editor open on the note learns the text moved.
+   */
+  announce?: boolean | null;
 }
 /**
  * What a note is attached to, on the wire.

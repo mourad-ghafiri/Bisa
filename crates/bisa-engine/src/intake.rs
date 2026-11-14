@@ -1181,6 +1181,11 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 Ok(id) => id,
                 Err(why) => return err(why),
             };
+            // An append adds words: with none, the attribution alone would
+            // land as a block, which the store's own empty check cannot see.
+            if text.trim().is_empty() {
+                return err(crate::notes::APPEND_NOTHING);
+            }
             // Attributed the same way an answer is, so a block an agent added
             // unprompted reads exactly like one it was asked for —
             // there is no second format for a person to learn.

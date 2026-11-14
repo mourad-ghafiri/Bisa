@@ -87,10 +87,14 @@ impl Folder {
     /// What the repository excludes — written to its own `.git/info/exclude`,
     /// never a tracked `.gitignore`, so it is neither a change to commit nor
     /// a file a clone carries: the drawings' `state/` holds the signed
-    /// snapshots, which are the records themselves and never the export.
+    /// snapshots, which are the records themselves and never the export. The
+    /// notes' `node/` holds this machine's own notes, which stay on it, and
+    /// a `*.tmp.*` is a write a crash cut short. An exclude keeps a file
+    /// from being *added*: one an earlier commit already tracks stays
+    /// tracked, and travels until the person untracks it by hand.
     fn ignore(self) -> &'static [&'static str] {
         match self {
-            Folder::Notes => &[],
+            Folder::Notes => &["node/", "*.tmp.*"],
             Folder::Drawings => &["state/"],
         }
     }
@@ -403,6 +407,12 @@ impl FolderGit {
         let path = self.ensure(inner)?;
         let pulled = blocking(move || ops::pull(&path, ORIGIN, PullMode::FfOnly, &consent)).await;
         self.invalidate();
+        // The files moved under the store: what arrived, changed or left is
+        // taken into the index and said, or the notes another machine wrote
+        // would sit on disk with no list showing them.
+        if pulled.as_ref().is_ok_and(|(_, outcome)| outcome.moved) {
+            crate::notes::adopt_moved(inner)?;
+        }
         pulled
     }
 

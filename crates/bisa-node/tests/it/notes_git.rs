@@ -201,3 +201,155 @@ async fn the_notes_repository_over_http() {
     assert_eq!(status, 200, "{v}");
     assert!(v["suggested"].is_boolean());
 }
+
+fn raw_git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Two machines, one notes repository. What the other machine made, rewrote
+/// and deleted is on this one's list as soon as the pull answers — not after
+/// a restart, not never — and this machine's own notes never left it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_puts_the_other_machines_notes_on_this_ones_list() {
+    let (dir, socket, _stop) = boot().await;
+    let mut ids = std::collections::HashMap::new();
+    for (title, scope) in [
+        ("Kept", "workspace"),
+        ("Rewritten", "workspace"),
+        ("Left", "workspace"),
+        ("This machine's", "node"),
+    ] {
+        let (status, v) = request(
+            &socket,
+            "POST",
+            "/notes",
+            Some(json!({"title": title, "body": "words", "scope": scope})),
+        )
+        .await;
+        assert_eq!(status, 200, "{v}");
+        ids.insert(title, v["note"]["id"].as_str().unwrap().to_string());
+    }
+    let (status, v) = request(
+        &socket,
+        "PUT",
+        "/notes/git/identity",
+        Some(json!({"name": "Ada", "email": "ada@example.com"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let origin = bare_origin(dir.path());
+    let (status, v) = request(
+        &socket,
+        "PUT",
+        "/notes/git/remote",
+        Some(json!({"url": origin.to_str().unwrap()})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        "/notes/git/commit",
+        Some(json!({"message": "Notes"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = request(&socket, "POST", "/notes/git/push", None).await;
+    assert_eq!(status, 200, "{v}");
+
+    // The other machine: a clone, where a note is made, one rewritten, one
+    // deleted — and where this machine's own note never arrived.
+    let other = dir.path().join("other-machine");
+    raw_git(
+        dir.path(),
+        &[
+            "clone",
+            "--quiet",
+            origin.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        !other.join("node").exists(),
+        "this machine's own notes stayed home"
+    );
+    let arrived = "03MD998G000000000000000007";
+    std::fs::write(
+        other.join("workspace").join(format!("{arrived}.md")),
+        "---\ntitle: Arrived\ncreated_at: 5\nupdated_at: 6\n---\nfrom the other machine",
+    )
+    .unwrap();
+    std::fs::write(
+        other
+            .join("workspace")
+            .join(format!("{}.md", ids["Rewritten"])),
+        "---\ntitle: Rewritten\ncreated_at: 5\nupdated_at: 4000000000\n---\nnew words",
+    )
+    .unwrap();
+    std::fs::remove_file(other.join("workspace").join(format!("{}.md", ids["Left"]))).unwrap();
+    raw_git(&other, &["add", "--all"]);
+    raw_git(
+        &other,
+        &[
+            "-c",
+            "user.name=Grace",
+            "-c",
+            "user.email=grace@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "From the other machine",
+        ],
+    );
+    raw_git(&other, &["push", "--quiet", "origin", "HEAD"]);
+
+    let (status, v) = request(&socket, "POST", "/notes/git/pull", None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["pull"]["moved"], json!(true), "{v}");
+
+    let (status, v) = request(&socket, "GET", "/notes", None).await;
+    assert_eq!(status, 200, "{v}");
+    let listed: std::collections::HashMap<String, String> = v["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            (
+                n["id"].as_str().unwrap().to_string(),
+                n["body"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed.get(arrived).map(String::as_str),
+        Some("from the other machine"),
+        "{v}"
+    );
+    assert_eq!(
+        listed.get(&ids["Rewritten"]).map(String::as_str),
+        Some("new words")
+    );
+    assert!(!listed.contains_key(&ids["Left"]), "{v}");
+    assert!(listed.contains_key(&ids["Kept"]));
+    assert!(
+        listed.contains_key(&ids["This machine's"]),
+        "this machine's own note is still here"
+    );
+    let (status, v) = request(&socket, "GET", &format!("/notes/{}", ids["Left"]), None).await;
+    assert_eq!(status, 404, "{v}");
+    let (status, v) = request(&socket, "GET", &format!("/notes/{arrived}"), None).await;
+    assert_eq!(status, 200, "{v}");
+}

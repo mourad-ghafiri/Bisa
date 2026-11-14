@@ -543,6 +543,11 @@ impl Localize for crate::note::NoteError {
                 v0 = *v0,
                 max = (crate::note::MAX_NOTE_BYTES).to_string()
             ),
+            crate::note::NoteError::TitleTooLong { chars } => crate::text!(
+                "error-core-note-title-too-long",
+                chars = *chars,
+                max = (crate::note::MAX_NOTE_TITLE_CHARS).to_string()
+            ),
             crate::note::NoteError::BadFrontMatter(v0) => {
                 crate::text!("error-core-note-bad-front-matter", v0 = v0.to_string())
             }
@@ -1127,6 +1132,7 @@ mod tests {
             MemberError::SecondOwner,
             NoteError::EmptyTitle,
             NoteError::TooLarge(9),
+            NoteError::TitleTooLong { chars: 9 },
             NoteError::BadFrontMatter("x".into()),
             DrawError::EmptyTitle,
             DrawError::TitleTooLong { chars: 9 },

@@ -44,6 +44,15 @@ pub struct NotePatch {
     pub pinned: Option<bool>,
 }
 
+/// What a [`Workspace::resync_notes`] found had moved under the store.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NotesResync {
+    /// Notes that are new to the index or read differently than they did.
+    pub changed: Vec<Note>,
+    /// Notes the index held whose files are gone, with where they were.
+    pub removed: Vec<(NoteId, OwnerScope)>,
+}
+
 /// The hash a caller passes back to prove what it was editing.
 pub fn body_hash(body: &str) -> String {
     crate::recall::sha256_hex(body.as_bytes())
@@ -59,8 +68,10 @@ impl Workspace {
         Ok(Paths::note_file_in(&self.notes_dir_for(scope)?, id))
     }
 
+    /// Write the file, then the row. What is written was checked by the
+    /// caller, field by field: a note that arrived out of bounds (a pull, a
+    /// hand edit) must still be writable where nobody touched the fault.
     fn write_note(&self, def: &Note) -> Result<(), StoreError> {
-        def.validate()?;
         let path = self.note_path(&def.scope, def.id)?;
         crate::paths::write_atomic(&path, def.to_markdown().as_bytes())?;
         self.index_note(def)
@@ -87,12 +98,13 @@ impl Workspace {
         let def = Note {
             id: NoteId::from_ulid(mint_ulid()),
             scope: new.scope,
-            title: new.title.trim().to_string(),
+            title: Note::clean_title(&new.title),
             body: new.body,
             created_at: at,
             updated_at: at,
             pinned: false,
         };
+        def.validate()?;
         self.write_note(&def)?;
         Ok(def)
     }
@@ -100,20 +112,20 @@ impl Workspace {
     /// Read one note by id. The index is the **locator** — which scope's
     /// directory the file is in — and the file is the truth.
     pub fn get_note(&self, id: NoteId) -> Result<Note, StoreError> {
+        let scope = self.note_scope(id)?;
+        self.read_note(&scope, id)
+    }
+
+    /// Where the index says a note is, whatever its file now holds — the one
+    /// lookup a read and a deletion share, so a note nobody can read is still
+    /// one that can be removed.
+    fn note_scope(&self, id: NoteId) -> Result<OwnerScope, StoreError> {
         let (kind, scope_id) = self
             .idx()
             .note_scope(&id.to_string())?
             .ok_or_else(|| not_found(id))?;
-        let scope = OwnerScope::from_parts(&kind, scope_id.as_deref()).ok_or_else(|| {
-            // LCOV_EXCL_START: the cache's CHECK admits only the six scope kinds `from_parts` reads (`check_constraints_mirror_the_core_enums`)
-            StoreError::Invalid(bisa_core::text!(
-                "error-store-invalid-bad-note-scope-index",
-                kind = kind.to_string(),
-                scope_id = format!("{scope_id:?}")
-            ))
-            // LCOV_EXCL_STOP
-        })?;
-        self.read_note(&scope, id)
+        OwnerScope::from_parts(&kind, scope_id.as_deref())
+            .ok_or_else(|| bad_scope_in_index(&kind, scope_id.as_deref()))
     }
 
     fn read_note(&self, scope: &OwnerScope, id: NoteId) -> Result<Note, StoreError> {
@@ -162,6 +174,9 @@ impl Workspace {
     /// The one writer of notes at a time (`notes_writes`): the person's
     /// editor and an agent's tool each read, check the hash and write, and
     /// two at once must not each write the body as it was before the other.
+    /// A deletion — one note's, or a whole scope's — is a write like any
+    /// other: outside the lock, a write that had already read the note would
+    /// put the file and the row back after they went.
     /// A poisoned lock is taken over, as the work items' is: the note on
     /// disk is whatever the last write left, and the next write reads it.
     fn note_writer(&self) -> MutexGuard<'_, ()> {
@@ -197,10 +212,13 @@ impl Workspace {
                     })
                 }
             }
+            Note::validate_body(body)?;
             def.body = body.clone();
         }
         if let Some(title) = patch.title {
-            def.title = title.trim().to_string();
+            let title = Note::clean_title(&title);
+            Note::validate_title(&title)?;
+            def.title = title;
         }
         if let Some(pinned) = patch.pinned {
             def.pinned = pinned;
@@ -239,19 +257,28 @@ impl Workspace {
         Ok(def)
     }
 
-    /// Remove a note: the file and the row, together.
-    pub fn delete_note(&self, id: NoteId) -> Result<(), StoreError> {
-        let def = self.get_note(id)?;
+    /// Remove a note: the file and the row, together, under the one writer's
+    /// lock. The index says where the file is and the file is never parsed:
+    /// a note this build cannot read, and a row whose file a pull or a hand
+    /// already removed, are both removed like any other — only a note with
+    /// no row is *not found*.
+    ///
+    /// Answers the scope the note was in, so the deletion can be announced
+    /// without the note having been read.
+    pub fn delete_note(&self, id: NoteId) -> Result<OwnerScope, StoreError> {
+        let _writer = self.note_writer();
+        let scope = self.note_scope(id)?;
         // Its conversations first: a thread about a note that is gone has
         // nothing to be about, and nothing to default the note tools to.
         self.remove_conversations_of("note", &id.to_string())?;
-        let path = self.note_path(&def.scope, id)?;
-        if let Err(e) = std::fs::remove_file(&path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                return Err(StoreError::io(path.display().to_string(), e));
-            } // LCOV_EXCL_LINE: `get_note` above read the file; gone only under a concurrent delete
+        let path = self.note_path(&scope, id)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(StoreError::io(path.display().to_string(), e)),
         }
-        self.idx().delete_note(&id.to_string())
+        self.idx().delete_note(&id.to_string())?;
+        Ok(scope)
     }
 
     /// A scope's notes directory and rows go together — the goal's, the
@@ -259,6 +286,7 @@ impl Workspace {
     /// repository's next commit records the notes leaving with what they
     /// were about.
     pub(crate) fn remove_notes_of(&self, scope: OwnerScope, dir: &Path) -> Result<(), StoreError> {
+        let _writer = self.note_writer();
         match std::fs::remove_dir_all(dir) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -279,46 +307,117 @@ impl Workspace {
         })
     }
 
+    /// Make the index say what the notes folder holds, after files moved
+    /// without the store hearing of it — a pull. Under the one writer's
+    /// lock: every file is indexed again, a row whose file is gone is
+    /// cleared with the conversations about it, and what read differently
+    /// before and after is answered so each can be announced. A file nobody
+    /// can read keeps its row — it is still there to delete.
+    ///
+    /// *Read differently* is judged by what the index remembers: the title,
+    /// the pin and the time of the last write, which every write the
+    /// platform makes moves. A body changed by hand under an unchanged
+    /// `updated_at` is indexed all the same and announced by nobody.
+    pub fn resync_notes(&self) -> Result<NotesResync, StoreError> {
+        let _writer = self.note_writer();
+        let rows = self.idx().notes_matching(None, None)?;
+        let before = self.idx().note_stamps()?;
+        let mut on_disk = std::collections::HashSet::new();
+        self.reindex_notes_seen(&mut on_disk)?;
+        let mut removed = Vec::new();
+        for (raw, kind, scope_id) in rows {
+            let (Ok(id), Some(scope)) = (
+                raw.parse::<NoteId>(),
+                OwnerScope::from_parts(&kind, scope_id.as_deref()),
+            ) else {
+                continue; // LCOV_EXCL_LINE: the store writes only note ids and the six scope kinds into the table (`check_constraints_mirror_the_core_enums`)
+            };
+            if on_disk.contains(&id) {
+                continue;
+            }
+            self.remove_conversations_of("note", &raw)?;
+            self.idx().delete_note(&raw)?;
+            removed.push((id, scope));
+        }
+        let changed = self
+            .list_notes(OwnerFilter::All)?
+            .into_iter()
+            .filter(|n| {
+                before.get(&n.id.to_string()) != Some(&(n.title.clone(), n.updated_at, n.pinned))
+            })
+            .collect();
+        Ok(NotesResync { changed, removed })
+    }
+
     /// Rebuild the `notes` table by scanning every place a note can live.
     pub(crate) fn reindex_notes(&self) -> Result<(), StoreError> {
+        self.reindex_notes_seen(&mut std::collections::HashSet::new())
+    }
+
+    /// [`Self::reindex_notes`], naming in `seen` every note file it walked
+    /// past — the ones it could not read among them.
+    fn reindex_notes_seen(
+        &self,
+        seen: &mut std::collections::HashSet<NoteId>,
+    ) -> Result<(), StoreError> {
         let base = self.paths.notes_dir();
         let dir = |kind: &str, id: Option<&str>| Paths::scoped_dir(&base, kind, id);
-        self.scan_notes_dir(&dir("workspace", None), OwnerScope::Workspace)?;
-        self.scan_notes_dir(&dir("node", None), OwnerScope::Node)?;
+        self.scan_notes_dir(&dir("workspace", None), OwnerScope::Workspace, seen)?;
+        self.scan_notes_dir(&dir("node", None), OwnerScope::Node, seen)?;
         for id in self.goal_ids_on_disk()? {
-            self.scan_notes_dir(&dir("goal", Some(&id.to_string())), OwnerScope::Goal { id })?;
+            self.scan_notes_dir(
+                &dir("goal", Some(&id.to_string())),
+                OwnerScope::Goal { id },
+                seen,
+            )?;
         }
         for project in self.list_projects()? {
             self.scan_notes_dir(
                 &dir("project", Some(project.slug.as_str())),
                 OwnerScope::Project { id: project.id },
+                seen,
             )?;
         }
         for workflow in self.list_workflows()? {
             self.scan_notes_dir(
                 &dir("workflow", Some(&workflow.id.to_string())),
                 OwnerScope::Workflow { id: workflow.id },
+                seen,
             )?;
         }
         for channel in self.list_channels()? {
             self.scan_notes_dir(
                 &dir("channel", Some(channel.id.as_str())),
                 OwnerScope::Channel { id: channel.id },
+                seen,
             )?;
         }
         Ok(())
     }
 
-    fn scan_notes_dir(&self, dir: &Path, scope: OwnerScope) -> Result<(), StoreError> {
+    fn scan_notes_dir(
+        &self,
+        dir: &Path,
+        scope: OwnerScope,
+        seen: &mut std::collections::HashSet<NoteId>,
+    ) -> Result<(), StoreError> {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return Ok(());
         };
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
+            if stale_temporary(name, &entry) {
+                // What a crash between a write and its rename left behind.
+                if let Err(e) = std::fs::remove_file(entry.path()) {
+                    tracing::warn!("{}: {e}", entry.path().display()); // LCOV_EXCL_LINE: a leftover the disk will not give up is said and walked past
+                }
+                continue;
+            }
             let Some(id) = Paths::note_id_of_file(name) else {
                 continue;
             };
+            seen.insert(id);
             let path = entry.path();
             // A note this build cannot read — a merge left in it, a hand edit
             // — is named and skipped; the rebuild goes on.
@@ -346,11 +445,41 @@ impl Workspace {
     }
 }
 
+/// How old a note's temporary must be before the rebuild removes it: far
+/// longer than any write takes, so one still being written is never touched.
+const STALE_TEMPORARY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Whether a file is a note's write that never finished — `<id>.md.tmp.…`,
+/// the name [`crate::paths::write_atomic`] gives its temporary — and old
+/// enough that no write in flight owns it.
+fn stale_temporary(name: &str, entry: &std::fs::DirEntry) -> bool {
+    let a_notes = name
+        .split_once(".md.tmp.")
+        .is_some_and(|(stem, rest)| stem.parse::<NoteId>().is_ok() && !rest.is_empty());
+    a_notes
+        && entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age > STALE_TEMPORARY)
+}
+
 enum ReadError {
     Missing,
     Io(std::io::Error),
     Unreadable(bisa_core::NoteError),
 }
+
+// LCOV_EXCL_START: the cache's CHECK admits only the six scope kinds `from_parts` reads (`check_constraints_mirror_the_core_enums`)
+fn bad_scope_in_index(kind: &str, scope_id: Option<&str>) -> StoreError {
+    StoreError::Invalid(bisa_core::text!(
+        "error-store-invalid-bad-note-scope-index",
+        kind = kind.to_string(),
+        scope_id = format!("{scope_id:?}")
+    ))
+}
+// LCOV_EXCL_STOP
 
 /// One file as a note: the id and scope from where it is, the rest from it.
 /// A note that is not here is *not found* — what a drawer standing on it,
@@ -534,10 +663,50 @@ mod tests {
         }
     }
 
+    /// A write a crash cut short leaves its temporary beside the note. The
+    /// rebuild removes one old enough to be nobody's, and only that: a fresh
+    /// one may be a write in flight, and a file that is no note's is not ours.
+    #[test]
+    fn the_rebuild_removes_a_notes_stale_temporary_and_nothing_else() {
+        let (_d, ws) = ws();
+        let note = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Workspace,
+                title: "Kept".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        let path = ws.note_path(&OwnerScope::Workspace, note.id).unwrap();
+        let folder = path.parent().unwrap();
+        let long_ago = std::time::SystemTime::now() - STALE_TEMPORARY * 2;
+        let aged = |name: String| {
+            let p = folder.join(name);
+            std::fs::write(&p, b"half a note").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(long_ago)
+                .unwrap();
+            p
+        };
+        let stale = aged(format!("{}.md.tmp.4242.7", note.id));
+        let not_a_notes = aged("README.md.tmp.4242.7".into());
+        let fresh = folder.join(format!("{}.md.tmp.4242.8", note.id));
+        std::fs::write(&fresh, b"being written").unwrap();
+        ws.rebuild_index().unwrap();
+        assert!(!stale.exists(), "the stale temporary is removed");
+        assert!(fresh.exists(), "a write in flight is left alone");
+        assert!(not_a_notes.exists(), "a file that is no note's is not ours");
+        assert_eq!(ws.list_notes(OwnerFilter::All).unwrap().len(), 1);
+        assert_eq!(ws.get_note(note.id).unwrap().body, "words");
+    }
+
     // added by the coverage pass: notes-s7.rs
 
     /// A note whose file is gone while its row stands is refused as not
-    /// found — by a read and by a deletion alike — and skipped by a list.
+    /// found by a read and skipped by a list; a deletion clears the row, so
+    /// no ghost is left that no door can remove.
     #[test]
     fn a_note_whose_file_is_gone_is_not_found_and_skipped_by_a_list() {
         let (_d, ws) = ws();
@@ -568,6 +737,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![kept.id]
         );
+        ws.delete_note(gone.id).unwrap();
         assert!(matches!(
             ws.delete_note(gone.id),
             Err(StoreError::DefinitionNotFound { kind: "note", .. })

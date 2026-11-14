@@ -348,3 +348,47 @@ async fn the_folder_repositories_at_their_edges() {
     std::fs::set_permissions(&root2, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(unmade.is_err(), "no repository could be made");
 }
+
+/// This machine's own notes stay on this machine: the notes repository
+/// leaves `node/` out, and a write a crash cut short with it, so neither is
+/// a change to commit nor a file a clone carries.
+#[tokio::test]
+async fn the_notes_repository_leaves_out_this_machines_notes_and_unfinished_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let inner = engine.inner();
+    a_record(&engine, Folder::Notes, "Shared");
+    let own = notes::create(
+        inner,
+        NewNote {
+            scope: OwnerScope::Node,
+            title: "This machine's".into(),
+            body: "stays home\n".into(),
+        },
+    )
+    .unwrap();
+    let root = Folder::Notes.root(engine.workspace().paths());
+    std::fs::write(
+        root.join("workspace")
+            .join(format!("{}.md.tmp.1.2", own.id)),
+        "half",
+    )
+    .unwrap();
+    let s = inner.notes_git.status(inner).await.unwrap();
+    assert_eq!(s.changed, 1, "only the shared note is a change");
+    inner
+        .notes_git
+        .set_identity(inner, "Ada", "ada@example.com")
+        .await
+        .unwrap();
+    inner.notes_git.commit(inner, "Records").await.unwrap();
+    let tracked = raw_git(&root, &["ls-files"]);
+    assert!(tracked.contains("workspace/"), "{tracked}");
+    assert!(!tracked.contains("node/"), "{tracked}");
+    assert!(!tracked.contains(".tmp."), "{tracked}");
+    // The note itself is where it was, and still listed here.
+    assert_eq!(
+        engine.workspace().get_note(own.id).unwrap().body,
+        "stays home\n"
+    );
+}

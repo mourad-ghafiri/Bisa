@@ -146,6 +146,7 @@ error-core-member-second-owner = a workspace has exactly one owner
 # NoteError
 error-core-note-empty-title = a note needs a title
 error-core-note-too-large = note body is { $v0 } bytes; the cap is { $max }
+error-core-note-title-too-long = a note's title is { $chars } characters; the cap is { $max }
 error-core-note-bad-front-matter = the note's front matter is not readable: { $v0 }
 error-core-draw-empty-title = a drawing needs a title
 error-core-draw-title-too-long = a drawing's title is { $chars } characters; the cap is { $max }

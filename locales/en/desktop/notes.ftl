@@ -3,7 +3,7 @@
 notes-note-dock-notes = Notes
 notes-note-dock-notes-2 = Notes ({ $count })
 notes-note-editor-agent-rewrote-note = An agent rewrote this note.
-notes-note-editor-agent-wrote-note-while-editing = An agent wrote to this note while you were editing.
+notes-note-editor-changed-elsewhere = This note changed elsewhere while you were editing.
 notes-note-editor-back-list = Back to the list
 notes-note-editor-bold = Bold
 notes-note-editor-close-find = Close find
@@ -123,6 +123,9 @@ notes-notes-git-strip-who-commits-notes = Who commits notes
 notes-notes-goal = A goal
 notes-notes-goals = Goals
 notes-notes-italic-text = italic text
+notes-notes-code-text = code
+notes-notes-link-text = text
+notes-notes-link-address = url
 notes-notes-project = A project
 notes-notes-projects = Projects
 notes-notes-saved = Saved
@@ -156,7 +159,10 @@ notes-note-editor-delete-title = Delete “{ $title }”?
 notes-note-editor-delete-body = The note and its conversations are gone. The notes repository records the deletion at your next commit.
 notes-note-editor-delete-confirm = Delete
 notes-note-editor-saving-paused = Your text is still here and saving is paused.
-notes-note-editor-characters = { $n } characters
+notes-note-editor-characters = { $count ->
+    [one] { $n } character
+   *[other] { $n } characters
+}
 notes-note-editor-could-not-re-read = could not re-read the note
 
 ## The repository strip's line (`shell/repo/repoStripModel.mjs`) — words moved out of the model.
@@ -164,3 +170,5 @@ notes-notes-git-committed-ago = committed { $ago }
 
 ## The note editor over a note deleted under it — the node's own sentence, then what stays (`notes/notesModel.mjs`).
 notes-note-editor-note-gone = This note is gone — { $why }. What you wrote stays here to copy; nothing more is saved to it.
+notes-note-editor-note-unreadable = This note's file can no longer be read — it was changed outside the app. What you wrote stays here to copy; nothing more is saved to it, and you can delete it.
+notes-note-editor-deleted-elsewhere = it was deleted elsewhere

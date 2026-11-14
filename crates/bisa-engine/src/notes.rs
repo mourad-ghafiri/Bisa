@@ -26,8 +26,11 @@
 //! store the placeholder over the person's secret), and what a person is
 //! still typing is the desktop's to keep: the editor never adopts a change
 //! over unsaved text, and offers the previous version back after a rewrite.
-//! Every write — a person's or an agent's — is announced with the body's
-//! hash, so an open editor tells its own save from somebody else's.
+//! A write that was not the editor's own — an agent's, a note made or
+//! deleted, a note a pull moved — is announced with the body's hash, so an
+//! open editor tells it from its own save. A person's edit is not
+//! ([`update`] says why) unless its caller asks for it to be said: the
+//! command line does, being nobody's open editor.
 
 use crate::events::{EngineEvent, EnginePayload};
 use crate::{EngineError, Inner};
@@ -70,14 +73,37 @@ pub fn update(
     Ok(note)
 }
 
-/// Delete a note and announce it, so an overlay showing it lets go.
+/// Delete a note and announce it, so an overlay showing it lets go. A note
+/// nobody can read is deleted like any other — the store removes it by where
+/// the index says it is — and announced with the hash of the body it had
+/// when one could be read.
 pub fn delete(inner: &Arc<Inner>, id: NoteId) -> Result<(), EngineError> {
-    let note = inner.ws.get_note(id)?;
-    inner.ws.delete_note(id)?;
+    let body = inner.ws.get_note(id).map(|n| n.body).unwrap_or_default();
+    let scope = inner.ws.delete_note(id)?;
     inner.notes_git.touched(inner);
-    emit_changed(inner, &note);
+    emit_gone(inner, id, &scope, &body);
     Ok(())
 }
+
+/// Take in notes whose files moved without the store hearing of it — what a
+/// pull does: the index is made to say what the folder holds
+/// ([`bisa_store::Workspace::resync_notes`]) and every note that arrived,
+/// reads differently or left is announced, so a list and an open editor
+/// learn of it as they learn of any write that was not theirs.
+pub fn adopt_moved(inner: &Inner) -> Result<(), EngineError> {
+    let moved = inner.ws.resync_notes()?;
+    for note in &moved.changed {
+        emit_changed(inner, note);
+    }
+    for (id, scope) in &moved.removed {
+        emit_gone(inner, *id, scope, "");
+    }
+    Ok(())
+}
+
+/// Said when an agent asks to append nothing: an append adds words.
+pub const APPEND_NOTHING: &str =
+    "Nothing to append — `text` was empty; pass the words to add to the note";
 
 /// Said when an agent asks to write nothing: a note is emptied by its owner,
 /// never by an agent.
@@ -147,6 +173,19 @@ pub fn emit_written(inner: &Inner, note: &Note, by: Option<bisa_core::AgentId>) 
         scope_id: note.scope.id(),
         hash: bisa_store::body_hash(&note.body),
         by,
+    }));
+}
+
+/// Say on the bus that a note is gone: the same frame a change wears — a
+/// surface re-reads its list on either — carrying where the note was and
+/// the hash of the last body anyone could read.
+fn emit_gone(inner: &Inner, id: NoteId, scope: &bisa_core::OwnerScope, last_body: &str) {
+    inner.emit(EngineEvent::global(EnginePayload::NoteChanged {
+        note: id.to_string(),
+        scope: scope.kind().to_string(),
+        scope_id: scope.id(),
+        hash: bisa_store::body_hash(last_body),
+        by: None,
     }));
 }
 

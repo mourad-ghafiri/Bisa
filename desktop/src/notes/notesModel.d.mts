@@ -147,7 +147,14 @@ export declare const SAVE_DEFAULT_MS: number;
 export declare function clampSaveDelay(raw: unknown): number;
 export declare function noteStatusWords(s: { gone?: string | null; conflict?: string | null; error?: string | null; saving?: boolean; dirty?: boolean }): string;
 /** What a refusal of a note's read or write means, by its status: a lost save, a note that is gone, or a failure. */
-export declare function noteRefusal(status: number | null | undefined): "conflict" | "gone" | "failed";
+export declare function noteRefusal(status: number | null | undefined, code?: string | null): "conflict" | "gone" | "unreadable" | "failed";
+export declare function noteUnreadableWords(): string;
+export declare function rereadDue(rows: readonly { id: string; hash: string; updated_at: number }[], savedSince: ReadonlyMap<string, { hash: string; updated_at: number }>): boolean;
+export declare function noteClean(buffer: { title: string; body: string }, confirmed: { title: string; body: string }): boolean;
+export declare function savePatch(buffer: { title: string; body: string }, confirmed: { title: string; body: string }, hash: string): { title?: string; body?: string; base_hash?: string } | null;
+export declare function conflictHash(body: unknown): string | null;
+export declare function missingVerdict(status: number, code?: string | null): "there" | "gone" | "unreadable" | "unknown";
+export declare function isNotesChord(e: { altKey: boolean; metaKey: boolean; ctrlKey: boolean; key: string; code?: string }): boolean;
 export declare function noteGoneWords(why: string): string;
 export declare function draftAction(body: string, confirmedBody: string): "forget" | "park";
 /** The open note once the list has loaded: one kept from the last window that is gone opens nothing. */

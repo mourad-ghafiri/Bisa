@@ -67,6 +67,15 @@ impl Out {
         }
     }
 
+    /// A sentence beside the result — what a person should know and a pipe
+    /// should not read as output (stderr, suppressed in --json mode, where
+    /// the result carries the fact).
+    pub fn aside(&self, text: &Text) {
+        if !self.json {
+            eprintln!("{}", self.text(text));
+        }
+    }
+
     /// The command's JSON result (stdout, only in --json mode).
     pub fn json_value(&self, value: serde_json::Value) {
         if self.json {

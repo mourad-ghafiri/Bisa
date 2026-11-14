@@ -55,8 +55,12 @@ import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
 import {
   adoptIncoming,
+  conflictHash,
   draftKey,
   matchAt,
+  noteClean,
+  noteUnreadableWords,
+  savePatch,
   wrapSelection,
   type MarkKind,
   type NoteDraft,
@@ -72,6 +76,7 @@ import { forgetPref, readPref, webStorage, writePref } from "../shell/storedPref
 import { MaximizeToggle } from "../shell/MaximizeToggle";
 import { isSaveChord, useDocumentHold } from "../shell/documentGuard";
 import { ConversationDrawer } from "../views/_studio/ConversationDrawer";
+import { useReloadOnReconnect } from "../ui/useReloadOnReconnect";
 import { notesGuard, setNotesAskOpen, setNotesOpen, toggleNotesMaximized, useNotesOverlay } from "./notesStore";
 import { t } from "../i18n/l10n.mjs";
 
@@ -122,11 +127,14 @@ function parkDraft(id: string, body: string, base_hash: string): void {
 export function NoteEditor({
   note,
   scopeName,
+  fate = null,
   onSaved,
   onBack,
   onDeleted,
 }: {
   note: NoteRow;
+  /** What became of the note while it was open, when the list lost it: deleted elsewhere, or a file this build can no longer read. */
+  fate?: "gone" | "unreadable" | null;
   /** What the note is about, in the words the list's chip uses. */
   scopeName: string;
   onSaved: (next: NoteRow) => void;
@@ -194,6 +202,8 @@ export function NoteEditor({
     abandoned: false,
     /** The save in the air, for whoever must wait for it. */
     pending: null as Promise<boolean> | null,
+    /** What the write that won a conflict left — the hash and the body a 409 named — for *Keep mine* to save over. */
+    theirs: null as { hash: string; body: string | null } | null,
   });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSavedRef = useRef(onSaved);
@@ -205,7 +215,7 @@ export function NoteEditor({
   const save = useCallback(async (): Promise<boolean> => {
     const s = live.current;
     if (s.conflicted || s.abandoned) return false;
-    if (s.title === s.confirmed.title && s.body === s.confirmed.body) return true;
+    if (noteClean(s, s.confirmed)) return true;
     if (s.inFlight) {
       // Typed while a save was in the air: one more save once it lands.
       s.again = true;
@@ -214,9 +224,12 @@ export function NoteEditor({
     s.inFlight = true;
     setSaving(true);
     const sending = { id: s.id, title: s.title, body: s.body };
+    // Only what moved (`savePatch`): a title nobody touched is not sent, so a
+    // rename made elsewhere is never undone by a save of the body.
+    const patch = savePatch(sending, s.confirmed, s.hash) ?? {};
     const run = (async () => {
       try {
-        const { note: next } = await api.patchNote(sending.id, { title: sending.title, body: sending.body, base_hash: s.hash });
+        const { note: next } = await api.patchNote(sending.id, patch);
         // The list's row, the search index and every other reader see the
         // saved text through the owner's callback, never through the bus.
         onSavedRef.current(next);
@@ -226,25 +239,42 @@ export function NoteEditor({
         // not the baseline of the one on screen, which a write here would turn
         // into a conflict nobody caused.
         if (s.id !== sending.id) return false;
+        // A title the person did not touch is whatever the store now says —
+        // a rename made elsewhere shows here rather than reading as unsaved
+        // work, which the next save would have written back over it.
+        if (patch.title === undefined && s.title === sending.title && next.title !== s.title) {
+          s.title = next.title;
+          setTitle(next.title);
+        }
         s.hash = next.hash;
         s.confirmed = { title: next.title, body: next.body };
         // A conflict flagged while this save was in the air is settled by it
         // landing — the flag goes with the banner, or saving would stop for
         // good with nothing on screen to say so.
         s.conflicted = false;
+        s.theirs = null;
         setConflict(null);
         setError(null);
       } catch (e) {
         // A refusal about the note that was left says nothing of the one on screen.
         if (s.id !== sending.id) return false;
-        const refusal = e instanceof ApiError ? noteRefusal(e.status) : "failed";
+        const refusal = e instanceof ApiError ? noteRefusal(e.status, e.code) : "failed";
         if (refusal === "conflict") {
           s.conflicted = true;
-          setConflict(t("notes-note-editor-agent-wrote-note-while-editing"));
+          // The refusal names what is there now: the hash *Keep mine* saves over.
+          const body = e instanceof ApiError ? e.body : null;
+          const hash = conflictHash(body);
+          const current = body && typeof body === "object" ? (body as { current?: unknown }).current : null;
+          s.theirs = hash === null ? null : { hash, body: typeof current === "string" ? current : null };
+          setConflict(t("notes-note-editor-changed-elsewhere"));
         } else if (refusal === "gone") {
           // Deleted under the editor: a save can never land, so none is tried again; what was typed stays on screen.
           s.abandoned = true;
           setGone(noteGoneWords(e instanceof Error ? e.message : String(e)));
+        } else if (refusal === "unreadable") {
+          // The file was changed outside the app into something no save can be made against: said, the text kept, the delete still offered.
+          s.abandoned = true;
+          setGone(noteUnreadableWords());
         } else {
           setError(e instanceof ApiError ? e.message : t("notes-note-editor-could-not-save"));
         }
@@ -257,7 +287,7 @@ export function NoteEditor({
           void save();
         }
       }
-      return !s.conflicted && s.title === s.confirmed.title && s.body === s.confirmed.body;
+      return !s.conflicted && noteClean(s, s.confirmed);
     })();
     s.pending = run;
     return run;
@@ -270,7 +300,7 @@ export function NoteEditor({
       if (s.pending) await s.pending;
       else if (!(await save())) return false;
       if (s.conflicted || s.abandoned) return false;
-      if (!s.inFlight && s.title === s.confirmed.title && s.body === s.confirmed.body) return true;
+      if (!s.inFlight && noteClean(s, s.confirmed)) return true;
     }
     return false;
   }, [save]);
@@ -307,10 +337,27 @@ export function NoteEditor({
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
-      if (!live.current.abandoned) void save();
+      // A restored draft nobody typed into is not saved by leaving, as it is not by waiting.
+      if (!live.current.abandoned && live.current.typed) void save();
     },
     [save],
   );
+
+  // A save that failed while the node was away is tried again when it is
+  // back: no frame says so, and the timer only arms on a keystroke.
+  useReloadOnReconnect(() => {
+    const s = live.current;
+    if (!s.abandoned && !s.conflicted && s.typed) void save();
+  });
+
+  // The list lost this note while it was open (`fate`): nothing more can be
+  // saved to it, and it is said — the text stays on screen to copy.
+  useEffect(() => {
+    if (fate === null) return;
+    live.current.abandoned = true;
+    if (timer.current) clearTimeout(timer.current);
+    setGone(fate === "gone" ? noteGoneWords(t("notes-note-editor-deleted-elsewhere")) : noteUnreadableWords());
+  }, [fate]);
 
   /**
    * A different note in this panel. **Keyed on the id alone** — the previous
@@ -321,8 +368,8 @@ export function NoteEditor({
     const s = live.current;
     if (s.id === note.id) return;
     // Whatever was typed in the note being left must go before its state does
-    // — unless it was let go of.
-    if (!s.abandoned) void save();
+    // — unless it was let go of, or is a restored draft nobody typed into.
+    if (!s.abandoned && s.typed) void save();
     const restored = restoredDraft(readDraft(note.id), { body: note.body, hash: note.hash });
     s.id = note.id;
     s.confirmed = { title: note.title, body: note.body };
@@ -331,6 +378,8 @@ export function NoteEditor({
     s.typed = false;
     s.abandoned = false;
     s.again = false;
+    s.theirs = null;
+    setGone(null);
     setTitle(note.title);
     setBody(restored.body);
     setConflict(restored.conflict ? t("notes-note-editor-draft-from-before") : null);
@@ -354,7 +403,8 @@ export function NoteEditor({
     const { body: next, outcome } = adoptIncoming(s.body, s.confirmed.body, note.body);
     if (outcome === "conflict") {
       s.conflicted = true;
-      setConflict(t("notes-note-editor-agent-wrote-note-while-editing"));
+      s.theirs = { hash: note.hash, body: note.body };
+      setConflict(t("notes-note-editor-changed-elsewhere"));
       return;
     }
     if (outcome === "taken") setRestorable(s.confirmed.body);
@@ -400,24 +450,33 @@ export function NoteEditor({
       s.hash = current.hash;
       s.confirmed = { title: current.title, body: current.body };
       s.conflicted = false;
+      s.theirs = null;
       s.typed = false;
       forgetPref(webStorage(), draftKey(s.id));
       setTitle(current.title);
       setBody(current.body);
       setConflict(null);
     } catch (e) {
-      if (e instanceof ApiError && noteRefusal(e.status) === "gone") {
+      const refusal = e instanceof ApiError ? noteRefusal(e.status, e.code) : "failed";
+      if (refusal === "gone" || refusal === "unreadable") {
         live.current.abandoned = true;
-        setGone(noteGoneWords(e.message));
+        setGone(refusal === "gone" ? noteGoneWords(e instanceof Error ? e.message : String(e)) : noteUnreadableWords());
       } else setError(e instanceof ApiError ? e.message : t("notes-note-editor-could-not-re-read"));
     }
   };
 
-  /** Keep mine: the buffer stands and saves over what is there, at the hash the list holds — the person's decision, said. */
+  /**
+   * Keep mine: the buffer stands and saves over what is there — the person's
+   * decision, said — at the hash the write that won left (`theirs`: what the
+   * 409 named, or the frame's row). The list's row is the fallback only: it
+   * may be older than a write no frame announced, and saving at its hash
+   * would be refused again, for ever.
+   */
   const keepMine = () => {
     const s = live.current;
-    s.hash = note.hash;
-    s.confirmed = { title: note.title, body: note.body };
+    s.hash = s.theirs?.hash ?? note.hash;
+    s.confirmed = { title: note.title, body: s.theirs?.body ?? note.body };
+    s.theirs = null;
     s.conflicted = false;
     s.typed = true;
     setConflict(null);
@@ -482,8 +541,8 @@ export function NoteEditor({
     openFind(key === "r");
   };
 
-  const dirty =
-    title !== live.current.confirmed.title || body !== live.current.confirmed.body;
+  // A note that is gone, or that nobody can read, has nothing a save could write to: it is not *unsaved*, it is said to be gone.
+  const dirty = gone === null && !noteClean({ title, body }, live.current.confirmed);
   const status = useMemo(() => noteStatusWords({ gone, conflict, error, saving, dirty }), [conflict, dirty, error, gone, saving]);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -493,18 +552,26 @@ export function NoteEditor({
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = async () => {
-    // Nothing is saved at a note that is going away.
-    discard();
+    const s = live.current;
+    // Nothing is saved at a note that is going away — but what was typed is
+    // let go of only once it has gone: a delete that failed keeps the draft.
+    const already = s.abandoned;
+    s.abandoned = true;
+    if (timer.current) clearTimeout(timer.current);
     try {
       await api.deleteNote(note.id);
+      forgetPref(webStorage(), draftKey(note.id));
       onDeleted();
     } catch (e) {
       // A note already gone is a delete that happened: the editor leaves, as it would have.
-      if (e instanceof ApiError && noteRefusal(e.status) === "gone") {
+      if (e instanceof ApiError && noteRefusal(e.status, e.code) === "gone") {
+        forgetPref(webStorage(), draftKey(note.id));
         onDeleted();
         return;
       }
-      live.current.abandoned = false;
+      // Still here: saving goes on as before, with what was typed since the last save.
+      s.abandoned = already;
+      if (!already && !s.conflicted && s.typed && !noteClean(s, s.confirmed)) timer.current = setTimeout(() => void save(), saveDelay);
       setError(e instanceof ApiError ? e.message : t("notes-note-editor-could-not-delete"));
     }
   };
@@ -552,7 +619,8 @@ export function NoteEditor({
             conflict || error ? "text-danger" : "text-text-dim",
           )}
         >
-          {status}
+          {/* A note that is gone says so in a row of its own below: the sentence is too long for a header that also holds the title and the ways out. */}
+          {gone ? null : status}
         </span>
         <Button size="sm" disabled={!dirty || saving || conflict !== null} onClick={() => void saveNow()}>
           {t("notes-note-editor-save")}
@@ -638,7 +706,12 @@ export function NoteEditor({
         </div>
       )}
 
-      {conflict && (
+      {gone && (
+        <div role="status" className="shrink-0 border-b border-hairline bg-danger-soft px-3 py-1.5 text-2xs text-danger">
+          {gone}
+        </div>
+      )}
+      {conflict && !gone && (
         <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-danger-soft py-1 pl-3 pr-2 text-2xs text-danger">
           <span className="min-w-0 flex-1">{t("notes-note-editor-saving-paused")}</span>
           <Button size="sm" variant="ghost" onClick={() => void takeTheirs()}>
@@ -688,7 +761,7 @@ export function NoteEditor({
 
       <footer ref={foot} style={dockRoom > 0 ? { paddingRight: dockRoom } : undefined} className="flex shrink-0 items-center justify-between border-t border-hairline py-1 pl-3 pr-2">
         <span className="tnum text-2xs text-text-dim">
-          {t("notes-note-editor-characters", { n: body.length.toLocaleString() })}
+          {t("notes-note-editor-characters", { n: body.length.toLocaleString(), count: body.length })}
         </span>
         <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)}>{t("notes-note-editor-delete")}</Button>
       </footer>

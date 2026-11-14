@@ -452,7 +452,7 @@ impl Workspace {
             kind::KIND_PROJECT => return self.ingest_ns_snapshot(event, Paths::NS_PROJECTS),
             kind::KIND_WORKFLOW => return self.ingest_workflow_snapshot(event),
             kind::KIND_ADDON => return self.ingest_ns_snapshot(event, Paths::NS_ADDONS),
-            kind::KIND_DRAWING => return self.ingest_ns_snapshot(event, Paths::NS_DRAWINGS),
+            kind::KIND_DRAWING => return self.ingest_drawing_snapshot(event),
             kind::KIND_ENGRAM => return Ok(reject("recall does not sync")),
             _ => {}
         }
@@ -631,6 +631,31 @@ impl Workspace {
         Ok(outcome)
     }
 
+    /// A drawing from another machine, read **before** it is stored: it
+    /// decodes as a drawing, it is filed under its own id, and it is what a
+    /// write here would accept ([`bisa_core::Drawing::validate_for_write`]) —
+    /// or it is turned away with nothing kept. A snapshot stored first and
+    /// judged after would be the truth of a drawing nobody would have saved.
+    fn ingest_drawing_snapshot(&self, event: &Event) -> Result<IngestOutcome, StoreError> {
+        let remote: bisa_core::Drawing = match serde_json::from_str(&event.content) {
+            Ok(d) => d,
+            Err(e) => {
+                self.mark_seen(event)?;
+                return Ok(reject(format!("drawing snapshot does not decode: {e}")));
+            }
+        };
+        if tag_value(event, "d") != Some(remote.id.to_string().as_str()) {
+            self.mark_seen(event)?;
+            return Ok(reject("drawing snapshot's d tag is not its id"));
+        }
+        if let Err(e) = remote.validate_for_write() {
+            self.mark_seen(event)?;
+            return Ok(reject(format!("drawing snapshot refused: {e}")));
+        }
+        let _writer = self.drawing_writer();
+        self.ingest_ns_snapshot(event, Paths::NS_DRAWINGS)
+    }
+
     fn ingest_ns_snapshot(&self, event: &Event, ns: &str) -> Result<IngestOutcome, StoreError> {
         let d = tag_value(event, "d").map(str::to_string).ok_or_else(|| {
             StoreError::Invalid(bisa_core::text!(
@@ -732,16 +757,22 @@ impl Workspace {
             k if k == kind::KIND_DRAWING => {
                 match serde_json::from_str::<bisa_core::Drawing>(&event.content) {
                     Ok(d) => {
-                        self.adopt_drawing(&d);
-                        self.emit_store_event(crate::workspace::StoreEvent::RemoteDrawingArrived {
-                            drawing: d,
-                        });
+                        // Said only when it is listed here now: a drawing
+                        // about a goal this workspace does not hold is kept
+                        // as its snapshot alone, and nothing arrived.
+                        if self.adopt_drawing(&d) {
+                            self.emit_store_event(
+                                crate::workspace::StoreEvent::RemoteDrawingArrived { drawing: d },
+                            );
+                        }
                         Ok(())
                     }
+                    // LCOV_EXCL_START: `ingest_drawing_snapshot` decoded the drawing before filing it here
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
                         "error-store-ingest-refused",
                         detail = e.to_string()
                     ))),
+                    // LCOV_EXCL_STOP
                 }
             }
             k if k == kind::KIND_CONVERSATION => {
@@ -2479,8 +2510,8 @@ mod tests {
             }
         );
         // A snapshot of each kind whose content will not decode is applied
-        // as a file, said, and indexed by nobody — but a channel's, which is
-        // read before it is stored and refused.
+        // as a file, said, and indexed by nobody — but a channel's and a
+        // drawing's, which are read before they are stored and refused.
         for k in [
             kind::KIND_AGENT_PROFILE,
             kind::KIND_TEAM,
@@ -2488,7 +2519,6 @@ mod tests {
             kind::KIND_CONNECTOR,
             kind::KIND_PROJECT,
             kind::KIND_ADDON,
-            kind::KIND_DRAWING,
             kind::KIND_CONVERSATION,
         ] {
             let odd = EventBuilder::new(Kind::from(k), "{}")
@@ -2511,6 +2541,19 @@ mod tests {
             ws1.ingest_remote_event(&odd_channel).unwrap(),
             IngestOutcome::Rejected { reason } if reason.contains("does not decode")
         ));
+        let odd_drawing = EventBuilder::new(Kind::from(kind::KIND_DRAWING), "{}")
+            .tag(Tag::parse(["d", "odd"]).unwrap())
+            .finalize(&keys)
+            .unwrap();
+        assert!(matches!(
+            ws1.ingest_remote_event(&odd_drawing).unwrap(),
+            IngestOutcome::Rejected { reason } if reason.contains("does not decode")
+        ));
+        assert!(ws1
+            .snapshots
+            .get_raw(Paths::NS_DRAWINGS, kind::KIND_DRAWING, "odd")
+            .unwrap()
+            .is_none());
         let nameless = EventBuilder::new(Kind::from(kind::KIND_SKILL), "{}")
             .finalize(&keys)
             .unwrap();

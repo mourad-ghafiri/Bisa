@@ -5465,6 +5465,83 @@ async fn a_note_write_is_silent_and_an_agent_append_is_not() {
     }
     assert!(announced, "an agent's append must reach the overlay");
 
+    // A caller that is nobody's open editor — the command line — asks for
+    // its edit to be said, and it is: with the hash, so an editor open on
+    // the note learns the text moved without having to save first.
+    while node.bus.try_recv().is_ok() {}
+    let hash = node.get(&format!("/notes/{id}")).await["note"]["hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let patched = node
+        .post_patch(
+            &format!("/notes/{id}"),
+            json!({"body": "from the command line", "base_hash": hash, "announce": true}),
+        )
+        .await;
+    let said = node
+        .bus
+        .try_recv()
+        .expect("an edit asked to be said is said");
+    match &said.payload {
+        bisa_engine::events::EnginePayload::NoteChanged { note, hash, by, .. } => {
+            assert_eq!(note, &id);
+            assert_eq!(Some(hash.as_str()), patched["note"]["hash"].as_str());
+            assert!(by.is_none(), "a person's edit names no agent");
+        }
+        other => panic!("{other:?}"),
+    }
+    // `announce: false` is the silence it always was.
+    let hash = patched["note"]["hash"].as_str().unwrap().to_string();
+    node.post_patch(
+        &format!("/notes/{id}"),
+        json!({"pinned": true, "base_hash": hash, "announce": false}),
+    )
+    .await;
+    assert!(node.bus.try_recv().is_err());
+
+    node.shutdown().await;
+}
+
+/// A note this build cannot read — a merge left in it, a key a hand added —
+/// is not *gone*: a read answers the code a client tells apart from a note
+/// that left, an edit the same, and a delete removes it and says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_note_nobody_can_read_says_so_by_code_and_can_be_deleted() {
+    let mut node = Node::start().await;
+    let made = node
+        .post(
+            "/notes",
+            json!({"scope": "workspace", "title": "Torn", "body": "words"}),
+        )
+        .await;
+    let id = made["note"]["id"].as_str().unwrap().to_string();
+    let file = node
+        .data_dir()
+        .join("notes")
+        .join("workspace")
+        .join(format!("{id}.md"));
+    assert!(file.exists(), "{}", file.display());
+    std::fs::write(&file, "---\ntitle: Torn\ntags: x\n---\nwords").unwrap();
+    for (method, body) in [("GET", None), ("PATCH", Some(json!({"pinned": true})))] {
+        let (status, v) = node.req(method, &format!("/notes/{id}"), body).await;
+        assert_eq!(status, 404, "{method}: {v}");
+        assert_eq!(v["code"], json!("record_unreadable"), "{method}: {v}");
+    }
+    // A note that is simply not there carries no such code.
+    let (status, v) = node
+        .req("GET", "/notes/01ARZ3NDEKTSV4RRFFQ69G5FAV", None)
+        .await;
+    assert_eq!(status, 404, "{v}");
+    assert!(v.get("code").is_none() || v["code"].is_null(), "{v}");
+    while node.bus.try_recv().is_ok() {}
+    let (status, v) = node.req("DELETE", &format!("/notes/{id}"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert!(!file.exists());
+    assert!(matches!(
+        node.bus.try_recv().map(|e| e.payload),
+        Ok(bisa_engine::events::EnginePayload::NoteChanged { note, .. }) if note == id
+    ));
     node.shutdown().await;
 }
 

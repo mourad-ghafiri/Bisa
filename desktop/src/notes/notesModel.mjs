@@ -22,8 +22,8 @@ import { t as tr } from "../i18n/l10n.mjs";
 export const MARKS = {
   bold: { kind: "wrap", mark: "**", empty: tr("notes-notes-bold-text") },
   italic: { kind: "wrap", mark: "_", empty: tr("notes-notes-italic-text") },
-  code: { kind: "wrap", mark: "`", empty: "code" },
-  link: { kind: "link", empty: "text" },
+  code: { kind: "wrap", mark: "`", empty: tr("notes-notes-code-text") },
+  link: { kind: "link", empty: tr("notes-notes-link-text"), address: tr("notes-notes-link-address") },
   heading: { kind: "line", prefix: "## " },
   bullet: { kind: "line", prefix: "- " },
   quote: { kind: "line", prefix: "> " },
@@ -81,11 +81,11 @@ export function wrapSelection(text, from, to, kind) {
 
   const selected = text.slice(from, to) || spec.empty;
   if (spec.kind === "link") {
-    const body = `[${selected}](url)`;
+    const body = `[${selected}](${spec.address})`;
     const out = text.slice(0, from) + body + text.slice(to);
-    // Select `url`, because that is the part you still have to supply.
+    // Select the address, because that is the part you still have to supply.
     const at = from + selected.length + 3;
-    return { text: out, from: at, to: at + 3 };
+    return { text: out, from: at, to: at + spec.address.length };
   }
 
   const body = spec.mark + selected + spec.mark;
@@ -342,6 +342,15 @@ export function matchAt(matches, index) {
 export function adoptIncoming(local, confirmed, incoming) {
   if (incoming === local) return { body: local, outcome: "same" };
   if (incoming.startsWith(confirmed)) return { body: local + incoming.slice(confirmed.length), outcome: "appended" };
+  // The store trims the end of what is there before it adds a block, so a
+  // body that ended in spaces or blank lines is extended from its trimmed
+  // self — an append all the same, never a rewrite.
+  const trimmed = confirmed.trimEnd();
+  if (trimmed !== confirmed && incoming.startsWith(trimmed === "" ? "" : `${trimmed}\n\n`)) {
+    if (local === confirmed) return { body: incoming, outcome: "appended" };
+    const block = incoming.slice(trimmed.length);
+    return { body: local + (block.startsWith("\n") ? block : `\n\n${block}`), outcome: "appended" };
+  }
   if (local === confirmed) return { body: incoming, outcome: "taken" };
   return { body: local, outcome: "conflict" };
 }
@@ -395,6 +404,92 @@ export function restoredDraft(draft, note) {
  */
 export function latestNote(read, saved) {
   return read.updated_at > saved.updated_at ? read : saved;
+}
+
+/**
+ * Whether a list read that landed under the saves made meanwhile hid
+ * something: a row of the **same second** as a save and of another text may
+ * be the save plus what an agent appended in that second — `latestNote` keeps
+ * the save, a seconds clock cannot say which is newer, and no later frame
+ * would correct it. One more read, begun after the save, says what is there.
+ * @param {readonly {id: string, hash: string, updated_at: number}[]} rows what the read answered
+ * @param {ReadonlyMap<string, {hash: string, updated_at: number}>} savedSince the rows saves answered since the read began
+ * @returns {boolean}
+ */
+export function rereadDue(rows, savedSince) {
+  if (savedSince.size === 0) return false;
+  return rows.some((r) => {
+    const saved = savedSince.get(r.id);
+    return saved !== undefined && r.updated_at === saved.updated_at && r.hash !== saved.hash;
+  });
+}
+
+/**
+ * Whether the buffer is what the store holds. A title is kept trimmed by the
+ * store, so spaces at its ends are no change; a body is kept to the letter.
+ * @param {{title: string, body: string}} buffer @param {{title: string, body: string}} confirmed
+ */
+export function noteClean(buffer, confirmed) {
+  return buffer.title.trim() === confirmed.title && buffer.body === confirmed.body;
+}
+
+/**
+ * What a save sends: only what moved. The body goes with the hash it was
+ * read at; a title goes only when the person changed it — sent on every
+ * save, the title the editor opened with would undo a rename made elsewhere
+ * (the command line, another window), which no hash guards.
+ * @param {{title: string, body: string}} buffer @param {{title: string, body: string}} confirmed @param {string} hash
+ * @returns {{title?: string, body?: string, base_hash?: string} | null} `null` when nothing moved
+ */
+export function savePatch(buffer, confirmed, hash) {
+  const patch = {};
+  const title = buffer.title.trim();
+  if (title !== confirmed.title) patch.title = title;
+  if (buffer.body !== confirmed.body) {
+    patch.body = buffer.body;
+    patch.base_hash = hash;
+  }
+  return Object.keys(patch).length === 0 ? null : patch;
+}
+
+/**
+ * The hash a 409 says the note has now (`current_hash` beside `current`):
+ * what *Keep mine* saves over. The list's row may be older than the write
+ * that won — a write no frame announced — and saving at its hash would lose
+ * again, for ever.
+ * @param {unknown} body the refusal's parsed body
+ * @returns {string | null}
+ */
+export function conflictHash(body) {
+  if (!body || typeof body !== "object") return null;
+  const hash = /** @type {{current_hash?: unknown}} */ (body).current_hash;
+  return typeof hash === "string" ? hash : null;
+}
+
+/**
+ * What became of the open note when the list no longer holds it, by what a
+ * read of it alone answered: *there* (another tab's, or made after the
+ * list's read began), *gone*, *unreadable* — or *unknown* when the node did
+ * not answer, which changes nothing on screen.
+ * @param {number} status the read's status, 200 for an answer
+ * @param {string | null | undefined} code the refusal's code
+ * @returns {"there" | "gone" | "unreadable" | "unknown"}
+ */
+export function missingVerdict(status, code) {
+  if (status === 200) return "there";
+  const refusal = noteRefusal(status, code);
+  return refusal === "gone" || refusal === "unreadable" ? refusal : "unknown";
+}
+
+/**
+ * Whether a key press is the notes chord: Alt and the N key, nothing else
+ * held. By the key's **place** first — on a Mac, Option+N types a dead key
+ * and `key` is never `n` — and by the letter where no place is said.
+ * @param {{altKey: boolean, metaKey: boolean, ctrlKey: boolean, key: string, code?: string}} e
+ */
+export function isNotesChord(e) {
+  if (!e.altKey || e.metaKey || e.ctrlKey) return false;
+  return e.code === "KeyN" || (!e.code && e.key.toLowerCase() === "n");
 }
 
 /**
@@ -516,14 +611,22 @@ export function noteStatusWords(s) {
  * `404` is a note that is no longer there — deleted under the editor, by an
  * agent or another window (*gone*: nothing more can be saved to it, and a
  * delete of it has already happened); anything else *failed* and may be
- * tried again.
+ * tried again. A `404` with the code `record_unreadable` is a note that is
+ * there and that this build cannot read (*unreadable*): nothing can be saved
+ * to it either, but it is not gone — it can still be deleted.
  * @param {number | null | undefined} status
- * @returns {"conflict" | "gone" | "failed"}
+ * @param {string | null} [code] the refusal's code, when the node named one
+ * @returns {"conflict" | "gone" | "unreadable" | "failed"}
  */
-export function noteRefusal(status) {
+export function noteRefusal(status, code) {
   if (status === 409) return "conflict";
-  if (status === 404) return "gone";
+  if (status === 404) return code === "record_unreadable" ? "unreadable" : "gone";
   return "failed";
+}
+
+/** What the editor says over a note this build cannot read: the text typed stays to be copied, and the note can be deleted. */
+export function noteUnreadableWords() {
+  return tr("notes-note-editor-note-unreadable");
 }
 
 /** What the editor says over a note that is gone: the node's own sentence, and that the text typed stays to be copied. @param {string} why */

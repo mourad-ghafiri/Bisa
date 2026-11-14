@@ -88,6 +88,9 @@ const WRITER_VERBS: &[&str] = &[
 
 /// Writers whose first word is not a writing verb.
 const IRREGULAR_WRITERS: &[&str] = &[
+    // `resync_notes` makes the index say what the notes folder holds after a
+    // pull moved files under the store — rows written and cleared.
+    "resync_notes",
     // `refuse_held` drops a held row and keeps its id, so no agent reads it.
     "refuse_held",
     "open_dm",

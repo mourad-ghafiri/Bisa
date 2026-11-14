@@ -119,14 +119,18 @@ impl Workspace {
             updated_at: at,
             scene: new.scene.unwrap_or_default().without_deleted(),
         };
+        def.validate_for_write()?;
         self.write_drawing(&def)?;
         Ok(def)
     }
 
     /// The one writer of drawings at a time (`drawings_writes`): the canvas's
     /// autosave and the bridge's save each read, compare the hash and write.
-    /// A poisoned lock is taken over, as the work items' is.
-    fn drawing_writer(&self) -> MutexGuard<'_, ()> {
+    /// A deletion — one drawing's, or a whole scope's — is a write like any
+    /// other: outside the lock, a save that had already read the drawing
+    /// would sign it again after it went. A poisoned lock is taken over, as
+    /// the work items' is.
+    pub(crate) fn drawing_writer(&self) -> MutexGuard<'_, ()> {
         self.drawings_writes.lock().unwrap_or_else(|poisoned| {
             tracing::warn!(
                 "the drawings write lock was poisoned; continuing with the drawing as it stands"
@@ -143,6 +147,13 @@ impl Workspace {
     /// pin answer the record as it stands — no new revision, no new hash —
     /// so a canvas saving what it just adopted, or a bridge saving what the
     /// canvas already saved, moves nothing a reader would have to follow.
+    /// *The same scene* is the same elements and state whatever order their
+    /// keys came in — the hash is of the bytes, and a canvas that wrote its
+    /// keys back in another order has changed nothing.
+    ///
+    /// What is written is checked, field by field: a new scene as a write
+    /// ([`Scene::validate_for_write`]), a new title as a title. A scene
+    /// stored before a check existed is not held against a rename or a pin.
     pub fn update_drawing(
         &self,
         id: DrawingId,
@@ -165,7 +176,8 @@ impl Workspace {
                 }
             }
             let next = scene.without_deleted();
-            if scene_hash(&next) != current {
+            if next != def.scene {
+                next.validate_for_write()?;
                 def.scene = next;
                 moved = true;
             }
@@ -174,6 +186,7 @@ impl Workspace {
             let title = title.trim().to_string();
             if title != def.title {
                 def.title = title;
+                def.validate_title()?;
                 moved = true;
             }
         }
@@ -191,18 +204,37 @@ impl Workspace {
         Ok(def)
     }
 
-    /// Remove a drawing: the file, the snapshot and the row, together.
-    pub fn delete_drawing(&self, id: DrawingId) -> Result<(), StoreError> {
-        let def = self.get_drawing(id)?;
+    /// Remove a drawing: the file, the snapshot and the row, together, under
+    /// the one writer's lock. Where it is filed is read from its row, and
+    /// from its snapshot only when it has none: a drawing whose snapshot
+    /// will not read is listed, so it must be removable. Only a drawing with
+    /// neither a row nor a snapshot is *not found*.
+    ///
+    /// Answers the scope it was filed under — `None` for the one nobody can
+    /// say it of, a snapshot that will not read and has no row — so the
+    /// deletion can be announced without the drawing having been read.
+    pub fn delete_drawing(&self, id: DrawingId) -> Result<Option<OwnerScope>, StoreError> {
+        let _writer = self.drawing_writer();
+        let d = id.to_string();
+        let row = self
+            .idx()
+            .drawing_scope(&d)?
+            .and_then(|(kind, scope_id)| OwnerScope::from_parts(&kind, scope_id.as_deref()));
+        let scope = match (row, self.get_drawing(id)) {
+            (None, Err(e @ StoreError::DefinitionNotFound { .. })) => return Err(e),
+            (Some(scope), _) => Some(scope),
+            (None, read) => read.ok().map(|def| def.scope),
+        };
         // Its conversations go with it: the picture they were about is gone.
-        self.remove_conversations_of("drawing", &id.to_string())?;
-        if let Ok(path) = self.drawing_path(&def.scope, id) {
+        self.remove_conversations_of("drawing", &d)?;
+        // A scope whose own record is gone has no folder to look in.
+        if let Some(Ok(path)) = scope.as_ref().map(|s| self.drawing_path(s, id)) {
             remove_file_if_there(&path)?;
         }
-        let d = id.to_string();
         self.snapshots
             .delete_snapshot(Paths::NS_DRAWINGS, KIND_DRAWING, &d)?;
-        self.idx().delete_drawing(&d)
+        self.idx().delete_drawing(&d)?;
+        Ok(scope)
     }
 
     /// A scope's drawings directory, snapshots and rows go together — the
@@ -214,6 +246,7 @@ impl Workspace {
         scope: OwnerScope,
         dir: &Path,
     ) -> Result<(), StoreError> {
+        let _writer = self.drawing_writer();
         match std::fs::remove_dir_all(dir) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -255,27 +288,32 @@ impl Workspace {
     /// indexed and drawn into its file where its scope is known here. A
     /// drawing about a goal or a project this workspace does not hold is
     /// kept as its snapshot alone and said in the log — it lists once the
-    /// record it is about arrives.
-    pub(crate) fn adopt_drawing(&self, def: &Drawing) {
+    /// record it is about arrives. Answers whether it is listed here now.
+    pub(crate) fn adopt_drawing(&self, def: &Drawing) -> bool {
         if let Err(e) = def.validate() {
             tracing::warn!("drawing {}: refused: {e}", def.id);
-            return;
+            return false;
         }
         if let Err(e) = self.index_drawing(def) {
-            // LCOV_EXCL_START: the cache takes every scope kind the core has; only a cache failure lands here
+            // A drawing about a goal this workspace does not hold: its row
+            // has no goal to belong to.
             tracing::warn!("drawing {}: not indexed: {e}", def.id);
-            return;
-            // LCOV_EXCL_STOP
+            return false;
         }
         if let Err(e) = self.materialize(def) {
             tracing::warn!("drawing {}: not written to the repository: {e}", def.id);
         }
+        true
     }
 
-    /// Every write: the record checked, the snapshot signed at the next
-    /// revision and put on the bus, the row and the file made to match.
+    /// Every write of a record its caller has checked: the snapshot signed
+    /// at the next revision, the row made to match, the change put on the
+    /// bus, the file drawn. In that order, so nothing is announced that a
+    /// reader could not then find. The snapshot is the truth and the file
+    /// its export: a file that cannot be written is said in the log and
+    /// drawn again by the next write or rebuild — the save has happened, and
+    /// answering it as failed would leave its caller holding a stale hash.
     fn write_drawing(&self, def: &Drawing) -> Result<(), StoreError> {
-        def.validate()?;
         // The scope must be one this workspace holds before anything is signed.
         self.drawings_dir_for(&def.scope)?;
         let d = def.id.to_string();
@@ -294,14 +332,17 @@ impl Workspace {
             None,
             &[],
         )?;
+        self.index_drawing(def)?;
         self.emit_store_event(StoreEvent::ConversationSnapshot {
             kind: KIND_DRAWING,
             d,
             event,
             audience: EventAudience::Workspace,
         });
-        self.index_drawing(def)?;
-        self.materialize(def)
+        if let Err(e) = self.materialize(def) {
+            tracing::warn!("drawing {}: not written to the repository: {e}", def.id);
+        }
+        Ok(())
     }
 
     fn index_drawing(&self, def: &Drawing) -> Result<(), StoreError> {
@@ -504,6 +545,414 @@ mod tests {
                 "{unremovable:?}"
             );
         }
+    }
+
+    // --- the hardening pass ---
+
+    fn scene_of(elements: Vec<serde_json::Value>) -> Scene {
+        Scene {
+            elements,
+            ..Default::default()
+        }
+    }
+
+    fn rect(id: &str) -> serde_json::Value {
+        serde_json::json!({"id": id, "type": "rectangle", "x": 1, "y": 2, "width": 3, "height": 4})
+    }
+
+    fn snapshot_file(ws: &Workspace, id: DrawingId) -> PathBuf {
+        ws.paths
+            .state_dir(Paths::NS_DRAWINGS)
+            .join(format!("{KIND_DRAWING}-{id}.json"))
+    }
+
+    /// A workspace of the same owner — the person's other machine.
+    fn twin_of(alpha: &Workspace) -> (tempfile::TempDir, Workspace) {
+        let keys = MemoryKeyStore::default();
+        crate::KeyStore::set(
+            &keys,
+            "owner",
+            &alpha.owner_keys().secret_key().to_secret_hex(),
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let beta = Workspace::open_with_keystore(dir.path(), Box::new(keys)).unwrap();
+        (dir, beta)
+    }
+
+    /// A save reads the drawing, then writes it back: a delete that landed
+    /// between the two used to be undone by the write — the snapshot, the
+    /// row and the file came back. Under the one writer's lock a delete
+    /// waits its turn, and the save after it finds no drawing.
+    #[test]
+    fn a_delete_is_never_undone_by_a_save_that_was_in_flight() {
+        let (_d, ws) = ws();
+        for round in 0..40 {
+            let d = drawing(&ws, OwnerScope::Workspace, "Racing");
+            std::thread::scope(|s| {
+                let ws = &ws;
+                s.spawn(move || {
+                    for i in 0..40 {
+                        let renamed = ws.update_drawing(
+                            d.id,
+                            DrawingPatch {
+                                title: Some(format!("Racing {i}")),
+                                ..Default::default()
+                            },
+                            None,
+                        );
+                        if renamed.is_err() {
+                            break;
+                        }
+                    }
+                });
+                s.spawn(move || {
+                    std::thread::yield_now();
+                    ws.delete_drawing(d.id).unwrap();
+                });
+            });
+            assert!(
+                ws.get_drawing(d.id).is_err(),
+                "round {round}: the snapshot came back"
+            );
+            assert!(
+                ws.list_drawings(OwnerFilter::All).unwrap().is_empty(),
+                "round {round}: the row came back"
+            );
+            assert!(
+                !ws.drawing_path(&OwnerScope::Workspace, d.id)
+                    .unwrap()
+                    .exists(),
+                "round {round}: the file came back"
+            );
+        }
+    }
+
+    /// A drawing whose snapshot nobody can read is listed — its row stands —
+    /// and so must be removable: the delete goes by where the row says the
+    /// drawing is, never by reading it. One with no row and no snapshot is
+    /// not found.
+    #[test]
+    fn a_drawing_whose_snapshot_will_not_read_can_still_be_deleted() {
+        let (_d, ws) = ws();
+        let torn = drawing(&ws, OwnerScope::Workspace, "Torn");
+        let file = ws.drawing_path(&OwnerScope::Workspace, torn.id).unwrap();
+        std::fs::write(snapshot_file(&ws, torn.id), b"{torn").unwrap();
+        assert!(ws.get_drawing(torn.id).is_err());
+        assert_eq!(ws.list_drawings(OwnerFilter::All).unwrap().len(), 1);
+        ws.delete_drawing(torn.id).unwrap();
+        assert!(ws.list_drawings(OwnerFilter::All).unwrap().is_empty());
+        assert!(!file.exists() && !snapshot_file(&ws, torn.id).exists());
+        assert!(matches!(
+            ws.delete_drawing(torn.id),
+            Err(StoreError::DefinitionNotFound {
+                kind: "drawing",
+                ..
+            })
+        ));
+        // A snapshot with no row — a drawing about a goal this workspace
+        // does not hold — is removed by what the snapshot says.
+        let rowless = drawing(&ws, OwnerScope::Workspace, "Rowless");
+        ws.idx().delete_drawing(&rowless.id.to_string()).unwrap();
+        ws.delete_drawing(rowless.id).unwrap();
+        assert!(!snapshot_file(&ws, rowless.id).exists());
+    }
+
+    /// The snapshot is the truth and the file its export: a save whose file
+    /// cannot be written has still saved — answered as saved, listed at its
+    /// new hash, said on the bus once — and the file is drawn again by the
+    /// next write that can.
+    #[cfg(unix)]
+    #[test]
+    fn a_save_whose_file_cannot_be_written_has_still_saved() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        let d = drawing(&ws, OwnerScope::Workspace, "Kept");
+        let file = ws.drawing_path(&OwnerScope::Workspace, d.id).unwrap();
+        let folder = file.parent().unwrap().to_path_buf();
+        let mut rx = ws.subscribe_store_events();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let saved = ws.update_drawing(
+            d.id,
+            DrawingPatch {
+                scene: Some(scene_of(vec![rect("a")])),
+                ..Default::default()
+            },
+            Some(&scene_hash(&d.scene)),
+        );
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let saved = saved.expect("the record was saved");
+        assert_eq!(ws.get_drawing(d.id).unwrap(), saved);
+        assert_eq!(
+            ws.list_drawings(OwnerFilter::All).unwrap()[0].hash,
+            scene_hash(&saved.scene)
+        );
+        assert_eq!(
+            std::iter::from_fn(|| rx.try_recv().ok()).count(),
+            1,
+            "said once"
+        );
+        // The next write draws the file again.
+        ws.update_drawing(
+            d.id,
+            DrawingPatch {
+                pinned: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("\"a\""), "{text}");
+    }
+
+    /// A write is checked as a write: two elements under one id, a place no
+    /// canvas can draw and a `javascript:` link are each refused with the
+    /// element named, and nothing is written. A scene stored before the
+    /// check that holds one still reads, lists after a rebuild, can be
+    /// renamed and pinned, and is deleted.
+    #[test]
+    fn a_write_is_checked_as_a_write_and_what_was_stored_before_still_reads_and_deletes() {
+        let (_d, ws) = ws();
+        let d = drawing(&ws, OwnerScope::Workspace, "Checked");
+        let h = scene_hash(&d.scene);
+        let mut linked = rect("b");
+        linked["link"] = serde_json::json!("javascript:alert(1)");
+        let mut far = rect("c");
+        far["y"] = serde_json::json!(4.0e15);
+        for (elements, said) in [
+            (vec![rect("a"), rect("a")], "share the id"),
+            (vec![rect("a"), linked.clone()], "`javascript:` link"),
+            (vec![far], "`y` of element"),
+        ] {
+            let refused = ws
+                .update_drawing(
+                    d.id,
+                    DrawingPatch {
+                        scene: Some(scene_of(elements)),
+                        ..Default::default()
+                    },
+                    Some(&h),
+                )
+                .unwrap_err();
+            assert!(refused.to_string().contains(said), "{refused}");
+        }
+        // A title is checked as a title: none, and one past the cap.
+        for title in [
+            "  ".to_string(),
+            "t".repeat(bisa_core::draw::MAX_DRAWING_TITLE_CHARS + 1),
+        ] {
+            let refused = ws.update_drawing(
+                d.id,
+                DrawingPatch {
+                    title: Some(title),
+                    ..Default::default()
+                },
+                None,
+            );
+            assert!(refused.is_err(), "{refused:?}");
+        }
+        assert_eq!(ws.get_drawing(d.id).unwrap(), d, "nothing was written");
+        assert!(ws
+            .create_drawing(NewDrawing {
+                scope: OwnerScope::Workspace,
+                title: "Born bad".into(),
+                scene: Some(scene_of(vec![linked.clone()])),
+            })
+            .is_err());
+
+        // Stored before the check: put straight into the snapshot.
+        let mut old = d.clone();
+        old.scene = scene_of(vec![rect("a"), linked]);
+        ws.snapshots
+            .put(
+                Paths::NS_DRAWINGS,
+                KIND_DRAWING,
+                &old.id.to_string(),
+                &old,
+                9,
+                ws.owner_keys(),
+                now_secs() + 5,
+                None,
+                &[],
+            )
+            .unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.get_drawing(old.id).unwrap().scene, old.scene);
+        let listed = ws.list_drawings(OwnerFilter::All).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].element_count, 2, "it still lists");
+        let renamed = ws
+            .update_drawing(
+                old.id,
+                DrawingPatch {
+                    title: Some("Renamed".into()),
+                    pinned: Some(true),
+                    ..Default::default()
+                },
+                None,
+            )
+            .expect("a title and a pin are not a write of the scene");
+        assert_eq!(renamed.scene, old.scene);
+        ws.delete_drawing(old.id).unwrap();
+        assert!(ws.list_drawings(OwnerFilter::All).unwrap().is_empty());
+    }
+
+    /// The same scene with its keys in another order is the same scene: a
+    /// canvas that wrote its elements back otherwise moves nothing.
+    #[test]
+    fn a_save_of_the_same_scene_with_its_keys_in_another_order_writes_nothing() {
+        let (_d, ws) = ws();
+        let d = ws
+            .create_drawing(NewDrawing {
+                scope: OwnerScope::Workspace,
+                title: "Ordered".into(),
+                scene: Some(scene_of(vec![rect("a")])),
+            })
+            .unwrap();
+        let reordered = serde_json::json!({"height": 4, "width": 3, "y": 2, "x": 1, "type": "rectangle", "id": "a"});
+        assert_ne!(
+            scene_hash(&scene_of(vec![reordered.clone()])),
+            scene_hash(&d.scene),
+            "the bytes differ"
+        );
+        let mut rx = ws.subscribe_store_events();
+        let same = ws
+            .update_drawing(
+                d.id,
+                DrawingPatch {
+                    scene: Some(scene_of(vec![reordered])),
+                    ..Default::default()
+                },
+                Some(&scene_hash(&d.scene)),
+            )
+            .unwrap();
+        assert_eq!(same.updated_at, d.updated_at);
+        assert_eq!(
+            scene_hash(&same.scene),
+            scene_hash(&d.scene),
+            "the hash a reader holds still stands"
+        );
+        assert!(rx.try_recv().is_err(), "nothing was said");
+    }
+
+    /// What another machine sends is checked before it is stored: a record
+    /// filed under an id that is not its own, and one whose scene a write
+    /// here would refuse, are turned away with nothing kept and nothing
+    /// said. A drawing about a goal this workspace does not hold is kept as
+    /// its snapshot alone — not listed, and not announced as arrived.
+    #[test]
+    fn a_peers_drawing_is_checked_before_it_is_stored_and_said_only_when_it_landed() {
+        let (_a, alpha) = ws();
+        let (_b, beta) = twin_of(&alpha);
+        let sent = |d: &str, def: &Drawing| {
+            alpha
+                .snapshots
+                .put(
+                    Paths::NS_DRAWINGS,
+                    KIND_DRAWING,
+                    d,
+                    def,
+                    1,
+                    alpha.owner_keys(),
+                    now_secs(),
+                    None,
+                    &[],
+                )
+                .unwrap()
+        };
+        let arrived = |rx: &mut tokio::sync::broadcast::Receiver<StoreEvent>| {
+            std::iter::from_fn(|| rx.try_recv().ok())
+                .filter(|e| matches!(e, StoreEvent::RemoteDrawingArrived { .. }))
+                .count()
+        };
+        let base = Drawing {
+            id: DrawingId::from_ulid(mint_ulid()),
+            scope: OwnerScope::Workspace,
+            title: "From the other machine".into(),
+            pinned: false,
+            created_at: 1,
+            updated_at: 1,
+            scene: scene_of(vec![rect("a")]),
+        };
+        let mut rx = beta.subscribe_store_events();
+
+        // Filed under another id.
+        let other = DrawingId::from_ulid(mint_ulid());
+        let outcome = beta
+            .ingest_remote_event(&sent(&other.to_string(), &base))
+            .unwrap();
+        assert!(
+            format!("{outcome:?}").to_lowercase().contains("reject"),
+            "{outcome:?}"
+        );
+        assert!(!snapshot_file(&beta, other).exists() && !snapshot_file(&beta, base.id).exists());
+
+        // A scene a write here would refuse.
+        let mut hostile = Drawing {
+            id: DrawingId::from_ulid(mint_ulid()),
+            ..base.clone()
+        };
+        hostile.scene.elements[0]["link"] = serde_json::json!("javascript:alert(1)");
+        let outcome = beta
+            .ingest_remote_event(&sent(&hostile.id.to_string(), &hostile))
+            .unwrap();
+        assert!(
+            format!("{outcome:?}").to_lowercase().contains("reject"),
+            "{outcome:?}"
+        );
+        assert!(
+            !snapshot_file(&beta, hostile.id).exists(),
+            "nothing was kept"
+        );
+
+        // Not a drawing at all.
+        let junk = DrawingId::from_ulid(mint_ulid());
+        let event = alpha
+            .snapshots
+            .put(
+                Paths::NS_DRAWINGS,
+                KIND_DRAWING,
+                &junk.to_string(),
+                &serde_json::json!({"not": "a drawing"}),
+                1,
+                alpha.owner_keys(),
+                now_secs(),
+                None,
+                &[],
+            )
+            .unwrap();
+        let outcome = beta.ingest_remote_event(&event).unwrap();
+        assert!(
+            format!("{outcome:?}").to_lowercase().contains("reject"),
+            "{outcome:?}"
+        );
+        assert!(!snapshot_file(&beta, junk).exists());
+        assert!(beta.list_drawings(OwnerFilter::All).unwrap().is_empty());
+        assert_eq!(arrived(&mut rx), 0, "nothing landed, nothing said");
+
+        // About a goal this workspace does not hold: kept, not listed, not said.
+        let ghost = bisa_core::GoalId::from_ulid(ulid::Ulid::from_parts(9, 9));
+        let of_goal = Drawing {
+            id: DrawingId::from_ulid(mint_ulid()),
+            scope: OwnerScope::Goal { id: ghost },
+            ..base.clone()
+        };
+        beta.ingest_remote_event(&sent(&of_goal.id.to_string(), &of_goal))
+            .unwrap();
+        assert!(
+            snapshot_file(&beta, of_goal.id).exists(),
+            "kept for when the goal arrives"
+        );
+        assert!(beta.list_drawings(OwnerFilter::All).unwrap().is_empty());
+        assert_eq!(arrived(&mut rx), 0);
+
+        // And one that is sound lands and is said, once.
+        beta.ingest_remote_event(&sent(&base.id.to_string(), &base))
+            .unwrap();
+        assert_eq!(beta.get_drawing(base.id).unwrap(), base);
+        assert_eq!(beta.list_drawings(OwnerFilter::All).unwrap().len(), 1);
+        assert_eq!(arrived(&mut rx), 1);
     }
 
     // added by the coverage pass: drawings.rs

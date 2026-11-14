@@ -388,16 +388,16 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | Route | What it does |
 |---|---|
 | `GET /notes` | Every note, every note of a kind (`?scope=project`), or one scope's (`?scope=goal&id=`). |
-| `POST /notes` | Create a note: `{title, body, scope}`. |
-| `GET /notes/{id}` | One note, with its hash for guarded updates. |
-| `PATCH /notes/{id}` | Edit a note with `base_hash`; 409 carries the current text. |
-| `DELETE /notes/{id}` | Delete a note. |
+| `POST /notes` | Create a note: `{title, body, scope, id}` — `id` names the goal, project, workflow or channel the scope is. |
+| `GET /notes/{id}` | One note, with its hash for guarded updates; 404 with the code `record_unreadable` for a file this build cannot read. |
+| `PATCH /notes/{id}` | Edit a note with `base_hash`; 409 carries the current text. Silent on the bus unless `announce` is true. |
+| `DELETE /notes/{id}` | Delete a note — one this build cannot read included. |
 | `GET /notes/git` | The notes repository: changes since the last commit, the branch against origin, who commits, the last commit. |
-| `POST /notes/git/commit` | Commit every change to the notes as one commit: `{message}`; 409 with nobody set to commit or nothing changed. |
+| `POST /notes/git/commit` | Commit every change to the notes as one commit: `{message}`; 400 with nobody set to commit, 409 with nothing changed. |
 | `POST /notes/git/message` | A commit message drafted by the General Agent from what changed — read-only. |
 | `POST /notes/git/push` | Push the notes to origin, setting the upstream the first time — the person's own act, no Publish gate. |
 | `POST /notes/git/fetch` | Read what origin has, moving nothing here. |
-| `POST /notes/git/pull` | Fast-forward to origin, a safety ref first; anything a fast-forward cannot take is refused. |
+| `POST /notes/git/pull` | Fast-forward to origin, a safety ref first; anything a fast-forward cannot take is refused. Notes that arrived, changed or left are indexed and announced. |
 | `PUT /notes/git/remote` | Set origin's URL: `{url}`. |
 | `PUT /notes/git/identity` | Who commits notes — the repository's own pair: `{name, email}`. |
 

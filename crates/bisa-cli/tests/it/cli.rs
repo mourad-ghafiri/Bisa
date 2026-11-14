@@ -7346,6 +7346,30 @@ fn notes_are_made_edited_and_removed_with_and_without_a_node() {
         ],
     ));
     assert_eq!(from_file["note"]["body"], "# three\n", "{from_file}");
+    // An edit that named no hash wrote over whatever was there, and says
+    // what that was: the hash it replaced, in the row and on stderr.
+    assert_eq!(
+        from_file["replaced"]["hash"], edited["note"]["hash"],
+        "{from_file}"
+    );
+    let over = bisa(dir.path(), &["note", "edit", &id, "--body", "four\n"]);
+    assert_ok(&over, "note edit over what was there");
+    assert!(
+        stderr(&over).contains("replaced the body it found")
+            && stderr(&over).contains(from_file["note"]["hash"].as_str().unwrap()),
+        "{}",
+        stderr(&over)
+    );
+    // One that named the hash replaced what its caller read: nothing to say.
+    assert!(edited.get("replaced").is_none(), "{edited}");
+    // `-` is the body on stdin.
+    let piped = bisa_stdin(
+        dir.path(),
+        &["--json", "note", "edit", &id, "--body-file", "-"],
+        "from a pipe\n",
+    );
+    assert_ok(&piped, "note edit from stdin");
+    assert_eq!(json(&piped)["note"]["body"], "from a pipe\n");
     let nothing = bisa(dir.path(), &["note", "edit", &id]);
     assert_eq!(nothing.status.code(), Some(1), "{}", stderr(&nothing));
     assert!(
@@ -7453,6 +7477,30 @@ fn notes_are_made_edited_and_removed_with_and_without_a_node() {
     assert_eq!(
         by_read["note"]["body"], "nnn\n",
         "the hash read as the edit begins: {by_read}"
+    );
+    assert_eq!(
+        by_read["replaced"]["hash"], edited["note"]["hash"],
+        "and what it replaced is said: {by_read}"
+    );
+    let piped = bisa_stdin(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "new",
+            "--title",
+            "Piped",
+            "--body-file",
+            "-",
+        ],
+        "made from a pipe\n",
+    );
+    assert_ok(&piped, "note new from stdin");
+    assert_eq!(json(&piped)["note"]["body"], "made from a pipe\n");
+    let piped_id = json(&piped)["note"]["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "note", "rm", &piped_id]))["ok"],
+        true
     );
     assert!(stdout(&bisa(dir.path(), &["note", "show", &id])).contains("nnn"));
     let renamed = json(&bisa(

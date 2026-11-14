@@ -185,7 +185,7 @@ pub use message::{
 };
 pub use model_plan::{AllHealthy, ModelChoice, ModelHealthView, ModelPlan, ModelStrategy};
 pub use network_settings::{ChildEnv, NetworkSettings, ProxyMode};
-pub use note::{Note, NoteError, MAX_NOTE_BYTES};
+pub use note::{Note, NoteError, MAX_NOTE_BYTES, MAX_NOTE_TITLE_CHARS};
 pub use origin::{AgentOrigin, Origin, ProjectOrigin, StepRef, WorkflowOrigin};
 pub use owner_scope::OwnerScope;
 pub use path::{FileScope, RelPath};

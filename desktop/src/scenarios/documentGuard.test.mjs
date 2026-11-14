@@ -38,7 +38,9 @@ test("each editor holds its document, saves on the button and on the keymap's sa
     assert.ok(editor.includes(`data-${kind === "note" ? "note" : "draw"}-editor`) && editor.includes("if (isSaveChord(e)) {"), `${file}: ⌘S saves this document`);
     assert.ok(editor.includes("disabled={!dirty || saving || conflict !== null} onClick={() => void saveNow()}"), `${file}: a Save button, live only with something to save`);
     assert.ok(editor.includes("<ConfirmDialog") && editor.includes("danger\n"), `${file}: Delete asks first, in red`);
-    assert.ok(editor.includes("const discard = useCallback(") && editor.includes("discard();"), `${file}: nothing is saved at a record being deleted or let go of`);
+    // Let go of: nothing more is saved. A note being deleted stops saving the same way and keeps its draft until the delete has landed.
+    const stopsSaving = editor.includes("discard();") || editor.includes("s.abandoned = true;\n    if (timer.current) clearTimeout(timer.current);\n    try {\n      await api.deleteNote(");
+    assert.ok(editor.includes("const discard = useCallback(") && stopsSaving, `${file}: nothing is saved at a record being deleted or let go of`);
   }
 });
 

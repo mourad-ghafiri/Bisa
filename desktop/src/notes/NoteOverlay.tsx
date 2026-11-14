@@ -64,10 +64,14 @@ import {
   NOTE_TAB_LABEL,
   draftKey,
   filterNotes,
+  isNotesChord,
   landedNotes,
   latestNote,
+  missingVerdict,
   noteRefusal,
   noteTargets,
+  ownerGone,
+  rereadDue,
   scopeOfRow,
   scopeWords,
   tabAdmits,
@@ -206,6 +210,8 @@ export function NoteOverlay() {
    * the text from before the save — which read as an agent's conflict.
    */
   const savedSince = useRef(new Map<string, NoteRow>());
+  /** The tab whose list has landed at least once: before that, a note the list does not hold is only not read yet. */
+  const [landedTab, setLandedTab] = useState<string | null>(null);
   const load = useCallback(
     async (signal?: AbortSignal) => {
       const ticket = reads.current.begin();
@@ -214,11 +220,16 @@ export function NoteOverlay() {
       try {
         const { notes } = await api.notes(tabQuery(tab), signal);
         if (signal?.aborted || !reads.current.lands(ticket)) return;
+        // A row of the same second as a save and of another text may hide an
+        // agent's append under the save: read once more, from after the save.
+        const again = rereadDue(notes, savedSince.current);
         setNotes([...landedNotes(notes, savedSince.current)]);
         savedSince.current.clear();
         // The note that came back from the last window may have gone since.
         settleRestoredNote(notes.map((n) => n.id));
+        setLandedTab(tab);
         setError(null);
+        if (again) void loadAgain.current();
       } catch (e) {
         if (signal?.aborted || !reads.current.lands(ticket)) return;
         // What the node said is the log's; the panel says it in words a person reads.
@@ -230,6 +241,8 @@ export function NoteOverlay() {
     },
     [tab],
   );
+  const loadAgain = useRef<() => Promise<void>>(async () => {});
+  loadAgain.current = () => load();
 
   // Only while open, and per tab: a closed panel polling would be work nobody
   // asked for, and the route is not in this list on purpose. This list is the
@@ -251,7 +264,16 @@ export function NoteOverlay() {
    * practice an agent's `note_append` from the conversation beside the note.
    */
   useEngineEvents((e) => {
-    if (e.payload.type !== "note_changed" || !open) return;
+    if (!open) return;
+    // A goal, a project or a workflow deleted took its notes with it, and no
+    // `note_changed` says so: the list is read again, or its rows would open
+    // notes that are gone.
+    if (ownerGone(e.payload.type)) {
+      setRepoTick((t) => t + 1);
+      void load();
+      return;
+    }
+    if (e.payload.type !== "note_changed") return;
     // The repository holds every scope's notes, so its count moves first.
     setRepoTick((t) => t + 1);
     // Only a kind this tab lists: an agent appending to a workspace note while
@@ -271,7 +293,7 @@ export function NoteOverlay() {
   // is a panel rather than a place.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.altKey && !e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "n") {
+      if (isNotesChord(e)) {
         e.preventDefault();
         toggleNotes();
       }
@@ -301,7 +323,55 @@ export function NoteOverlay() {
     clearActiveNote();
   }, [active]);
 
-  const current = notes.find((n) => n.id === active) ?? null;
+  /**
+   * The open note. The list's row when it holds one — and, when a read no
+   * longer does, the last row it held: a note deleted elsewhere while open
+   * must not take the editor, and the text typed into it, off the screen.
+   */
+  const listed = notes.find((n) => n.id === active) ?? null;
+  const lastRow = useRef<NoteRow | null>(null);
+  if (listed) lastRow.current = listed;
+  const current = listed ?? (active !== null && lastRow.current?.id === active ? lastRow.current : null);
+  /** What a read of the open note alone said became of it, when the list lost it. */
+  const [fate, setFate] = useState<{ id: string; fate: "gone" | "unreadable" } | null>(null);
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || active === null || listed || loading || landedTab !== tab) {
+      if (listed) asked.current = null;
+      return;
+    }
+    // Once per note the list lost: the answer changes what is drawn, never the question.
+    if (asked.current === active) return;
+    asked.current = active;
+    const id = active;
+    const ctrl = new AbortController();
+    void (async () => {
+      let status = 200;
+      let code: string | null = null;
+      let note: NoteRow | null = null;
+      try {
+        note = (await api.note(id, ctrl.signal)).note;
+      } catch (e) {
+        if (ctrl.signal.aborted) return;
+        status = e instanceof ApiError ? e.status : 0;
+        code = e instanceof ApiError ? e.code : null;
+      }
+      const verdict = missingVerdict(status, code);
+      if (verdict === "there" && note) {
+        // Another tab's note — opened from a conversation's chip — or one made after the list's read began.
+        if (!tabAdmits(tab, note.scope)) setNotesTab("all");
+        else setNotes((prev) => (prev.some((n) => n.id === id) ? prev : [note, ...prev]));
+        asked.current = null;
+      } else if (verdict === "gone" || verdict === "unreadable") {
+        // An editor that was open keeps its text and says what happened; a note never drawn opens nothing.
+        if (lastRow.current?.id === id) setFate({ id, fate: verdict });
+        else clearActiveNote();
+      } else {
+        asked.current = null;
+      }
+    })();
+    return () => ctrl.abort();
+  }, [open, active, listed, loading, landedTab, tab]);
   const shown = useMemo(() => filterNotes(notes, query), [notes, query]);
   const targets = useMemo(() => noteTargets(tab, route, names, projectOf), [tab, route, names, projectOf]);
   // A tab that names one place needs no chip on its rows; the rest say what each note is about.
@@ -445,6 +515,7 @@ export function NoteOverlay() {
               {current ? (
                 <NoteEditor
                   note={current}
+                  fate={fate?.id === current.id ? fate.fate : null}
                   scopeName={scopeWords(scopeOfRow(current), names)}
                   onSaved={handleSaved}
                   onBack={clearActiveNote}

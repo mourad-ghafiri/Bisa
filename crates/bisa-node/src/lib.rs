@@ -946,7 +946,11 @@ impl From<bisa_store::StoreError> for ApiError {
             // way out).
             SE::Unreadable { path, what, .. } => {
                 tracing::warn!(target: "bisa_node", path = %path, what, "an unreadable record was asked for");
-                ApiError::text(StatusCode::NOT_FOUND, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                ApiError::coded(
+                    StatusCode::NOT_FOUND,
+                    dto::ErrorCode::RecordUnreadable,
+                    e.text(),
+                )
             }
             // Deleting `general`, disabling the core agent: the record is
             // fine and the request is not — a conflict with what the
