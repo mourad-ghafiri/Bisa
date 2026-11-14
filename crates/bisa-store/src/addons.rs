@@ -52,6 +52,25 @@ pub enum AddonChange {
     Grants,
 }
 
+/// What one patch does to a record's grants.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum GrantChange {
+    /// The grants stand.
+    #[default]
+    Keep,
+    /// The grants are exactly these — what a review that showed the whole
+    /// list sends.
+    Replace(Vec<AddonPermission>),
+    /// Words given and words taken, against the record **as it stands under
+    /// the lock**: the one form two hands can use at once without one undoing
+    /// the other. A word is a permission's word (`network`), and what is
+    /// granted is the declaration itself, its hosts with it.
+    Edit {
+        grant: Vec<String>,
+        revoke: Vec<String>,
+    },
+}
+
 /// One installed addon as the store knows it: the record, and whether its
 /// bundle is on this machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -384,6 +403,7 @@ impl Workspace {
         &self,
         from: &Path,
     ) -> Result<(AddonManifest, Vec<AddonProblem>), StoreError> {
+        self.refuse_source_inside(from)?;
         let (manifest, _) = read_manifest(from)?;
         let mut problems = manifest.validate();
         match walk_bundle(from) {
@@ -425,6 +445,7 @@ impl Workspace {
         granted: Vec<AddonPermission>,
         enabled: bool,
     ) -> Result<AddonEntry, StoreError> {
+        self.refuse_source_inside(from)?;
         let (manifest, _) = read_manifest(from)?;
         let problems = manifest.validate();
         if !problems.is_empty() {
@@ -499,6 +520,29 @@ impl Workspace {
             installed_at: now_secs(),
         };
         self.place_addon(record, &files).map(Some)
+    }
+
+    /// A folder inside the workspace is no source for an addon: the workspace
+    /// is the platform's own to write, and an import from inside it would
+    /// copy the platform's files into themselves. Held here, so every door —
+    /// the node's, and the command line's without a node — keeps it. A folder
+    /// that cannot be resolved is left to the manifest's read to name.
+    fn refuse_source_inside(&self, from: &Path) -> Result<(), StoreError> {
+        let Ok(real) = from.canonicalize() else {
+            return Ok(());
+        };
+        let root = self
+            .paths
+            .root()
+            .canonicalize()
+            .unwrap_or_else(|_| self.paths.root().to_path_buf()); // LCOV_EXCL_LINE: an open workspace's root resolves
+        if real.starts_with(&root) {
+            return Err(invalid(bisa_core::text!(
+                "error-store-invalid-addon-source-inside-workspace",
+                path = real.display().to_string()
+            )));
+        }
+        Ok(())
     }
 
     fn refuse_taken_addon_id(&self, id: &AddonId) -> Result<(), StoreError> {
@@ -821,16 +865,47 @@ impl Workspace {
         enabled: Option<bool>,
         granted: Option<Vec<AddonPermission>>,
     ) -> Result<(AddonEntry, Vec<AddonChange>), StoreError> {
+        let grants = granted.map_or(GrantChange::Keep, GrantChange::Replace);
+        self.update_addon_by(id, enabled, grants)
+    }
+
+    /// [`Self::update_addon`] with the grants said either way
+    /// ([`GrantChange`]): replaced whole, or edited by word against the
+    /// record as it stands under the lock. Judged whole, written once.
+    pub fn update_addon_by(
+        &self,
+        id: &AddonId,
+        enabled: Option<bool>,
+        grants: GrantChange,
+    ) -> Result<(AddonEntry, Vec<AddonChange>), StoreError> {
         let _writer = self.addon_writer();
         let mut addon = self.get_addon(id)?;
         if enabled == Some(true) && !addon.files_present {
             return Err(AddonError::FilesAbsent(id.to_string()).into());
         }
-        if let Some(granted) = &granted {
-            if let Some(word) = undeclared(granted, &addon.record.manifest.permissions) {
-                return Err(AddonError::GrantNotDeclared(word).into());
+        let declared = &addon.record.manifest.permissions;
+        let granted = match grants {
+            GrantChange::Keep => None,
+            GrantChange::Replace(granted) => {
+                if let Some(word) = undeclared(&granted, declared) {
+                    return Err(AddonError::GrantNotDeclared(word).into());
+                }
+                Some(granted)
             }
-        }
+            GrantChange::Edit { grant, revoke } => {
+                let by_word = |word: &String| {
+                    AddonPermission::grant_by_word(word, declared)
+                        .cloned()
+                        .ok_or_else(|| AddonError::GrantNotDeclared(word.clone()))
+                };
+                let given = grant.iter().map(by_word).collect::<Result<Vec<_>, _>>()?;
+                let taken = revoke.iter().map(by_word).collect::<Result<Vec<_>, _>>()?;
+                let mut granted = addon.record.granted.clone();
+                granted.extend(given);
+                granted.retain(|g| !taken.contains(g));
+                Some(granted)
+            }
+        };
         let mut changes = Vec::new();
         if let Some(enabled) = enabled {
             if addon.record.enabled != enabled {
@@ -891,7 +966,8 @@ impl Workspace {
             });
         }
         let retired = self.paths.addon_staging_dir();
-        std::fs::rename(&dir, &retired).map_err(|e| StoreError::io(dir.display().to_string(), e))?;
+        std::fs::rename(&dir, &retired)
+            .map_err(|e| StoreError::io(dir.display().to_string(), e))?;
         // LCOV_EXCL_START: the snapshot file is this process's own to remove; a refusal is the disk's
         if let Err(e) = self
             .snapshots
@@ -1136,16 +1212,28 @@ mod tests {
             },
         );
         ws.write_record(&odd).unwrap();
-        assert!(ws.refresh_builtin_addons().unwrap().iter().all(|id| id.as_str() == "clock"));
-        assert!(!ws.paths.addon_dir(&AddonId::new("weather").unwrap()).exists());
+        assert!(ws
+            .refresh_builtin_addons()
+            .unwrap()
+            .iter()
+            .all(|id| id.as_str() == "clock"));
+        assert!(!ws
+            .paths
+            .addon_dir(&AddonId::new("weather").unwrap())
+            .exists());
         assert_eq!(
-            ws.get_addon(&AddonId::new("acme.odd").unwrap()).unwrap().record,
+            ws.get_addon(&AddonId::new("acme.odd").unwrap())
+                .unwrap()
+                .record,
             odd
         );
         // And a record written by hand under a built-in's id is not the built-in: the catalog's
         // install refuses the id as taken — removing it is what frees it.
         ws.write_record(&record("weather", Origin::Local)).unwrap();
-        let taken = ws.install_addon_from_catalog("weather").unwrap_err().to_string();
+        let taken = ws
+            .install_addon_from_catalog("weather")
+            .unwrap_err()
+            .to_string();
         assert!(taken.contains("weather"), "{taken}");
         ws.remove_addon(&AddonId::new("weather").unwrap()).unwrap();
         assert!(ws.install_addon_from_catalog("weather").unwrap().is_some());
@@ -1183,8 +1271,14 @@ mod tests {
         // The snapshot itself is kept, as every snapshot a peer sends is; no record is made of it.
         beta.ingest_remote_event(&event).unwrap();
         assert!(beta.list_addons().unwrap().is_empty());
-        assert!(!beta.paths.addon_dir(&AddonId::new("acme.other").unwrap()).exists());
-        assert!(!beta.paths.addon_dir(&AddonId::new("acme.filed").unwrap()).exists());
+        assert!(!beta
+            .paths
+            .addon_dir(&AddonId::new("acme.other").unwrap())
+            .exists());
+        assert!(!beta
+            .paths
+            .addon_dir(&AddonId::new("acme.filed").unwrap())
+            .exists());
     }
 
     /// The addon write lock a panic poisoned is taken over: the next writer

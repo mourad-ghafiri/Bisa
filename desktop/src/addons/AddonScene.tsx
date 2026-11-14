@@ -49,6 +49,7 @@ export function AddonScene({
   summary,
   load,
   onOpenUrl,
+  onRestart,
 }: {
   addon: Addon;
   /** The native layers' boxes: a browser tab is an obstacle the page keeps off. */
@@ -58,6 +59,8 @@ export function AddonScene({
   summary: AddonSummary;
   load: AddonLoad | null;
   onOpenUrl: (url: string) => Promise<boolean>;
+  /** The page said hello: whatever its last self asked the person is no longer asked. */
+  onRestart: () => void;
 }) {
   const vp = useDockViewport(0);
   const cuts = useBrowserCutsAround();
@@ -111,6 +114,7 @@ export function AddonScene({
         if (modeRef.current === "hunt") giveBack();
         dispatch({ type: "hello" });
         setReady((n) => n + 1);
+        onRestart();
       },
       onStartMissed: () => toaster.error(sceneNotStartedWords(name)),
       onSceneMode: (asked) => {
@@ -123,7 +127,7 @@ export function AddonScene({
         dispatch({ type: "release" });
       },
     }),
-    [addon.id, name, onOpenUrl, blurFrame, giveBack],
+    [addon.id, name, onOpenUrl, onRestart, blurFrame, giveBack],
   );
   const { sendEvent } = useAddonBridge(frame, addon, { visible: true, summary, load, handlers, epoch: frameKey });
   sendRef.current = sendEvent;

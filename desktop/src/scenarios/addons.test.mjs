@@ -282,3 +282,30 @@ test("a hunt can always be left: no panel over the app, Esc and the strip, the f
   const manifest = JSON.parse(readFileSync(new URL("library/addons/bug-hunt/addon.json", root), "utf8"));
   assert.notEqual(manifest.window.closable, false, "and the scene may be closed by its own page");
 });
+
+test("the host keeps its answers true: a switch outlives the reads it raced, a reply never crosses a reload, a link is opened once", () => {
+  const store = src("../addons/addonsStore.ts");
+  // An optimistic switch or removal is newer than any read already on its way: that read must not land over it.
+  const enable = store.slice(at(store, "export async function setAddonEnabled"), at(store, "export async function setAddonGrants"));
+  assert.ok(at(enable, "reads.begin();") < at(enable, "withEnabled(state.addons, id, enabled)"), "the switch takes a ticket before it is drawn");
+  assert.match(enable, /if \(wasHidden\) setAddonHidden\(id, true\);/, "a refused switch-on puts the window away again");
+  const remove = store.slice(at(store, "export async function removeAddon"), at(store, "export async function importAddon"));
+  assert.ok(at(remove, "reads.begin();") < at(remove, "state.addons.filter"), "and so does a removal");
+  assert.ok(store.includes("staleWindowIds(") && !/forgetPref\(webStorage\(\), STORAGE_KEY_PREFIX \+ stale/.test(store), "a place is forgotten for an addon no longer listed; its store never is on a list alone");
+
+  const bridge = src("../addons/addonBridge.ts");
+  // A page that reloaded is another conversation: what the last one asked is not answered to it.
+  assert.ok(bridge.includes("const talk = useRef(0);") && bridge.split("talk.current += 1;").length - 1 === 2, "a new frame and a new hello each start a conversation");
+  assert.equal(bridge.split("if (talk.current !== asked) return;").length - 1, 3, "the fetch, the link and the clipboard answer only the conversation that asked");
+  assert.match(bridge, /copyText\(effect\.text\)\s*\.then\(\(written\) =>/, "the clipboard's answer is the copy's own");
+
+  const layer = src("../addons/AddonLayer.tsx");
+  // React may call an updater twice; a link opened inside one opens twice.
+  const settle = layer.slice(at(layer, "const settle = useCallback("), at(layer, "const shown = visibleAddons("));
+  assert.ok(!/setAsk\(\(current\)/.test(settle) && settle.includes("openExternal(") && settle.includes("setAsk(null)"), "the link is opened outside the state updater");
+  assert.ok(layer.includes("onRestart={") || layer.includes("restarted("), "an ask goes with the page that put it when that page starts again");
+
+  const win = src("../addons/AddonWindow.tsx");
+  assert.match(win, /if \(sameSize\(next, size\)\) return;/, "a resize to the size it has writes nothing and redraws nobody");
+  assert.match(src("../views/_settings/AddonsPanel.tsx"), /await api\.setSetting[\s\S]{0,200}void refreshAddons\(\);/, "the machine's switch re-reads the list itself, bus or no bus");
+});

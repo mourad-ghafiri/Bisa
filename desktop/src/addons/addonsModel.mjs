@@ -11,9 +11,27 @@ import { t } from "../i18n/l10n.mjs";
 import { PERMISSIONS, frameOf, mediaGrant, networkHosts, permissionWord } from "./addonBridgeModel.mjs";
 
 /** The read-out's tooltip and the popover's title line: how many windows show, of every addon installed. */
-export function titleWords(showing, total) {
+export function titleWords(showing, total, read = { loaded: true, failed: false }) {
+  // *None* is a fact somebody read: before the first answer, and after a read that failed with
+  // nothing yet known, the read-out says where the reading stands instead.
+  if (total === 0 && !read.loaded) return read.failed ? t("addons-addons-model-not-read") : t("addons-addons-model-reading");
   if (total === 0) return t("addons-addons-model-no-addons");
   return t("addons-addons-model-showing-of", { showing, total });
+}
+
+/**
+ * The addons whose window's place is still remembered though they are no
+ * longer installed: the ids behind the stored keys of `prefix` that the list
+ * does not hold. A place is furniture and is forgotten with its addon; an
+ * addon's own **store** is never forgotten on a list alone — a record the
+ * node could not read is left out of the list, and its notes must outlive that.
+ * @param {readonly string[]} keys every key this machine's storage holds
+ * @param {string} prefix
+ * @param {readonly {id: string}[]} addons
+ */
+export function staleWindowIds(keys, prefix, addons) {
+  const installed = new Set(addons.map((a) => a.id));
+  return keys.filter((k) => k.startsWith(prefix) && k.length > prefix.length).map((k) => k.slice(prefix.length)).filter((id) => !installed.has(id));
 }
 
 /** The layer switch's label and its hint. */

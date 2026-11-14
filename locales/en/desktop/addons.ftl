@@ -25,6 +25,8 @@ addons-addon-layer-open-link = Open in the browser
 
 ## The shared words (`addonsModel.mjs`).
 addons-addons-model-no-addons = No addons
+addons-addons-model-reading = Reading the addons…
+addons-addons-model-not-read = The addons could not be read
 addons-addons-model-showing-of = { $showing } of { $total } addons showing
 addons-addons-model-show-addons = Show addons
 addons-addons-model-hint-on = Every running addon floats over the app; ⌘⇧X hides them all

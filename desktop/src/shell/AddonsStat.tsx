@@ -16,9 +16,9 @@ import { AddonsOverlay } from "./AddonsOverlay";
 
 export function AddonsStat() {
   const [open, setOpen] = useState(false);
-  const { addons, hidden, layerShown, switchedOn } = useAddons();
+  const { addons, hidden, layerShown, switchedOn, loaded, failed } = useAddons();
   const showing = visibleAddons(addons, hidden, layerShown, switchedOn);
-  const title = titleWords(showing.length, addons.length);
+  const title = titleWords(showing.length, addons.length, { loaded, failed: failed !== null });
   return (
     <Tooltip label={title}>
       <span className="inline-flex shrink-0">

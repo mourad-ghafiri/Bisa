@@ -29,19 +29,19 @@ hears the `scene` event and owns the three `scene.*` methods.
 | `system.load.unsubscribe` | `system_load` | — | `{subscribed: false}` |
 | `workspace.summary` | `workspace_summary` | — | `{waiting, review, working}` |
 | `notify.show` | `notify` | `{title ≤ 100, body? ≤ 200}` | `{shown: true}`; shown under the addon's name (*Clock — title*), at most one every ten seconds, else `rate_limited` — a page that reloads itself keeps the clock |
-| `clipboard.write` | `clipboard_write` | `{text ≤ 64 KiB}` | `{written: true}`; at most one every two seconds, else `rate_limited` |
+| `clipboard.write` | `clipboard_write` | `{text ≤ 64 KiB}` | `{written}` — `true` once the copy landed, `false` when the clipboard would not take it; at most one every two seconds, else `rate_limited` |
 | `storage.get` | `storage` | `{key ≤ 128}` | `{value}` — a string, or `null` |
 | `storage.set` | `storage` | `{key ≤ 128, value: string}` | `{stored}` — `true` when this machine kept it, `false` when its storage would not take the write (the value is held for this page's life alone); 256 KiB in all per addon, else `quota` |
 | `storage.remove` | `storage` | `{key}` | `{removed: true}` |
 | `storage.keys` | `storage` | — | `{keys: [...]}` |
 | `network.fetch` | `network` | `{url: https://…, accept?}` | `{status, contentType, body ≤ 1 MiB, truncated}` — through the node's broker: a host the manifest names and the person's `security.net.*` lists allow, never this machine, `GET` only, no redirect followed |
-| `url.open` | `open_url` | `{url: http(s)://…}` | `{opened: true}` when the person said yes; `refused` when they did not |
+| `url.open` | `open_url` | `{url: http(s)://…}` | `{opened: true}` when the person said yes; `refused` when they did not. Waited for as long as the person takes — and dropped, with the question, if the page reloads meanwhile |
 | `navigate` | `navigate` | `{route}` — one of `inbox` · `goals` · `pulse` · `workflows` · `projects` · `channels` · `messages` · `agents` · `teams` · `settings` | `{navigated: true}` |
 | `window.resize` | the manifest's `resizable` | `{width, height}` — clamped to the manifest's bounds | `{asked: true}` |
 | `window.close` | the manifest's `closable` | — | `{closed: true}`; the window is put away, the footer brings it back |
 | `window.setTitle` | — | `{title ≤ 60}` | `{set: true}` |
 | `media.embed` | `media`, declared with `youtube` | `{kind: "youtube", video, box: {x, y, width, height}}` — an eleven-character video id; the box from the window's top-left, in its pixels, no side under 200 | `{embedded: true}`; YouTube's own player appears over the box, beside the window, and says its state through the `media` event; one per window, a second replaces the first; `not_allowed` when the grant names no player |
-| `media.box` | `media` | `{box}` | `{moved: true}` |
+| `media.box` | `media` | `{box}` | `{moved: true}`. Every `media.*` method is `not_allowed` for a scene, which has no window for a player to stand beside |
 | `media.remove` | `media` | — | `{removed: true}`; the player goes |
 | `scene.mode` | the manifest's `frame: "scene"` | `{mode}` — `work` or `hunt` | `{mode}`; the host decides and says the mode in the `scene` event: in `work` the app has the pointer and only the scene's solid regions take it, in `hunt` the scene has it everywhere under the chrome; `Esc` leaves a hunt |
 | `scene.solid` | the manifest's `frame: "scene"` | `{rects: [{x, y, width, height, radius?}]}` — at most 8, from the scene's top-left, in its pixels, a corner of at most 64 | `{set: true}`; the regions the pointer reaches in `work` mode (the scene's own strip), cut around over a browser tab |
@@ -84,7 +84,7 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 | `too_large` | past a cap: params over 16 KiB, a clipboard write over 64 KiB |
 | `rate_limited` | a notice, or a clipboard write, too soon after the last |
 | `quota` | the addon's storage is full |
-| `unavailable` | the platform did not answer in ten seconds — or never said it was ready: the library says hello again at growing waits (250 ms to 4 s) and, past the last with no answer, fails every call waiting and every call made until a ready arrives; `ready()` itself keeps waiting |
+| `unavailable` | the platform did not answer in ten seconds (thirty for `network.fetch`; `url.open` waits for the person, with no clock) — or never said it was ready: the library says hello again at growing waits (250 ms to 4 s) and, past the last with no answer, fails every call waiting and every call made until a ready arrives; `ready()` itself keeps waiting |
 | `refused` | the node or the person said no — a host outside the grant, a link not opened |
 
 ## What never has a method

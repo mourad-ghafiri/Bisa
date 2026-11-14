@@ -164,6 +164,18 @@ fn an_addon_is_imported_granted_switched_served_and_removed_and_a_built_in_comes
     // Its record and its list are not its window's: they take the token.
     assert_eq!(ws.call_with("GET", "/addons", &[], None).0, 401);
 
+    // The machine's own switch off: the list says nothing here draws, whatever a row reads.
+    ws.ok(&["settings", "set", "machine", "addons.enabled", "false"]);
+    let listed = ws.bisa(&["addon", "list"]);
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains("switched off on this machine"),
+        "{}",
+        String::from_utf8_lossy(&listed.stdout)
+    );
+    assert_eq!(ws.json(&["addon", "list"])["addons_enabled"], false);
+    ws.ok(&["settings", "set", "machine", "addons.enabled", "true"]);
+    assert_eq!(ws.json(&["addon", "list"])["addons_enabled"], true);
+
     let off = ws.json(&["addon", "disable", "acme.byte"]);
     assert_eq!(off["addon"]["active"], false, "{off}");
     assert_eq!(served(&ws, "acme.byte", "index.html"), 404);
@@ -232,6 +244,28 @@ fn an_addon_is_imported_granted_switched_served_and_removed_and_a_built_in_comes
     let mut listed = installed(&ws);
     listed.sort();
     assert_eq!(listed, vec!["acme.beam", "clock", "weather"]);
+    // The same switch, read from the workspace itself.
+    ws.ok(&["settings", "set", "machine", "addons.enabled", "false"]);
+    let said = ws.bisa(&["addon", "list"]);
+    assert!(
+        String::from_utf8_lossy(&said.stdout).contains("switched off on this machine"),
+        "{}",
+        String::from_utf8_lossy(&said.stdout)
+    );
+    ws.ok(&["settings", "set", "machine", "addons.enabled", "true"]);
+    assert_eq!(ws.json(&["addon", "list"])["addons_enabled"], true);
+    // A folder inside the workspace is no source for an addon, node or no node.
+    let inside = ws.data().join("inside");
+    std::fs::create_dir_all(&inside).expect("a folder inside the data directory");
+    std::fs::write(inside.join("addon.json"), the_manifest("acme.inside")).expect("the manifest");
+    std::fs::write(inside.join("index.html"), "<!doctype html>").expect("the page");
+    let refused = ws.bisa(&["addon", "import", &inside.to_string_lossy()]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("inside the workspace"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
     // The bundle moved aside by hand: the record stands, the files do not.
     let files = ws.data().join("addons").join("acme.beam").join("files");
     assert!(files.is_dir(), "{}", files.display());

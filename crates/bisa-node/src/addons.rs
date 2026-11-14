@@ -215,7 +215,7 @@ async fn one(
     Ok(Json(json!({ "addon": localized(addon, &locale) })))
 }
 
-/// `PATCH /addons/{id} {enabled?, granted?}` — judged whole by the store,
+/// `PATCH /addons/{id} {enabled?, granted? | grant?, revoke?}` — judged whole by the store,
 /// written once, each change said on the bus in order (the switch, then
 /// the grants); a grant never declared refuses the whole patch, the switch
 /// beside it untouched.
@@ -226,12 +226,26 @@ async fn patch(
     crate::Body(body): crate::Body<AddonPatchBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = addon_id(&id)?;
-    if body.enabled.is_none() && body.granted.is_none() {
+    let by_word = body.grant.is_some() || body.revoke.is_some();
+    let grants = match (body.granted, by_word) {
+        (Some(_), true) => {
+            return Err(bad_request(bisa_core::text!(
+                "error-node-addons-grants-two-ways"
+            )))
+        }
+        (Some(granted), false) => bisa_store::GrantChange::Replace(granted),
+        (None, true) => bisa_store::GrantChange::Edit {
+            grant: body.grant.unwrap_or_default(),
+            revoke: body.revoke.unwrap_or_default(),
+        },
+        (None, false) => bisa_store::GrantChange::Keep,
+    };
+    if body.enabled.is_none() && grants == bisa_store::GrantChange::Keep {
         return Err(bad_request(bisa_core::text!(
             "error-node-addons-nothing-to-patch"
         )));
     }
-    let addon = admin::update_addon(state.engine.inner(), &id, body.enabled, body.granted)?;
+    let addon = admin::update_addon_by(state.engine.inner(), &id, body.enabled, grants)?;
     Ok(Json(json!({ "addon": localized(addon, &locale) })))
 }
 
@@ -260,6 +274,42 @@ async fn fetch(
     Ok(Json(result)) // LCOV_EXCL_LINE a fetch that leaves this machine; by decision
 }
 
+/// Who may read a bundle's files across origins: the sandboxed frame that
+/// runs them, and nobody else. The node's CORS is open to every origin — the
+/// token is what guards the API — but these two routes answer **without**
+/// the token, so under it a page on any site that found the port could read
+/// an active addon's files. The frame has an opaque origin and says `null`;
+/// it needs the answer for what a browser always fetches in CORS mode (a
+/// bundle's own fonts). Nothing with a real origin does. The player's page
+/// is a document a view loads, and is read across origins by no one.
+///
+/// Layered outside the CORS layer, so it has the last word on its header.
+pub(crate) async fn frame_alone(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = req.uri().path();
+    let is_file = crate::auth::is_addon_file(path);
+    if !is_file && !crate::auth::is_addon_player(path) {
+        return next.run(req).await;
+    }
+    let from_frame = req
+        .headers()
+        .get(header::ORIGIN)
+        .is_some_and(|origin| origin.as_bytes() == b"null");
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.remove(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    headers.append(header::VARY, HeaderValue::from_static("origin"));
+    if is_file && from_frame {
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("null"),
+        );
+    }
+    response
+}
+
 /// The one answer a token-less caller gets for anything that is not a file
 /// of an active addon: a 404 that names no reason.
 fn no_file() -> ApiError {
@@ -271,14 +321,48 @@ fn no_file() -> ApiError {
 async fn file(
     State(state): State<Shared>,
     AxPath((id, path)): AxPath<(String, String)>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    match serve_file(&state, &id, &path).await {
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
+    match serve_file(&state, &id, &path, range).await {
         Ok(response) => response,
         Err(e) => e.into_response(),
     }
 }
 
-async fn serve_file(state: &Shared, id: &str, path: &str) -> Result<Response, ApiError> {
+/// What a `Range` header asks of a file `len` bytes long: `None` for no
+/// header, or one that is not a single plain byte range — answered whole, as
+/// a server that knows no ranges would; `Some(Ok((first, last)))` for the
+/// bytes to send, clamped to the file; `Some(Err(()))` for a range that
+/// starts past the end or runs backwards — a 416.
+pub fn byte_range(header: Option<&str>, len: u64) -> Option<Result<(u64, u64), ()>> {
+    let spec = header?.trim().strip_prefix("bytes=")?;
+    let (first, last) = spec.split_once('-')?;
+    if first.is_empty() {
+        // The last n bytes.
+        let n: u64 = last.trim().parse().ok()?;
+        if n == 0 || len == 0 {
+            return Some(Err(()));
+        }
+        return Some(Ok((len.saturating_sub(n), len - 1)));
+    }
+    let first: u64 = first.trim().parse().ok()?;
+    let last: u64 = match last.trim() {
+        "" => u64::MAX,
+        end => end.parse().ok()?,
+    };
+    if first >= len || last < first {
+        return Some(Err(()));
+    }
+    Some(Ok((first, last.min(len - 1))))
+}
+
+async fn serve_file(
+    state: &Shared,
+    id: &str,
+    path: &str,
+    range: Option<&str>,
+) -> Result<Response, ApiError> {
     let id = AddonId::new(id).map_err(|_| no_file())?;
     let ws = state.engine.workspace();
     let addon = ws.get_addon(&id).map_err(|_| no_file())?;
@@ -290,11 +374,19 @@ async fn serve_file(state: &Shared, id: &str, path: &str) -> Result<Response, Ap
         (SDK_SOURCE.as_bytes().to_vec(), SDK_FILE_NAME.to_string())
     } else {
         let resolved = ws.get_addon_file(&id, path).map_err(|_| no_file())?;
-        let meta = std::fs::symlink_metadata(&resolved).map_err(|_| no_file())?;
-        if !meta.is_file() {
-            return Err(no_file());
-        }
-        let bytes = std::fs::read(&resolved).map_err(|_| no_file())?;
+        // Read off the async threads: a bundle file is up to two mebibytes of disk.
+        let on_disk = resolved.clone();
+        let bytes = tokio::task::spawn_blocking(move || {
+            let meta = std::fs::symlink_metadata(&on_disk).ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            std::fs::read(&on_disk).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(no_file)?;
         let name = resolved
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -305,9 +397,32 @@ async fn serve_file(state: &Shared, id: &str, path: &str) -> Result<Response, Ap
         Some(ty) => (ty, "inline"),
         None => ("application/octet-stream", "attachment"),
     };
-    let mut response = (StatusCode::OK, bytes).into_response();
+    // A media element asks for a part and seeks by asking for another; a file
+    // asked for whole says it can be.
+    let len = bytes.len() as u64;
+    let (status, body, content_range) = match byte_range(range, len) {
+        None => (StatusCode::OK, bytes, None),
+        Some(Ok((first, last))) => (
+            StatusCode::PARTIAL_CONTENT,
+            bytes[first as usize..=last as usize].to_vec(),
+            Some(format!("bytes {first}-{last}/{len}")),
+        ),
+        Some(Err(())) => (
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            Vec::new(),
+            Some(format!("bytes */{len}")),
+        ),
+    };
+    let mut response = (status, body).into_response();
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    if let Some(said) = content_range {
+        headers.insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&said).map_err(|_| no_file())?, // LCOV_EXCL_LINE: digits and a slash are a header value
+        );
+    }
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -417,7 +532,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "PATCH",
         path: "/addons/{id}",
-        summary: "`{enabled?, granted?}` — turn the addon on or off (on needs its files here), or replace what it is granted: a subset of what it declares, exactly as declared, else 400 naming the word. Judged whole and written once: a refused grant leaves the switch beside it as it was. Answers the addon.",
+        summary: "`{enabled?, granted? | grant?, revoke?}` — turn the addon on or off (on needs its files here), and say its grants one way: `granted` replaces the whole list — a subset of what it declares, exactly as declared — or `grant` and `revoke` name permission words given and taken against the record as the node holds it, so two callers at once never undo each other. A word never declared is a 400 naming it; both ways in one body is a 400. Judged whole and written once: a refused grant leaves the switch beside it as it was. Answers the addon.",
     },
     RouteDoc {
         method: "DELETE",

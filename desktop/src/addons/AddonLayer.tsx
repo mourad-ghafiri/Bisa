@@ -93,6 +93,11 @@ export function AddonLayer() {
   // ask is the addon's by id — two addons may share a name — and leaves
   // with it.
   const [ask, setAsk] = useState<{ id: string; name: string; url: string } | null>(null);
+  // The ask as it stands, read where it is settled: the link is opened by the
+  // act itself, never inside a state updater — React may call one twice, and
+  // the link would open twice.
+  const asking = useRef<{ id: string; name: string; url: string } | null>(null);
+  asking.current = ask;
   const answer = useRef<((opened: boolean) => void) | null>(null);
   const openFor = useCallback(
     (addon: Addon) => (url: string) =>
@@ -105,17 +110,24 @@ export function AddonLayer() {
   );
   const settle = useCallback(
     (opened: boolean) => {
-      setAsk((current) => {
-        if (opened && current) {
-          void openExternal(current.url).catch((e: unknown) => log.warn("addons", "the link an addon asked for could not be opened", { addon: current.id, ...errorFields(e) }));
-        }
-        return null;
-      });
+      const current = asking.current;
+      asking.current = null;
+      if (opened && current) {
+        void openExternal(current.url).catch((e: unknown) => log.warn("addons", "the link an addon asked for could not be opened", { addon: current.id, ...errorFields(e) }));
+      }
+      setAsk(null);
       const resolve = answer.current;
       answer.current = null;
       resolve?.(opened);
     },
     [],
+  );
+  // A page that started again asked nothing: the question its last self put goes with that self.
+  const restarted = useCallback(
+    (id: string) => {
+      if (asking.current?.id === id) settle(false);
+    },
+    [settle],
   );
 
   const shown = visibleAddons(addons, hidden, layerShown, switchedOn);
@@ -134,7 +146,7 @@ export function AddonLayer() {
     <>
       {scenes.map((addon) => (
         <AddonBoundary key={addon.id} addon={addon}>
-          <AddonScene addon={addon} slots={slots} shielded={shields > 0} summary={summary} load={load} onOpenUrl={openFor(addon)} />
+          <AddonScene addon={addon} slots={slots} shielded={shields > 0} summary={summary} load={load} onOpenUrl={openFor(addon)} onRestart={() => restarted(addon.id)} />
         </AddonBoundary>
       ))}
       {windows.map((addon) => (
@@ -149,6 +161,7 @@ export function AddonLayer() {
             summary={summary}
             load={load}
             onOpenUrl={openFor(addon)}
+            onRestart={() => restarted(addon.id)}
           />
         </AddonBoundary>
       ))}

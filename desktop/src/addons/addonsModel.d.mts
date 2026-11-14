@@ -1,7 +1,9 @@
 /** Types for `addonsModel.mjs`. */
 import type { Addon, AddonManifest, AddonOffer, AddonPermission, AddonProblem, Origin } from "../types";
 
-export function titleWords(showing: number, total: number): string;
+export function titleWords(showing: number, total: number, read?: { loaded: boolean; failed: boolean }): string;
+/** The ids whose window place is still stored though the addon is no longer installed. */
+export function staleWindowIds(keys: readonly string[], prefix: string, addons: readonly { id: string }[]): string[];
 export function switchWords(layerShown: boolean): { label: string; hint: string };
 export function originWords(origin: Origin | unknown): string;
 export function stateWords(addon: Pick<Addon, "active" | "files_present" | "enabled">): string;

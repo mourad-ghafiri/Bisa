@@ -1,11 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntStatus, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntStatus, staleWindowIds, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
 test("the words say how many show, and what state each addon is in", () => {
   assert.equal(titleWords(0, 0), "No addons");
+  // *None* is a fact somebody read. Before the first answer, and after a read that failed with nothing yet known, it is not said.
+  assert.equal(titleWords(0, 0, { loaded: false, failed: false }), "Reading the addons…");
+  assert.equal(titleWords(0, 0, { loaded: false, failed: true }), "The addons could not be read");
+  assert.equal(titleWords(0, 0, { loaded: true, failed: false }), "No addons");
+  assert.equal(titleWords(1, 2, { loaded: true, failed: true }), "1 of 2 addons showing", "a later read that failed keeps what the last one said");
   assert.equal(titleWords(2, 3), "2 of 3 addons showing");
   assert.equal(switchWords(true).label, "Show addons");
   assert.notEqual(switchWords(true).hint, switchWords(false).hint);
@@ -194,4 +199,11 @@ test("a manifest's window, permissions and entry are read with their defaults wh
   assert.equal(entryOf({}), "index.html");
   assert.equal(entryOf({ entry: "" }), "index.html");
   assert.equal(entryOf({ entry: "main.html" }), "main.html");
+});
+
+test("a window's remembered place is forgotten once its addon is no longer installed — and only its place", () => {
+  const keys = ["bisa.addons.window.clock", "bisa.addons.window.gone", "bisa.addons.window.", "bisa.addons.storage.gone", "bisa.addons.layer", "other"];
+  assert.deepEqual(staleWindowIds(keys, "bisa.addons.window.", [{ id: "clock" }]), ["gone"]);
+  assert.deepEqual(staleWindowIds(keys, "bisa.addons.window.", [{ id: "clock" }, { id: "gone" }]), []);
+  assert.deepEqual(staleWindowIds([], "bisa.addons.window.", []), []);
 });

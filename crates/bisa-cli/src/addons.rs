@@ -196,33 +196,52 @@ async fn patch(ctx: &Ctx, id: &AddonId, body: Value) -> Result<Value> {
     }
     // Judged whole and written once, as the node does it.
     let ws: Workspace = ctx.workspace()?;
-    let granted: Option<Vec<AddonPermission>> = if body["granted"].is_null() {
-        None
-    } else {
-        Some(serde_json::from_value(body["granted"].clone())?)
+    let words = |key: &str| -> Vec<String> {
+        serde_json::from_value(body[key].clone()).unwrap_or_default()
     };
-    let (entry, _changes) = ws.update_addon(id, body["enabled"].as_bool(), granted)?;
+    let grants = if body["grant"].is_null() && body["revoke"].is_null() {
+        bisa_store::GrantChange::Keep
+    } else {
+        bisa_store::GrantChange::Edit {
+            grant: words("grant"),
+            revoke: words("revoke"),
+        }
+    };
+    let (entry, _changes) = ws.update_addon_by(id, body["enabled"].as_bool(), grants)?;
     Ok(row(&entry))
 }
 
 pub async fn addon(ctx: &Ctx, out: &Out, cmd: AddonCmd) -> Result<()> {
     match cmd {
         AddonCmd::List => {
-            let addons: Vec<Value> = if let Some(client) = ctx.node_client().await {
-                client.get("/addons").await?["addons"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default()
-            } else {
-                ctx.workspace()?.list_addons()?.iter().map(row).collect()
-            };
+            // The rows, and the machine's own switch (`addons.enabled`): with it off a row that
+            // reads *running* draws nothing here, and the list says so.
+            let (addons, machine_on): (Vec<Value>, bool) =
+                if let Some(client) = ctx.node_client().await {
+                    let v = client.get("/addons").await?;
+                    (
+                        v["addons"].as_array().cloned().unwrap_or_default(),
+                        v["addons_enabled"].as_bool().unwrap_or(true),
+                    )
+                } else {
+                    let ws = ctx.workspace()?;
+                    let on = ws
+                        .setting("addons.enabled", None)
+                        .ok()
+                        .and_then(|r| r.value.as_bool())
+                        .unwrap_or(true);
+                    (ws.list_addons()?.iter().map(row).collect(), on)
+                };
             if addons.is_empty() {
                 out.say(&bisa_core::text!("cli-addons-none-installed"));
             }
             for a in &addons {
                 render_row(out, a);
             }
-            out.json_value(json!({"addons": addons}));
+            if !machine_on && !addons.is_empty() {
+                out.say(&bisa_core::text!("cli-addons-machine-off"));
+            }
+            out.json_value(json!({"addons": addons, "addons_enabled": machine_on}));
         }
         AddonCmd::Show { id } => {
             let a = fetch_row(ctx, &addon_id(&id)?).await?;
@@ -310,13 +329,11 @@ pub async fn addon(ctx: &Ctx, out: &Out, cmd: AddonCmd) -> Result<()> {
             let current = fetch_row(ctx, &aid).await?;
             let declared: Vec<AddonPermission> =
                 permissions_in(&current["manifest"], "permissions");
-            let mut granted = permissions_in(&current, "granted");
-            for p in resolve_words(&permissions, &declared)? {
-                if !granted.contains(&p) {
-                    granted.push(p);
-                }
-            }
-            let a = patch(ctx, &aid, json!({"granted": granted})).await?;
+            // Refused here with the list the manifest does declare; then the words themselves
+            // are sent, and added to the record as it stands where it is written — a grant made
+            // elsewhere since the read above is kept.
+            resolve_words(&permissions, &declared)?;
+            let a = patch(ctx, &aid, json!({"grant": permissions})).await?;
             out.say(&bisa_core::text!(
                 "cli-addons-granted",
                 id = id.clone(),
@@ -329,12 +346,8 @@ pub async fn addon(ctx: &Ctx, out: &Out, cmd: AddonCmd) -> Result<()> {
             let current = fetch_row(ctx, &aid).await?;
             let declared: Vec<AddonPermission> =
                 permissions_in(&current["manifest"], "permissions");
-            let taken = resolve_words(&permissions, &declared)?;
-            let granted: Vec<AddonPermission> = permissions_in(&current, "granted")
-                .into_iter()
-                .filter(|p| !taken.contains(p))
-                .collect();
-            let a = patch(ctx, &aid, json!({"granted": granted})).await?;
+            resolve_words(&permissions, &declared)?;
+            let a = patch(ctx, &aid, json!({"revoke": permissions})).await?;
             out.say(&bisa_core::text!(
                 "cli-addons-revoked",
                 id = id.clone(),

@@ -151,7 +151,8 @@ export interface Bisa {
   /** At most one notice every ten seconds; the title is cut at 100 characters, the body at 200. */
   notify: { show(opts: { title: string; body?: string }): Promise<{ shown: true }> };
   /** At most 64 KiB. */
-  clipboard: { write(opts: { text: string } | string): Promise<{ written: true }> };
+  /** `written` is the clipboard's own answer: `false` when it would not take the text. */
+  clipboard: { write(opts: { text: string } | string): Promise<{ written: boolean }> };
   /** A small store of strings, 256 KiB in all, kept by the platform on this machine. */
   storage: {
     get(key: string): Promise<{ value: string | null }>;

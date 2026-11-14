@@ -7,7 +7,7 @@
 use bisa_core::addon::{MAX_ADDON_FILES, MAX_ADDON_FILE_BYTES, SDK_FILE_NAME};
 use bisa_core::{AddonId, AddonPermission, AddonRecord, Origin};
 use bisa_store::snapshots::SnapshotStore;
-use bisa_store::{AddonChange, CatalogKind, MemoryKeyStore, Paths, Workspace};
+use bisa_store::{AddonChange, CatalogKind, GrantChange, MemoryKeyStore, Paths, Workspace};
 use std::path::{Path, PathBuf};
 
 fn ws() -> (tempfile::TempDir, Workspace) {
@@ -784,9 +784,7 @@ fn a_write_that_landed_is_answered_as_landed_over_a_snapshot_that_will_not_read(
         .state_dir(Paths::NS_ADDONS)
         .join("33407-acme.byte.json");
     std::fs::write(&snapshot, b"{x").unwrap();
-    let (addon, changes) = ws
-        .update_addon(&id("acme.byte"), Some(true), None)
-        .unwrap();
+    let (addon, changes) = ws.update_addon(&id("acme.byte"), Some(true), None).unwrap();
     assert!(addon.record.enabled);
     assert_eq!(changes, vec![AddonChange::Enabled]);
     assert!(ws.get_addon(&id("acme.byte")).unwrap().record.enabled);
@@ -798,7 +796,10 @@ fn a_write_that_landed_is_answered_as_landed_over_a_snapshot_that_will_not_read(
         .update_addon(&id("acme.byte"), Some(false), None)
         .unwrap();
     assert_eq!(changes, vec![AddonChange::Disabled]);
-    assert_eq!(SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")), 2);
+    assert_eq!(
+        SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")),
+        2
+    );
 }
 
 #[test]
@@ -834,14 +835,25 @@ fn a_built_in_whose_files_are_missing_gets_them_from_the_binary_at_any_version()
         "the switch and the grants the record carried are kept: {:?}",
         clock.record
     );
-    assert!(beta.get_addon_file(&id("clock"), "index.html").unwrap().is_file());
+    assert!(beta
+        .get_addon_file(&id("clock"), "index.html")
+        .unwrap()
+        .is_file());
     beta.set_addon_enabled(&id("clock"), true).unwrap();
     // A second install is the idempotent nothing it always was.
-    assert!(beta.install(CatalogKind::Addon, "clock").unwrap().addons.is_empty());
+    assert!(beta
+        .install(CatalogKind::Addon, "clock")
+        .unwrap()
+        .addons
+        .is_empty());
 
     // The same at open: a bundle folder lost on disk comes back, the record's choices kept.
     let paths = Paths::new(beta.root());
-    std::fs::rename(paths.addon_files_dir(&id("clock")), b.path().join("lost-files")).unwrap();
+    std::fs::rename(
+        paths.addon_files_dir(&id("clock")),
+        b.path().join("lost-files"),
+    )
+    .unwrap();
     assert!(!beta.get_addon(&id("clock")).unwrap().files_present);
     let again = {
         let keys = MemoryKeyStore::default();
@@ -888,13 +900,20 @@ fn grants_are_kept_in_the_order_declared_and_once_each_so_the_same_grants_are_no
         )
         .unwrap();
     assert!(changes.is_empty(), "{changes:?}");
-    assert_eq!(SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")), rev);
+    assert_eq!(
+        SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")),
+        rev
+    );
     // A real change is still one, and lands as declared.
     let (addon, changes) = ws
         .update_addon(
             &id("acme.byte"),
             None,
-            Some(vec![AddonPermission::Theme, AddonPermission::Storage, AddonPermission::Theme]),
+            Some(vec![
+                AddonPermission::Theme,
+                AddonPermission::Storage,
+                AddonPermission::Theme,
+            ]),
         )
         .unwrap();
     assert_eq!(changes, vec![AddonChange::Grants]);
@@ -907,10 +926,7 @@ fn grants_are_kept_in_the_order_declared_and_once_each_so_the_same_grants_are_no
 #[test]
 fn what_a_crash_left_under_a_staging_name_is_cleared_at_open_and_a_fresh_one_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();
-    let keys = || {
-        let k = MemoryKeyStore::default();
-        k
-    };
+    let keys = MemoryKeyStore::default;
     let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys())).unwrap();
     let secret = ws.owner_keys().secret_key().to_secret_hex();
     let addons = Paths::new(ws.root()).addons_dir();
@@ -928,15 +944,22 @@ fn what_a_crash_left_under_a_staging_name_is_cleared_at_open_and_a_fresh_one_is_
     let again = keys();
     bisa_store::KeyStore::set(&again, "owner", &secret).unwrap();
     let ws = Workspace::open_with_keystore(dir.path(), Box::new(again)).unwrap();
-    assert!(!addons.join(".staging-999-1").exists(), "the stale one is cleared");
-    assert!(addons.join(".staging-999-2").exists(), "the fresh one may be in use");
+    assert!(
+        !addons.join(".staging-999-1").exists(),
+        "the stale one is cleared"
+    );
+    assert!(
+        addons.join(".staging-999-2").exists(),
+        "the fresh one may be in use"
+    );
     assert!(ws.list_addons().unwrap().is_empty());
 }
 
 #[test]
 fn an_addons_folder_that_cannot_be_listed_never_stops_the_workspace_from_opening() {
     let dir = tempfile::tempdir().unwrap();
-    let ws = Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    let ws =
+        Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
     let secret = ws.owner_keys().secret_key().to_secret_hex();
     let addons = Paths::new(ws.root()).addons_dir();
     drop(ws);
@@ -967,7 +990,10 @@ fn a_finder_folder_installs_and_its_ds_store_is_left_behind() {
     // Any other dotfile is still refused: a bundle carries nothing hidden.
     std::fs::write(from.join(".env"), b"KEY=1").unwrap();
     let (_, problems) = ws.validate_addon_dir(&from).unwrap();
-    assert!(problems.iter().any(|p| p.field.as_deref() == Some("files")), "{problems:?}");
+    assert!(
+        problems.iter().any(|p| p.field.as_deref() == Some("files")),
+        "{problems:?}"
+    );
 }
 
 #[test]
@@ -981,10 +1007,131 @@ fn a_record_that_names_another_id_than_its_folder_is_not_that_addon() {
     let text = std::fs::read_to_string(&record).unwrap();
     std::fs::write(&record, text.replace("\"acme.byte\"", "\"acme.other\"")).unwrap();
     let err = ws.get_addon(&id("acme.byte")).unwrap_err();
-    assert!(matches!(err, bisa_store::StoreError::Unreadable { .. }), "{err}");
+    assert!(
+        matches!(err, bisa_store::StoreError::Unreadable { .. }),
+        "{err}"
+    );
     // A patch never writes under the other id.
     assert!(ws.update_addon(&id("acme.byte"), Some(true), None).is_err());
     assert!(!paths.addon_dir(&id("acme.other")).exists());
     // And it can be removed.
     ws.remove_addon(&id("acme.byte")).unwrap();
+}
+
+#[test]
+fn grants_are_given_and_taken_by_word_under_the_one_lock_so_two_hands_never_undo_each_other() {
+    // Granting used to be read-then-replace: the list was read, changed by the caller and written
+    // whole, so a grant made elsewhere between the two was lost. A word is now added or taken
+    // inside the store, against the record as it stands.
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    ws.install_addon(&plain(src.path(), "byte", "acme.byte"), vec![], false)
+        .unwrap();
+    let aid = id("acme.byte");
+    let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let (addon, changes) = ws
+        .update_addon_by(
+            &aid,
+            None,
+            GrantChange::Edit {
+                grant: words(&["theme"]),
+                revoke: vec![],
+            },
+        )
+        .unwrap();
+    assert_eq!(changes, vec![AddonChange::Grants]);
+    assert_eq!(addon.record.granted, vec![AddonPermission::Theme]);
+    // Another hand grants storage; this one's `network` lands beside it, not over it.
+    ws.update_addon_by(
+        &aid,
+        None,
+        GrantChange::Edit {
+            grant: words(&["storage"]),
+            revoke: vec![],
+        },
+    )
+    .unwrap();
+    let (addon, _) = ws
+        .update_addon_by(
+            &aid,
+            Some(true),
+            GrantChange::Edit {
+                grant: words(&["network", "storage"]),
+                revoke: words(&["theme"]),
+            },
+        )
+        .unwrap();
+    assert!(
+        addon.record.enabled,
+        "the switch beside it lands in the same write"
+    );
+    assert_eq!(
+        addon.record.granted,
+        vec![
+            AddonPermission::Storage,
+            AddonPermission::Network {
+                hosts: vec!["api.example.com".into()]
+            }
+        ],
+        "as declared — the network grant with its hosts"
+    );
+    // A word given that is already granted, a word taken that is not: no change.
+    let (_, changes) = ws
+        .update_addon_by(
+            &aid,
+            None,
+            GrantChange::Edit {
+                grant: words(&["storage"]),
+                revoke: words(&["theme"]),
+            },
+        )
+        .unwrap();
+    assert!(changes.is_empty(), "{changes:?}");
+    // A word the manifest never declared refuses the whole patch, the switch untouched.
+    let err = ws
+        .update_addon_by(
+            &aid,
+            Some(false),
+            GrantChange::Edit {
+                grant: words(&["clipboard_write"]),
+                revoke: vec![],
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("clipboard_write"), "{err}");
+    assert!(ws.get_addon(&aid).unwrap().record.enabled);
+    let err = ws
+        .update_addon_by(
+            &aid,
+            None,
+            GrantChange::Edit {
+                grant: vec![],
+                revoke: words(&["nonsense"]),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("nonsense"), "{err}");
+}
+
+#[test]
+fn a_folder_inside_the_workspace_is_no_source_for_an_addon_whichever_door_asks() {
+    // The node refused it at its own door; the command line working without a node did not.
+    let (_dir, ws) = ws();
+    let inside = plain(ws.root(), "byte", "acme.byte");
+    let err = ws
+        .install_addon(&inside, vec![], false)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("inside the workspace"), "{err}");
+    assert!(ws
+        .validate_addon_dir(&inside)
+        .unwrap_err()
+        .to_string()
+        .contains("inside the workspace"));
+    assert!(ws.list_addons().unwrap().is_empty());
+    // A folder that is not there is said as such, not as inside or outside anything.
+    let missing = ws.root().join("nowhere");
+    assert!(ws.install_addon(&missing, vec![], false).is_err());
 }

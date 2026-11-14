@@ -24,13 +24,17 @@
  * and so does every call made until a ready arrives — `ready()` itself
  * keeps waiting, and a ready that still comes serves it and every call made
  * after. A call the platform did not answer within ten seconds fails with
- * `unavailable` too.
+ * `unavailable` too — thirty for `network.fetch`, whose broker gives a slow
+ * server ten itself, and no clock at all for `url.open`, which waits on a
+ * person reading an address.
  */
 (function (global) {
   "use strict";
 
   var VERSION = 1;
   var CALL_TIMEOUT_MS = 10000;
+  /** How long a call of its own kind is waited for; `0` is for as long as it takes. */
+  var CALL_TIMEOUTS = { "network.fetch": 30000, "url.open": 0 };
   /** The waits between one hello and the next, until the platform says ready. */
   var HELLO_RETRY_MS = [250, 500, 1000, 2000, 4000];
 
@@ -124,10 +128,14 @@
   function send(method, params) {
     return new Promise(function (resolve, reject) {
       var id = nextId();
-      var timer = global.setTimeout(function () {
-        delete pending[id];
-        reject(notAnswered(method));
-      }, CALL_TIMEOUT_MS);
+      var wait = Object.prototype.hasOwnProperty.call(CALL_TIMEOUTS, method) ? CALL_TIMEOUTS[method] : CALL_TIMEOUT_MS;
+      var timer =
+        wait > 0
+          ? global.setTimeout(function () {
+              delete pending[id];
+              reject(notAnswered(method));
+            }, wait)
+          : null;
       pending[id] = { resolve: resolve, reject: reject, timer: timer };
       post({ v: VERSION, kind: "bisa:call", id: id, method: method, params: params });
     });
@@ -209,7 +217,7 @@
       var call_ = pending[m.id];
       if (!call_) return;
       delete pending[m.id];
-      global.clearTimeout(call_.timer);
+      if (call_.timer !== null) global.clearTimeout(call_.timer);
       if (m.ok) call_.resolve(m.result);
       else {
         var err = m.error && typeof m.error === "object" ? m.error : {};

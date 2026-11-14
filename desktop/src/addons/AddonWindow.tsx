@@ -31,7 +31,7 @@ import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge
 import { useAddonMediaHost } from "./addonMediaHost";
 import type { AddonEvent } from "./addonBridgeModel.mjs";
 import { barTitle, entryOf, frameKeyOf, manifestWindow, notStartedWords } from "./addonsModel.mjs";
-import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom } from "./addonWindowModel.mjs";
+import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom, sameSize } from "./addonWindowModel.mjs";
 import { useBrowserClear, useBrowserCutsAround } from "../shell/browserClear";
 import type { Size } from "./addonWindowModel.mjs";
 import { moveAddon, resizeAddon, setAddonHidden, useAddons, windowOf } from "./addonsStore";
@@ -46,6 +46,7 @@ export function AddonWindow({
   summary,
   load,
   onOpenUrl,
+  onRestart,
 }: {
   addon: Addon;
   /** Its place among every installed addon, for where it first opens — steady while others show or hide. */
@@ -60,6 +61,8 @@ export function AddonWindow({
   summary: AddonSummary;
   load: AddonLoad | null;
   onOpenUrl: (url: string) => Promise<boolean>;
+  /** The page said hello: whatever its last self asked the person is no longer asked. */
+  onRestart: () => void;
 }) {
   const { windowsVersion } = useAddons();
   const w = useMemo(() => manifestWindow(addon.manifest), [addon.manifest]);
@@ -171,6 +174,9 @@ export function AddonWindow({
     () => ({
       onResize: (asked) => {
         const next = clampSize(asked, bounds);
+        // The size it has: nothing to write, and nobody else to redraw — a page that asks on
+        // every frame of its own layout would otherwise turn the whole layer over each time.
+        if (sameSize(next, size)) return;
         setSize(next);
         const nextDock = placementAfterResize(dock, size, next);
         setDock(nextDock);
@@ -182,10 +188,13 @@ export function AddonWindow({
       onMediaEmbed: media.embed,
       onMediaBox: media.move,
       onMediaRemove: media.remove,
-      onReady: () => setStart("ready"),
+      onReady: () => {
+        setStart("ready");
+        onRestart();
+      },
       onStartMissed: () => setStart("missed"),
     }),
-    [addon.id, bounds, dock, size, onOpenUrl, media],
+    [addon.id, bounds, dock, size, onOpenUrl, onRestart, media],
   );
   const { sendEvent } = useAddonBridge(frame, addon, { visible, summary, load, handlers, epoch: frameKey });
   sendRef.current = sendEvent;

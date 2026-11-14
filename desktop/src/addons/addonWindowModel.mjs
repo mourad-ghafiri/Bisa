@@ -143,3 +143,8 @@ export function windowPrefFrom(raw, opening, fallbackDock, bounds) {
   const size = clampSize(rawSize && Number.isFinite(rawSize.width) && Number.isFinite(rawSize.height) ? rawSize : opening, bounds);
   return { dock, size };
 }
+
+/** Whether two sizes are the same size. @param {{width: number, height: number}} a @param {{width: number, height: number}} b */
+export function sameSize(a, b) {
+  return a.width === b.width && a.height === b.height;
+}

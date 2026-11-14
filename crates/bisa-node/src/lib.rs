@@ -490,6 +490,9 @@ fn router(state: Shared) -> Router {
         // or refuse a browser's call by its `Origin` where they act
         // (`a2a`). What a page can learn is that a node is there.
         .layer(tower_http::cors::CorsLayer::permissive())
+        // The two addon routes that answer without the token are read across
+        // origins by the sandboxed frame alone (`addons::frame_alone`).
+        .layer(axum::middleware::from_fn(addons::frame_alone))
         // One `debug` span per request, the method and the path alone: the
         // default span records the whole URI, and `?token=` is the bearer
         // an `EventSource` sends. A failure is the 5xx line `ApiError`

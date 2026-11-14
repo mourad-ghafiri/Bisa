@@ -50,7 +50,7 @@ node's answer is what the frame runs.
 
 **The node.** The files route is the one route that answers without the bearer token, and the
 module says why on every line that keeps it small (`crates/bisa-node/src/addons.rs`,
-`auth::is_addon_file`): `GET` alone; an `AddonId` and an **active** addon (enabled, files here,
+`auth::is_addon_file`): `GET` and its `HEAD`, nothing that writes; an `AddonId` and an **active** addon (enabled, files here,
 `addons.enabled` on) or a 404 that names no reason; the path judged by `is_bundle_path` and resolved
 inside the bundle by `resolve_within`; the type decided from the extension allowlist
 (`bisa_core::addon::SERVED_EXTENSIONS`), else `application/octet-stream` as a download; `nosniff`;
@@ -59,7 +59,15 @@ and a Content-Security-Policy header that lets the page load its own files and r
 sound and video from the `https://` hosts the grant names (`*` for any): `files_csp` widens
 `media-src` and nothing else of the policy. WebKit fetches those bytes itself, so the person's
 `security.net.*` lists do not stand between, which is why the grant names its hosts and the review
-says them. The library is served from the binary at every addon's root, so a bundle cannot ship a
+says them. The route answers one plain byte range (`206`, `Content-Range`; a range past the end
+is a `416`; anything else is answered whole), so a media file in a bundle can be played and
+sought. **Read across origins by the frame alone**: the node's CORS is open to every origin, the
+token being what guards the API, but this route and the player's page answer without it — so
+`addons::frame_alone`, outside the CORS layer, leaves `Access-Control-Allow-Origin` only on a
+file asked for with `Origin: null`, the opaque origin of the sandboxed frame (a bundle's own
+fonts are fetched in CORS mode), and on nothing else. A page with a real origin can load nothing
+it can read; a sandboxed frame on a hostile page also says `null`, which is the limit of the
+rule and is written under *What is open*. The library is served from the binary at every addon's root, so a bundle cannot ship a
 tampered one; the store refuses a file of that name at install.
 
 **YouTube's player.** A `media` grant declared with `youtube` lets the addon ask for YouTube's own
@@ -99,6 +107,18 @@ never publishes its whole box as a browser clear — a viewport-sized hole would
 tab — only its solid regions; the page keeps its creatures off the tabs' boxes. Panels, dialogs and
 menus stand above it as above every window; a drag elsewhere in the layer shields it; put away or
 with the layer off it unmounts like any window, and keeps what it must in its store.
+
+**Answers that take their time.** A reply the bridge cannot give at once — the node's fetch, a
+person's yes to a link, the clipboard's own word — is given only to the **conversation** that
+asked: a new frame and a new hello each start one (`talk` in `addonBridge.ts`), so a page that
+reloaded is never handed the answer to a call its last self made, and the open-link question that
+self put is withdrawn with it (`AddonLayer`'s `restarted`). The link is opened by the act that
+settles the question, never inside a state updater. The library waits ten seconds for an answer,
+thirty for `network.fetch` (the broker gives a slow server ten itself) and with no clock for
+`url.open`. In the list's store an optimistic switch or removal takes a read ticket first, so a
+read already on its way cannot land over it; a refused switch-on puts the window away again; a
+window's remembered place is forgotten when the list no longer holds its addon — its **store**
+never is on a list alone, since a record the node could not read is left out of the list.
 
 **Leaving a hunt.** A hunt is left from the page's own strip; the host draws nothing over the app
 for it. What the host keeps is for a page that stopped answering mid-hunt, and each is a row of
@@ -202,7 +222,12 @@ cut at 1 MiB and handed over as text.
   the patch with the switch beside it untouched, each change is said on the bus in order (the
   switch, then the grants), and a patch that changed nothing says nothing.
 - **Grant / revoke** — one switch per declared permission; a grant is the declaration copied
-  (`network` keeps its hosts), and a grant the manifest never declared is refused by word.
+  (`network` keeps its hosts), and a grant the manifest never declared is refused by word. A patch
+  says the grants one way (`GrantChange`): the whole list (`granted` — the review, which showed
+  every permission), or words given and taken (`grant`, `revoke` — the command line), applied
+  against the record as it stands under the lock, so two hands at once never undo each other.
+- **Import** — from a folder outside the workspace: the store itself refuses one inside, so the
+  node and a command line working without a node keep one rule.
 - **Remove** — the record, the bundle, the snapshot, said as `DefinitionRemoved` on the store's
   stream. What is removed is the **folder**, whatever its record reads as — a record cut short or
   missing still holds the id against every install, so it can still be removed — and it leaves in
@@ -262,7 +287,9 @@ snapshot can disagree for an addon both machines hold, until this machine writes
 cleared, and the built-ins are refreshed; neither stops the open (an addons folder that cannot be
 listed says so where the addons are read).
 
-**What is open.** Removing an addon deletes its snapshot, as removing a skill or a team does, so a
+**What is open.** The files route reads across origins for `Origin: null` — every sandboxed frame
+says that, a hostile page's as well as the desktop's own, and a bundle's fonts need the answer;
+what such a page could read is an active addon's files and nothing more. Removing an addon deletes its snapshot, as removing a skill or a team does, so a
 re-install starts its revisions again at 1 and a peer still holding the removed record at a higher
 revision keeps its own until this machine has written past it — the same for every definition
 kind, and not changed here.

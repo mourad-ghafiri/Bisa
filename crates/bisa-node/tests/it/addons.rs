@@ -93,6 +93,18 @@ async fn send(
     body: Option<Value>,
     token: bool,
 ) -> Answer {
+    send_with(socket, method, path, body, token, &[]).await
+}
+
+/// `send`, with headers of the caller's own — an `Origin`, a `Range`.
+async fn send_with(
+    socket: &std::path::Path,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    token: bool,
+    headers: &[(&str, &str)],
+) -> Answer {
     let stream = UnixStream::connect(socket).await.expect("connect");
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
@@ -105,6 +117,9 @@ async fn send(
         .header(hyper::header::CONTENT_TYPE, "application/json");
     if token {
         builder = builder.header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"));
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
     let request = builder
         .body(Full::new(Bytes::from(
@@ -811,4 +826,193 @@ async fn the_youtube_player_page_opens_for_a_granted_addon_alone() {
     );
     assert_eq!(get_open(&socket, page_path).await.status, 404);
     drop(dir);
+}
+
+/// An addon imported and switched on, for the tests of what serving it answers.
+async fn byte_on(socket: &std::path::Path, src: &std::path::Path) {
+    let from = folder(src, "acme.byte");
+    std::fs::write(from.join("img/a.png"), b"0123456789").unwrap();
+    let imported = call(
+        socket,
+        "POST",
+        "/addons",
+        json!({ "path": from.to_string_lossy(), "enabled": true }),
+    )
+    .await;
+    assert_eq!(
+        imported.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&imported.body)
+    );
+}
+
+#[tokio::test]
+async fn a_bundles_files_are_read_across_origins_by_its_own_frame_alone() {
+    // The files route answers without the token, and the node's CORS is open to every origin: a
+    // page on any site that found the port could read an active addon's files. The sandboxed
+    // frame that runs a bundle has an opaque origin — it says `null` — and needs the answer to
+    // load the bundle's own fonts; nothing with a real origin does.
+    let (_dir, socket, _stop) = boot().await;
+    let src = tempfile::tempdir().unwrap();
+    byte_on(&socket, src.path()).await;
+    let file = "/addons/acme.byte/files/main.js";
+    let get_as = |origin: Option<&'static str>| {
+        let socket = socket.clone();
+        async move {
+            let headers: Vec<(&str, &str)> = origin.iter().map(|o| ("origin", *o)).collect();
+            send_with(&socket, "GET", file, None, false, &headers).await
+        }
+    };
+    let frame = get_as(Some("null")).await;
+    assert_eq!(frame.status, 200);
+    assert_eq!(
+        frame.header("access-control-allow-origin").as_deref(),
+        Some("null")
+    );
+    assert!(frame
+        .header("vary")
+        .unwrap_or_default()
+        .to_lowercase()
+        .contains("origin"));
+    for site in [
+        "https://example.com",
+        "http://localhost:5173",
+        "tauri://localhost",
+    ] {
+        let a = get_as(Some(site)).await;
+        assert_eq!(a.status, 200, "{site}: the file is still a file");
+        assert_eq!(
+            a.header("access-control-allow-origin"),
+            None,
+            "{site} may not read it"
+        );
+    }
+    assert_eq!(
+        get_as(None).await.header("access-control-allow-origin"),
+        None
+    );
+    // The player's page is a document a view loads, never read across origins.
+    let player = send_with(
+        &socket,
+        "GET",
+        "/addons/acme.byte/player/youtube/dQw4w9WgXcQ",
+        None,
+        false,
+        &[("origin", "null")],
+    )
+    .await;
+    assert_eq!(player.header("access-control-allow-origin"), None);
+    // The rest of the API keeps its open CORS: the token is what guards it.
+    let api = send_with(
+        &socket,
+        "GET",
+        "/addons",
+        None,
+        true,
+        &[("origin", "http://localhost:5173")],
+    )
+    .await;
+    assert_eq!(
+        api.header("access-control-allow-origin").as_deref(),
+        Some("*")
+    );
+}
+
+#[tokio::test]
+async fn a_bundle_file_answers_head_and_a_range_of_its_bytes() {
+    let (_dir, socket, _stop) = boot().await;
+    let src = tempfile::tempdir().unwrap();
+    byte_on(&socket, src.path()).await;
+    let png = "/addons/acme.byte/files/img/a.png";
+    // HEAD is GET without the body — the same walls, the same open door, nothing else.
+    let head = send(&socket, "HEAD", png, None, false).await;
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+    assert_eq!(head.header("content-type").as_deref(), Some("image/png"));
+    assert!(head.header("content-security-policy").is_some());
+    assert_eq!(
+        send(&socket, "HEAD", "/addons", None, false).await.status,
+        401
+    );
+    // A whole file says it can be asked for in parts.
+    let whole = get_open(&socket, png).await;
+    assert_eq!(whole.body, b"0123456789");
+    assert_eq!(whole.header("accept-ranges").as_deref(), Some("bytes"));
+    // A media element asks for a range, and seeks by asking for another.
+    for (range, status, body, said) in [
+        ("bytes=0-3", 206, &b"0123"[..], Some("bytes 0-3/10")),
+        ("bytes=4-", 206, &b"456789"[..], Some("bytes 4-9/10")),
+        ("bytes=-3", 206, &b"789"[..], Some("bytes 7-9/10")),
+        ("bytes=8-99", 206, &b"89"[..], Some("bytes 8-9/10")),
+        ("bytes=10-", 416, &b""[..], Some("bytes */10")),
+        ("bytes=5-2", 416, &b""[..], Some("bytes */10")),
+        ("bytes=-0", 416, &b""[..], Some("bytes */10")),
+        // What is not one plain range is answered whole, as a server that knows no ranges would.
+        ("bytes=0-1,4-5", 200, &b"0123456789"[..], None),
+        ("lines=0-3", 200, &b"0123456789"[..], None),
+        ("bytes=a-b", 200, &b"0123456789"[..], None),
+    ] {
+        let a = send_with(&socket, "GET", png, None, false, &[("range", range)]).await;
+        assert_eq!(a.status, status, "{range}");
+        assert_eq!(a.body, body, "{range}");
+        assert_eq!(a.header("content-range").as_deref(), said, "{range}");
+        assert!(
+            a.header("content-security-policy").is_some(),
+            "{range}: the walls stand on every answer"
+        );
+    }
+}
+
+#[tokio::test]
+async fn grants_are_given_and_taken_by_word_over_the_wire() {
+    let (_dir, socket, _stop) = boot().await;
+    let src = tempfile::tempdir().unwrap();
+    byte_on(&socket, src.path()).await;
+    let patch = |body: Value| {
+        let socket = socket.clone();
+        async move { call(&socket, "PATCH", "/addons/acme.byte", body).await }
+    };
+    let a = patch(json!({ "grant": ["storage"] })).await;
+    assert_eq!(a.status, 200, "{}", String::from_utf8_lossy(&a.body));
+    assert_eq!(a.json()["addon"]["granted"], json!(["storage"]));
+    let a = patch(json!({ "grant": ["network"], "enabled": false })).await;
+    assert_eq!(
+        a.json()["addon"]["granted"],
+        json!(["storage", { "network": { "hosts": ["api.example.com"] } }]),
+        "beside what was granted, never over it"
+    );
+    assert_eq!(a.json()["addon"]["enabled"], false);
+    let a = patch(json!({ "revoke": ["storage"] })).await;
+    assert_eq!(
+        a.json()["addon"]["granted"],
+        json!([{ "network": { "hosts": ["api.example.com"] } }])
+    );
+    // A word never declared refuses the patch; the whole list and words together are two ways
+    // of saying one thing, and are refused.
+    assert_eq!(patch(json!({ "grant": ["notify"] })).await.status, 400);
+    let both = patch(json!({ "granted": [], "grant": ["storage"] })).await;
+    assert_eq!(both.status, 400, "{}", String::from_utf8_lossy(&both.body));
+    assert_eq!(
+        get(&socket, "/addons/acme.byte").await.json()["addon"]["granted"],
+        json!([{ "network": { "hosts": ["api.example.com"] } }])
+    );
+    // Unknown ids answer not found on every verb.
+    assert_eq!(
+        call(
+            &socket,
+            "PATCH",
+            "/addons/acme.nope",
+            json!({ "enabled": true })
+        )
+        .await
+        .status,
+        404
+    );
+    assert_eq!(
+        send(&socket, "DELETE", "/addons/acme.nope", None, true)
+            .await
+            .status,
+        404
+    );
 }

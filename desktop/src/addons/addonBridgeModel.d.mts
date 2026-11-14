@@ -28,7 +28,7 @@ export const PERMISSIONS: readonly PermissionWord[];
 
 export interface MethodSpec {
   permission: PermissionWord | null;
-  needs?: "resizable" | "closable" | "scene";
+  needs?: "resizable" | "closable" | "scene" | "window";
 }
 export const METHODS: Readonly<Record<string, MethodSpec>>;
 export const METHOD_NAMES: readonly string[];
@@ -135,7 +135,7 @@ export type Effect =
   | { type: "subscribe" }
   | { type: "unsubscribe" }
   | { type: "notify"; title: string; body: string }
-  | { type: "clipboard"; text: string }
+  | { type: "clipboard"; id: string; text: string }
   | { type: "storage" }
   | { type: "storage_set"; id: string }
   | { type: "fetch"; id: string; url: string; accept: string | null }

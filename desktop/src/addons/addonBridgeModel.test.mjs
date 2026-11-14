@@ -233,8 +233,9 @@ test("params that cannot be written down are bad, an address that is no URL is r
   assert.equal(paramsOf("network.fetch", { url: "http://[" }).ok, false);
   const s = ready(addon(["clipboard_write"]));
   const written = handleCall(s, call("clipboard.write", { text: "copied" }), ctx({ now: 5000 }));
-  assert.deepEqual(written.reply, { v: 1, kind: "bisa:reply", id: "c1", ok: true, result: { written: true } });
-  assert.deepEqual(written.effect, { type: "clipboard", text: "copied" });
+  // Answered by the host once the copy landed — or did not: `written` is the clipboard's own word, never a promise.
+  assert.equal(written.reply, null);
+  assert.deepEqual(written.effect, { type: "clipboard", id: "c1", text: "copied" });
   // Once in two seconds: the clipboard is the person's, not a channel — and a hello keeps the clock.
   assert.equal(handleCall(written.session, call("clipboard.write", { text: "again" }, "c2"), ctx({ now: 5000 + CLIPBOARD_MIN_MS - 1 })).reply.error.code, "rate_limited");
   assert.equal(handleCall(written.session, call("clipboard.write", { text: "again" }, "c3"), ctx({ now: 5000 + CLIPBOARD_MIN_MS })).effect.type, "clipboard");
@@ -329,4 +330,20 @@ test("a scene's methods need a scene; its session is never resizable and always 
   assert.equal(windowAllows(bar.window, "scene"), false);
   assert.equal(windowAllows(bar.window, "flying"), false, "a need the registry does not know allows nothing");
   assert.equal(eventMessage("scene", { mode: "work" }).topic, "scene");
+});
+
+test("a scene has no window for a player: media is refused there, never answered as done", () => {
+  const media = { media: { hosts: ["*"], youtube: true } };
+  const box = { x: 0, y: 0, width: 320, height: 240 };
+  const scene = ready(addon([media], { frame: "scene" }));
+  for (const [method, params] of [["media.embed", { kind: "youtube", video: "dQw4w9WgXcQ", box }], ["media.box", { box }], ["media.remove", {}]]) {
+    assert.equal(METHODS[method].needs, "window", method);
+    const out = handleCall(scene, call(method, params), ctx());
+    assert.equal(out.reply.error.code, "not_allowed", method);
+    assert.equal(out.effect, null, method);
+  }
+  // In a window it is what it was.
+  const win = ready(addon([media]));
+  assert.equal(handleCall(win, call("media.embed", { kind: "youtube", video: "dQw4w9WgXcQ", box }), ctx()).effect.type, "media_embed");
+  assert.equal(handleCall(win, call("media.remove"), ctx()).effect.type, "media_remove");
 });

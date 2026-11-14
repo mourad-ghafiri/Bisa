@@ -1130,7 +1130,12 @@ mod tests {
             .filter(|p| p.text.id == "problem-addon-media-private-refused")
             .collect();
         assert_eq!(private.len(), 2, "{:?}", ids(&problems));
-        assert_eq!(problems.len(), 2, "a public host is fine: {:?}", ids(&problems));
+        assert_eq!(
+            problems.len(),
+            2,
+            "a public host is fine: {:?}",
+            ids(&problems)
+        );
     }
 
     #[test]
@@ -1162,12 +1167,18 @@ mod tests {
             ("permissions.2", "problem-addon-too-many-hosts"),
             ("permissions.2", "problem-addon-permission-declared-twice"),
         ] {
-            assert!(has(&problems, field, id), "{field} {id}: {:?}", ids(&problems));
+            assert!(
+                has(&problems, field, id),
+                "{field} {id}: {:?}",
+                ids(&problems)
+            );
         }
         // At the caps, nothing is said.
         let mut m = manifest();
         m.permissions = vec![AddonPermission::Network {
-            hosts: (0..MAX_ADDON_HOSTS).map(|i| format!("h{i}.example.com")).collect(),
+            hosts: (0..MAX_ADDON_HOSTS)
+                .map(|i| format!("h{i}.example.com"))
+                .collect(),
         }];
         assert!(m.validate().is_empty(), "{:?}", ids(&m.validate()));
     }

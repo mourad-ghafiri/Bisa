@@ -149,3 +149,27 @@ test("the library reaches for nothing a sandbox would refuse", () => {
   }
   assert.ok(SOURCE.includes('event.source !== parent'), "only the frame's own parent is heard");
 });
+
+test("a call is waited for as long as its kind takes: ten seconds, longer for the network, and for a link as long as the person takes", async () => {
+  const win = fakeWindow({ manualTimers: true });
+  ready(win);
+  const waits = (method, params) => {
+    const before = win.timers.length;
+    const pending = win.bisa.call(method, params);
+    pending.catch(() => {});
+    return win.timers.slice(before).map((t) => t.ms);
+  };
+  assert.deepEqual(waits("storage.get", { key: "k" }), [10000]);
+  // The node's broker gives a slow server ten seconds itself: the library must outwait it, or
+  // every slow answer is read as the platform's silence instead of the broker's own word.
+  assert.deepEqual(waits("network.fetch", { url: "https://example.com/" }), [30000]);
+  // A person reading an address before they answer is not a platform that went quiet: the
+  // call that timed out at ten seconds failed as `unavailable` and the link opened anyway.
+  assert.deepEqual(waits("url.open", { url: "https://example.com/" }), [], "no clock on a question put to a person");
+  const asked = win.posted.at(-1);
+  assert.equal(asked.method, "url.open");
+  const opened = win.bisa.url.open("https://example.com/");
+  const call = win.posted.at(-1);
+  win.deliver({ v: 1, kind: "bisa:reply", id: call.id, ok: true, result: { opened: true } });
+  assert.deepEqual(plain(await opened), { opened: true });
+});

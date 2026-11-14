@@ -29,6 +29,12 @@ notes (`docs/contributing/release.md`).
 
 ### Security
 
+- **An addon's files are read across origins by its own frame alone.** The route that serves a
+  bundle answers without the token, and the node's open CORS let a page on any site that found the
+  port read an active addon's files. It now answers `Access-Control-Allow-Origin` only to the
+  sandboxed frame's opaque origin (`null`), and the player's page to no one; the rest of the API,
+  which the token guards, is unchanged.
+
 - **An addon's `media` hosts are held to the `network` rule.** A `media` permission may no longer
   name a host on a private or link-local network (`problem-addon-media-private-refused`): the node
   writes a granted media host into the frame's policy and the webview fetches it itself, past the
@@ -45,6 +51,27 @@ notes (`docs/contributing/release.md`).
   the strip was lost (focus moving into the addon's frame was read as the pointer leaving), the
   scene kept the pointer after a hunt ended until the pointer crossed the strip again, and under a
   dark theme a see-through addon could paint an opaque white ground over the app.
+
+- **Addons: answers that stay true.** A link an addon asked to open timed out in the addon after
+  ten seconds while the person was still reading the address — and opened anyway; the question
+  now waits as long as the person takes. A slow `network.fetch` was reported as the platform's
+  silence one moment before the broker's own answer. `clipboard.write` said *written* before
+  writing; it now answers what the clipboard did. A page that reloaded could be handed the reply
+  to a call its last self made, and its open-link question stayed on screen; both now go with the
+  page that asked. Switching an addon off, or removing it, could be undone for a moment by a list
+  read already on its way; a refused switch-on left a put-away window brought back. The footer
+  said *No addons* before the list had been read; the Settings machine switch now re-reads the
+  list itself and shows it is busy; a scene addon is refused `media.*` instead of being told a
+  player was embedded; an addon asking for the size it already has no longer redraws every
+  window.
+
+- **Granting from the command line no longer undoes a grant made elsewhere.** `bisa addon grant`
+  and `revoke` read the list, changed it and wrote it whole; a grant made in the desktop between
+  the two was lost. They now send the words, added and taken where the record is written
+  (`PATCH /addons/{id}` takes `grant` and `revoke` beside `granted`). An import from a folder inside
+  the workspace is refused without a node as it was with one; `bisa addon list` says when addons
+  are switched off for the whole machine; a bundle's file answers `HEAD` and a byte range, so media
+  shipped in a bundle can be sought.
 
 - **An addon can always be removed, and a write that landed says so.** A record cut short, or a
   folder left with no record, wedged its id for good: the list skipped it, an install was refused

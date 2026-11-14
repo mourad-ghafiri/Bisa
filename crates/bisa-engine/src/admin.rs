@@ -9,7 +9,7 @@ use crate::addons::{announce as announce_addons, AddonsChange};
 use crate::{EngineError, Inner};
 use bisa_core::{AddonId, AddonPermission, AttachmentRef, Gate, MemberRole, Pet, PrincipalId};
 use bisa_store::{
-    AddonChange, AddonEntry, CatalogKind, GatePolicy, Governance, Installed, Updated,
+    AddonChange, AddonEntry, CatalogKind, GatePolicy, Governance, GrantChange, Installed, Updated,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -112,7 +112,20 @@ pub fn update_addon(
     enabled: Option<bool>,
     granted: Option<Vec<AddonPermission>>,
 ) -> Result<AddonEntry, EngineError> {
-    let (addon, changes) = inner.ws.update_addon(id, enabled, granted)?;
+    let grants = granted.map_or(GrantChange::Keep, GrantChange::Replace);
+    update_addon_by(inner, id, enabled, grants)
+}
+
+/// [`update_addon`] with the grants said either way: replaced whole, or
+/// edited by word against the record as it stands under the store's lock —
+/// the form two hands can use at once ([`GrantChange`]).
+pub fn update_addon_by(
+    inner: &Arc<Inner>,
+    id: &AddonId,
+    enabled: Option<bool>,
+    grants: GrantChange,
+) -> Result<AddonEntry, EngineError> {
+    let (addon, changes) = inner.ws.update_addon_by(id, enabled, grants)?;
     for change in changes {
         announce_addons(
             inner,

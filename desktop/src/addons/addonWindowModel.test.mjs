@@ -72,3 +72,10 @@ test("a window that leaves gives back every count it holds, and a page loaded af
   assert.ok(leave.includes("if (resizing.current) onShield(false);"), "a resize's count is given back at unmount, as a drag's is — a leaked count shields every frame for good");
   assert.ok(win.includes("useEffect(() => setTitle(null), [frameKey]);"), "the bar's title is reset with the frame");
 });
+
+test("two sizes are the same size when both edges are", async () => {
+  const { sameSize } = await import("./addonWindowModel.mjs");
+  assert.equal(sameSize({ width: 200, height: 120 }, { width: 200, height: 120 }), true);
+  assert.equal(sameSize({ width: 200, height: 120 }, { width: 201, height: 120 }), false);
+  assert.equal(sameSize({ width: 200, height: 120 }, { width: 200, height: 121 }), false);
+});

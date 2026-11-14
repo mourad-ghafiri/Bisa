@@ -696,6 +696,7 @@ error-store-invalid-addon-manifest-too-large = addon.json is { $a0 } bytes; the 
 error-store-invalid-addon-refused = the addon was refused: { $problems }
 error-store-invalid-addon-ships-with-platform-give-your-own = an addon called { $a0 } ships with the platform; give your own another id
 error-store-invalid-addon-already-installed = an addon called { $a0 } is already installed; remove it first
+error-store-invalid-addon-source-inside-workspace = { $path } is inside the workspace; an addon is imported from a folder outside it
 error-store-invalid-addon-id-reserved = { $id } is a name the addons folder keeps for itself
 error-store-invalid-agent-id-reserved = { $id } is a name the agents folder keeps for itself: no agent may take it as its id
 error-store-invalid-addon-symlink = { $path } is a symbolic link; a bundle carries files, never links
@@ -1016,7 +1017,8 @@ error-node-notes-note-names-nothing-drop-id = a { $kind } note names nothing —
 error-node-notes-scope-needs-id = scope={ $kind } needs an `id`
 error-node-notes-unknown-scope-one = unknown scope { $kind }: one of { $a0 }
 error-node-addons-file-not-found = no such file
-error-node-addons-nothing-to-patch = say what to change: `enabled`, `granted`, or both
+error-node-addons-nothing-to-patch = say what to change: `enabled`, the grants (`granted`, or `grant` and `revoke`), or both
+error-node-addons-grants-two-ways = say the grants one way: the whole list in `granted`, or words in `grant` and `revoke`
 error-node-pets-pet-has-no-readable-sprite-sheet = that pet has no readable sprite sheet
 error-node-pets-ships-with-platform-not-removed-put-away = { $a0 } ships with the platform and is not removed; put it away instead
 error-node-projects-attaching-needs-goal = attaching needs a goal

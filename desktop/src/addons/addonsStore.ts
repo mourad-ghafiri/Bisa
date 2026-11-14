@@ -36,7 +36,7 @@ import { reloadOnReconnect } from "../shell/workspaceLoadModel.mjs";
 import type { Addon, AddonPermission } from "../types";
 import type { Placement } from "../ui/Dock";
 import { STORAGE_KEY_PREFIX } from "./addonBridgeModel.mjs";
-import { manifestWindow, pruneHidden, restoreAddon, sameAddon, withEnabled } from "./addonsModel.mjs";
+import { manifestWindow, pruneHidden, restoreAddon, sameAddon, withEnabled, staleWindowIds } from "./addonsModel.mjs";
 import { defaultPlacement, sizeBounds, windowPrefFrom } from "./addonWindowModel.mjs";
 import type { Size, WindowPref } from "./addonWindowModel.mjs";
 import { failureReason } from "../ui/failure";
@@ -113,6 +113,18 @@ function merged(fresh: readonly Addon[]): readonly Addon[] {
   return fresh.map((a) => state.addons.find((b) => sameAddon(a, b)) ?? a);
 }
 
+/** Every key this machine's storage holds, or none where there is no storage to ask. */
+function storedKeys(): string[] {
+  const storage = webStorage();
+  if (!storage) return [];
+  const keys: string[] = [];
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key !== null) keys.push(key);
+  }
+  return keys;
+}
+
 function writeHidden(next: readonly string[]): void {
   writePref(webStorage(), HIDDEN_KEY, next);
 }
@@ -129,6 +141,9 @@ export async function refreshAddons(signal?: AbortSignal): Promise<void> {
     const addons = merged(r.addons);
     const hidden = pruneHidden(state.hidden, addons);
     if (hidden !== state.hidden) writeHidden(hidden);
+    // A window's place outlives its addon only until the list says the addon is gone —
+    // removed from another window of the app, or from the command line.
+    for (const stale of staleWindowIds(storedKeys(), WINDOW_KEY_PREFIX, addons)) forgetPref(webStorage(), WINDOW_KEY_PREFIX + stale);
     set({ ...state, addons, hidden, switchedOn: r.addons_enabled, loaded: true, failed: null });
   } catch (e) {
     if (signal?.aborted || !reads.lands(ticket)) return;
@@ -197,11 +212,16 @@ export function resetAddonPositions(): void {
  */
 export async function setAddonEnabled(id: string, enabled: boolean): Promise<void> {
   const prior = state.addons.find((a) => a.id === id);
+  const wasHidden = enabled && state.hidden.includes(id);
+  // The switch is newer than any read already on its way: such a read must not land over it.
+  reads.begin();
   set({ ...state, addons: withEnabled(state.addons, id, enabled) });
-  if (enabled && state.hidden.includes(id)) setAddonHidden(id, false);
+  if (wasHidden) setAddonHidden(id, false);
   try {
     await api.patchAddon(id, { enabled });
   } catch (e) {
+    // What the switch brought back goes away again with the switch.
+    if (wasHidden) setAddonHidden(id, true);
     // The object held before the switch goes back in its place alone — on
     // the list as it stands now, so a re-read that landed meanwhile for
     // another addon is not undone with it — and the node is asked what stands.
@@ -224,6 +244,8 @@ export async function setAddonGrants(id: string, granted: AddonPermission[]): Pr
  * back after it is forgotten; a refusal re-reads, which brings it back.
  */
 export async function removeAddon(id: string): Promise<void> {
+  // Newer than any read already on its way: a list that still held the addon must not put its window back.
+  reads.begin();
   set({ ...state, addons: state.addons.filter((a) => a.id !== id) });
   try {
     await api.deleteAddon(id);

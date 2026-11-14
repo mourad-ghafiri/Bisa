@@ -2316,7 +2316,11 @@ pub struct ValidateAddonBody {
     pub path: String,
 }
 
-/// `PATCH /addons/{id}` — the switch, the grants, or both.
+/// `PATCH /addons/{id}` — the switch, the grants, or both. The grants are
+/// said one way: `granted`, the whole list — what a review that showed every
+/// permission sends — or `grant` and `revoke`, words given and taken against
+/// the record as the node holds it, which two callers can send at once
+/// without one undoing the other.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AddonPatchBody {
@@ -2324,6 +2328,12 @@ pub struct AddonPatchBody {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub granted: Option<Vec<AddonPermission>>,
+    /// Permission words to grant, each as the manifest declares it.
+    #[serde(default)]
+    pub grant: Option<Vec<String>>,
+    /// Permission words to take back.
+    #[serde(default)]
+    pub revoke: Option<Vec<String>>,
 }
 
 /// `POST /addons/{id}/fetch` — one URL the addon asks for.

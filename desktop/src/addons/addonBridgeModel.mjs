@@ -63,8 +63,9 @@ export const PERMISSIONS = Object.freeze([
 ]);
 
 /**
- * Every method, the permission it needs (`null` for none) and the window
- * flag it needs (`resizable`, `closable`). The registry is closed: a method
+ * Every method, the permission it needs (`null` for none) and what it needs
+ * of the window (`resizable`, `closable`, being a `scene`, or being a
+ * `window` and no scene). The registry is closed: a method
  * not here is refused before its params are read.
  */
 export const METHODS = Object.freeze({
@@ -85,9 +86,9 @@ export const METHODS = Object.freeze({
   "window.resize": { permission: null, needs: "resizable" },
   "window.close": { permission: null, needs: "closable" },
   "window.setTitle": { permission: null },
-  "media.embed": { permission: "media" },
-  "media.box": { permission: "media" },
-  "media.remove": { permission: "media" },
+  "media.embed": { permission: "media", needs: "window" },
+  "media.box": { permission: "media", needs: "window" },
+  "media.remove": { permission: "media", needs: "window" },
   "scene.mode": { permission: null, needs: "scene" },
   "scene.solid": { permission: null, needs: "scene" },
   "scene.release": { permission: null, needs: "scene" },
@@ -123,6 +124,8 @@ export function frameOf(w) {
  */
 export function windowAllows(w, need) {
   if (need === "scene") return w.frame === "scene";
+  // A player stands beside a window's box; a scene has none, and saying *embedded* there was saying what never happened.
+  if (need === "window") return w.frame !== "scene";
   return need === "resizable" ? w.resizable : need === "closable" ? w.closable : false;
 }
 
@@ -561,7 +564,8 @@ export function handleCall(session, call, ctx) {
     }
     case "clipboard.write": {
       if (tooSoon(session, "lastClipboardAt", CLIPBOARD_MIN_MS, ctx.now)) return { ...same, reply: errorReply(call.id, "rate_limited") };
-      return { ...same, session: { ...session, lastClipboardAt: ctx.now }, reply: okReply(call.id, { written: true }), effect: { type: "clipboard", text: p.text } };
+      // Answered by the host once the copy landed — or did not: `written` is the clipboard's own word.
+      return { ...same, session: { ...session, lastClipboardAt: ctx.now }, reply: null, effect: { type: "clipboard", id: call.id, text: p.text } };
     }
     case "storage.get":
       return { ...same, reply: okReply(call.id, { value: Object.hasOwn(ctx.storage, /** @type {string} */ (p.key)) ? ctx.storage[/** @type {string} */ (p.key)] : null }) };

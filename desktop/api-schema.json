@@ -24450,9 +24450,31 @@
             "$ref": "#/definitions/AddonPermission"
           },
           "default": null
+        },
+        "grant": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Permission words to grant, each as the manifest declares it.",
+          "default": null
+        },
+        "revoke": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Permission words to take back.",
+          "default": null
         }
       },
-      "description": "`PATCH /addons/{id}` — the switch, the grants, or both."
+      "description": "`PATCH /addons/{id}` — the switch, the grants, or both. The grants are\nsaid one way: `granted`, the whole list — what a review that showed every\npermission sends — or `grant` and `revoke`, words given and taken against\nthe record as the node holds it, which two callers can send at once\nwithout one undoing the other."
     },
     "AddonFetchBody": {
       "type": "object",

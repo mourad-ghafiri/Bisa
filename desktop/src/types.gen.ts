@@ -10521,11 +10521,23 @@ export interface ValidateAddonBody {
   path: string;
 }
 /**
- * `PATCH /addons/{id}` — the switch, the grants, or both.
+ * `PATCH /addons/{id}` — the switch, the grants, or both. The grants are
+ * said one way: `granted`, the whole list — what a review that showed every
+ * permission sends — or `grant` and `revoke`, words given and taken against
+ * the record as the node holds it, which two callers can send at once
+ * without one undoing the other.
  */
 export interface AddonPatchBody {
   enabled?: boolean | null;
   granted?: AddonPermission[] | null;
+  /**
+   * Permission words to grant, each as the manifest declares it.
+   */
+  grant?: string[] | null;
+  /**
+   * Permission words to take back.
+   */
+  revoke?: string[] | null;
 }
 /**
  * `POST /addons/{id}/fetch` — one URL the addon asks for.

@@ -22,6 +22,7 @@
 import { useState } from "react";
 import { ApiError, api, inDesktopShell, pickFolder } from "../../api";
 import { t } from "../../i18n/l10n.mjs";
+import { errorFields, log } from "../../log";
 import { tx } from "../../i18n/l10n.mjs";
 import type { Addon, AddonManifest, AddonOffer, AddonPermission, AddonProblem } from "../../types";
 import { Button, Card, Chip, ConfirmDialog, EmptyState, ErrorNote, ICON, Pending, Section, Switch, useToast } from "../../ui";
@@ -160,12 +161,20 @@ export function AddonsPanel() {
   const [busy, setBusy] = useState(false);
 
   // The node says `settings_changed`; the store re-reads and every surface follows.
+  // The list is read again here too: with the bus down the frame never comes, and the switch
+  // would sit where it was while the node had moved.
+  const [switching, setSwitching] = useState(false);
   const setSwitch = async (on: boolean) => {
+    setSwitching(true);
     try {
       await api.setSettings("machine", { [ADDONS_ENABLED_KEY]: on });
+      void refreshAddons();
       setError(null);
     } catch (e) {
+      log.warn("addons", "the machine's addons switch could not be moved", errorFields(e));
       setError(e instanceof ApiError ? e.message : t("settings-addons-panel-could-not-switch"));
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -220,7 +229,7 @@ export function AddonsPanel() {
       <Section title={t("settings-addons-panel-addons")}>
         <Card>
           <p className="mb-3 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-addons-panel-blurb")}</p>
-          <Switch checked={switchedOn} onChange={(on) => void setSwitch(on)} label={t("settings-addons-panel-show-addons-machine")} hint={t("settings-addons-panel-machine-hint")} />
+          <Switch checked={switchedOn} onChange={(on) => void setSwitch(on)} label={t("settings-addons-panel-show-addons-machine")} hint={t("settings-addons-panel-machine-hint")} disabled={switching} />
         </Card>
       </Section>
 

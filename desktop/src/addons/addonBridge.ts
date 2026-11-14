@@ -112,6 +112,11 @@ export function useAddonBridge(
   const latest = useRef({ addon, summary, handlers, load, visible });
   latest.current = { addon, summary, handlers, load, visible };
   const nonce = useThemeNonce();
+  // Which conversation this is: a new frame and a new hello each start one. An answer that
+  // took its time — the node's fetch, a person's yes to a link, the clipboard — is given only
+  // to the conversation that asked: a page loaded since has asked nothing, and would be handed
+  // a reply to a call it never made.
+  const talk = useRef(0);
 
   // A new frame — its key moved: the addon reinstalled, its grants changed,
   // a built-in refreshed, a reload asked — is a new session; the page
@@ -119,6 +124,7 @@ export function useAddonBridge(
   // the object; one that changed another record must not reset this one — a
   // session reset without a reload would refuse every later call `not_ready`.
   useEffect(() => {
+    talk.current += 1;
     session.current = newSession(latest.current.addon);
   }, [epoch, session]);
 
@@ -159,9 +165,20 @@ export function useAddonBridge(
           // Under the addon's name, so a notice is never read as the app's word.
           void deliverNotice(addonNoticeTitle(latest.current.addon.manifest.name, effect.title), effect.body);
           return;
-        case "clipboard":
-          void copyText(effect.text).catch((e: unknown) => log.debug("addons", "the clipboard did not take the text", errorFields(e)));
+        case "clipboard": {
+          // The answer is the copy's own: `false` when the clipboard would not take it.
+          const asked = talk.current;
+          void copyText(effect.text)
+            .then((written) => written, (e: unknown) => {
+              log.debug("addons", "the clipboard did not take the text", errorFields(e));
+              return false;
+            })
+            .then((written) => {
+              if (talk.current !== asked) return;
+              answer(okReply(effect.id, { written }), "clipboard.write");
+            });
           return;
+        }
         case "storage":
           writePref(webStorage(), STORAGE_KEY_PREFIX + addon.id, JSON.stringify(storage.current));
           return;
@@ -169,18 +186,28 @@ export function useAddonBridge(
           // The answer is the write's own: `false` when this machine's storage would not take it.
           answer(okReply(effect.id, { stored: writePref(webStorage(), STORAGE_KEY_PREFIX + addon.id, JSON.stringify(storage.current)) }), "storage.set");
           return;
-        case "fetch":
+        case "fetch": {
+          const asked = talk.current;
           void api
             .addonFetch(addon.id, effect.url, effect.accept)
-            .then((r) => post(okReply(effect.id, fetchResult(r))))
-            .catch((e: unknown) => answer(errorReply(effect.id, "refused", e instanceof Error ? e.message : undefined), "network.fetch"));
+            .then((r) => okReply(effect.id, fetchResult(r)), (e: unknown) => errorReply(effect.id, "refused", e instanceof Error ? e.message : undefined))
+            .then((reply) => {
+              if (talk.current !== asked) return;
+              answer(reply, "network.fetch");
+            });
           return;
-        case "open_url":
+        }
+        case "open_url": {
+          const asked = talk.current;
           void h
             .onOpenUrl(effect.url)
-            .then((opened) => answer(opened ? okReply(effect.id, { opened: true }) : errorReply(effect.id, "refused"), "url.open"))
-            .catch(() => answer(errorReply(effect.id, "refused"), "url.open"));
+            .then((opened) => (opened ? okReply(effect.id, { opened: true }) : errorReply(effect.id, "refused")), () => errorReply(effect.id, "refused"))
+            .then((reply) => {
+              if (talk.current !== asked) return;
+              answer(reply, "url.open");
+            });
           return;
+        }
         case "navigate":
           navigate({ name: effect.route } as Route);
           return;
@@ -232,6 +259,7 @@ export function useAddonBridge(
       if (!parsed) return;
       if (parsed.kind === "hello") {
         // A hello is a page loaded afresh: the conversation starts over — its clocks kept.
+        talk.current += 1;
         session.current = { ...resetSession(session.current, latest.current.addon), ready: true };
         post(helloMessage(session.current, { locale: locale(), scheme: currentScheme() }));
         post(eventMessage("visibility", { visible: latest.current.visible }));

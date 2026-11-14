@@ -63,9 +63,10 @@ export function AddonsOverlay({ close }: { close: () => void }) {
   const showing = visibleAddons(addons, hidden, layerShown, switchedOn).length;
   const words = switchWords(layerShown);
   const running = rows.filter((r) => r.running).length;
+  const title = titleWords(showing, addons.length, { loaded, failed: failed !== null });
   return (
-    <div className="flex min-w-0 flex-col gap-3" role="group" aria-label={titleWords(showing, addons.length)}>
-      <p className="px-1 text-xs font-medium text-text">{titleWords(showing, addons.length)}</p>
+    <div className="flex min-w-0 flex-col gap-3" role="group" aria-label={title}>
+      <p className="px-1 text-xs font-medium text-text">{title}</p>
       <Switch checked={layerShown} onChange={(on) => toggleAddonLayer(on)} label={words.label} hint={words.hint} disabled={!switchedOn || !loaded} />
       {rows.length > 0 && (
         <div className="flex flex-col gap-1 px-1">

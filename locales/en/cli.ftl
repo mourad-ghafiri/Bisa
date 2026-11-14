@@ -69,6 +69,7 @@ cli-activity-addons-changed = addon { $id }: { $a0 }
 cli-addons-none-installed = no addons installed — `bisa catalog list --kind addon` for the built-ins, or `bisa addon import <folder>`
 cli-addons-row = { $id } { $name } { $version } · { $state } · { $origin }
 cli-addons-state-running = running
+cli-addons-machine-off = addons are switched off on this machine (`addons.enabled`): none of them draws until it is on
 cli-addons-state-off = off
 cli-addons-state-files-missing = files missing here
 cli-addons-origin-catalog = from the catalog: { $slug }
