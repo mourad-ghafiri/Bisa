@@ -42,11 +42,12 @@ pub fn post_as_person(
 ) -> Result<String, EngineError> {
     let mentions = inner.ws.resolve_mentions(scope, &post.mentions)?;
     let text = words_for(inner, scope, post.text);
+    let context = chips_for(inner, scope, post.context);
     Ok(inner.ws.post_message(
         scope,
         MessageBody::Post {
             text,
-            context: post.context,
+            context,
             artifacts: post.artifacts,
             thinking: None,
             said: None,
@@ -71,6 +72,41 @@ pub fn words_for(inner: &Arc<Inner>, scope: &str, text: String) -> String {
     } else {
         text
     }
+}
+
+/// The chips a person attached, as they are stored in a scope. What leaves
+/// this machine is redacted by the rule its words pass ([`words_for`]): a
+/// terminal's tail, a selection, a diff, an annotation's excerpt rode raw to
+/// a guest's copy, beside words from which the same key had been taken out.
+pub fn chips_for(
+    inner: &Arc<Inner>,
+    scope: &str,
+    mut chips: Vec<bisa_core::ContextRef>,
+) -> Vec<bisa_core::ContextRef> {
+    use bisa_core::ContextRef;
+    if !crate::collab::scope_leaves_the_machine(inner, scope) {
+        return chips;
+    }
+    let clean = |words: &mut String| {
+        *words = inner.security.redact_inbound(words, "person_post");
+    };
+    for chip in &mut chips {
+        match chip {
+            ContextRef::Selection { text, .. } => clean(text),
+            ContextRef::DiffHunk { hunk, patch, .. } => {
+                clean(hunk);
+                clean(patch);
+            }
+            ContextRef::Terminal { tail, .. } => clean(tail),
+            ContextRef::Annotation { excerpt, note, .. } => {
+                clean(excerpt);
+                clean(note);
+            }
+            ContextRef::Capture { note, .. } => clean(note),
+            ContextRef::File { .. } | ContextRef::WorkItem { .. } | ContextRef::Commit { .. } => {}
+        }
+    }
+    chips
 }
 
 pub fn create_channel(

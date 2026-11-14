@@ -88,6 +88,8 @@ const WRITER_VERBS: &[&str] = &[
 
 /// Writers whose first word is not a writing verb.
 const IRREGULAR_WRITERS: &[&str] = &[
+    // `refuse_held` drops a held row and keeps its id, so no agent reads it.
+    "refuse_held",
     "open_dm",
     "recall_store",
     "resolve_review_note",

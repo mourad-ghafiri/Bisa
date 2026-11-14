@@ -523,7 +523,26 @@ impl Workspace {
         // `None`: a peer's fact is applied to local storage and re-published
         // by nobody. A hosted person's message is then said once, as what it
         // is, so the engine may read it before an agent hears it.
+        // A person's message is held before it is in the room: written
+        // after — by whoever heard it arrive — there was an instant in
+        // which a session starting read it unread, and a node stopped in
+        // that instant kept it in the room with no row at all. A hold that
+        // cannot be written keeps the message out; it is offered again.
+        let held = hosted.is_some() && event.kind.as_u16() == kind::KIND_MESSAGE;
+        if held {
+            if let Err(e) = self.hold_message(
+                &event.id.to_hex(),
+                &scope.id,
+                author.clone(),
+                crate::held::HeldReason::Pending,
+            ) {
+                return Ok(reject(format!("the message could not be held: {e}")));
+            }
+        }
         if let Err(e) = self.apply_conversation_fact(&scope, event, None) {
+            if held {
+                self.remove_held(&event.id.to_hex())?; // LCOV_EXCL_LINE a fact held and then not applied: the log or the index unwritable; a disk arm
+            }
             return Ok(reject(format!("conversation apply failed: {e}")));
         }
         self.mark_seen(event)?;

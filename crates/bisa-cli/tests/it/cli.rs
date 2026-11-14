@@ -6894,10 +6894,11 @@ fn held_messages_are_listed_and_refused_from_the_terminal_and_a_release_needs_th
     let twice = bisa(dir.path(), &["workspace", "refuse", "e-held"]);
     assert_eq!(twice.status.code(), Some(1), "{}", stderr(&twice));
 
-    // Through a node: listed and refused there too; a release of a message
-    // whose author is no member is the engine's refusal, in words, and one
-    // whose author is a member goes through (its event, held by hand here,
-    // is in no log, so nothing is woken — the verb's answer is the same).
+    // Through a node: listed and refused there too; a release that can
+    // deliver nothing is the engine's refusal, in words, and the message is
+    // refused instead — its author no member, or (held by hand here, in no
+    // log) a message its room does not hold. A release that delivers is the
+    // journey's (`e2e::two_nodes_and_a_relay`).
     hold("e-node", "a link to run");
     let member = bisa_core::PrincipalId::new("cd".repeat(32)).unwrap();
     {
@@ -6928,13 +6929,13 @@ fn held_messages_are_listed_and_refused_from_the_terminal_and_a_release_needs_th
     let listed = json(&bisa(dir.path(), &["--json", "workspace", "held"]));
     assert_eq!(listed["held"][0]["event_id"], "e-node", "{listed}");
     assert_eq!(listed["held"][1]["event_id"], "e-member", "{listed}");
-    let released = bisa(dir.path(), &["--json", "workspace", "release", "e-member"]);
-    assert_ok(&released, "workspace release via node");
-    assert_eq!(json(&released)["released"], "e-member");
+    let no_room = bisa(dir.path(), &["workspace", "release", "e-member"]);
+    assert_eq!(no_room.status.code(), Some(1), "{}", stderr(&no_room));
+    assert!(stderr(&no_room).contains("is gone"), "{}", stderr(&no_room));
     let said = stdout(&bisa(dir.path(), &["workspace", "held"]));
     assert!(
         said.contains("e-node") && !said.contains("e-member"),
-        "the released row is gone, the other stands: {said}"
+        "refused instead, its row is gone, and the other stands: {said}"
     );
     let no_member = bisa(dir.path(), &["workspace", "release", "e-node"]);
     assert_eq!(no_member.status.code(), Some(1), "{}", stderr(&no_member));
@@ -6953,6 +6954,92 @@ fn held_messages_are_listed_and_refused_from_the_terminal_and_a_release_needs_th
         json(&bisa(dir.path(), &["--json", "workspace", "held"]))["held"],
         serde_json::json!([]),
         "the release's refusal took its row, the refusal its own"
+    );
+    drop(node);
+}
+
+/// The owner's word on a join request, from the terminal — with no node and
+/// through one: admitted, turned down, and a request already answered said
+/// as such. And a person removed with no node, their key typed in capitals.
+#[test]
+fn a_join_request_is_admitted_from_the_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let person = |n: u8| bisa_core::PrincipalId::new(format!("{n:02x}").repeat(32)).unwrap();
+    let mut asked = Vec::new();
+    {
+        let ws = bisa_store::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(bisa_store::FileKeyStore::new(
+                bisa_store::Paths::new(dir.path()).identity_dir(),
+            )),
+        )
+        .unwrap();
+        for n in 1..=3u8 {
+            let hash = format!("hash-{n}");
+            let invite = ws
+                .create_invite(
+                    bisa_core::MemberRole::Member,
+                    vec![],
+                    None,
+                    3600,
+                    hash.clone(),
+                )
+                .unwrap();
+            ws.claim_and_admit(&hash, &person(n), None, None, true)
+                .unwrap();
+            asked.push(invite.id.to_string());
+        }
+        ws.add_member(
+            person(9),
+            bisa_core::MemberRole::Guest,
+            bisa_store::Admission::default(),
+        )
+        .unwrap();
+    }
+    // With no node.
+    let denied = bisa(dir.path(), &["--json", "workspace", "deny", &asked[0]]);
+    assert_ok(&denied, "workspace deny, offline");
+    assert_eq!(json(&denied)["invite"]["state"]["state"], "refused");
+    let removed = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "workspace",
+            "remove",
+            &"09".repeat(32).to_uppercase(),
+        ],
+    );
+    assert_ok(&removed, "workspace remove, offline");
+    assert_eq!(json(&removed)["removed"], "09".repeat(32));
+
+    // Through a node.
+    let node = spawn_daemon(dir.path());
+    let admitted = bisa(dir.path(), &["--json", "workspace", "admit", &asked[1]]);
+    assert_ok(&admitted, "workspace admit");
+    assert_eq!(json(&admitted)["invite"]["state"]["state"], "accepted");
+    let denied = bisa(dir.path(), &["workspace", "deny", &asked[2]]);
+    assert_ok(&denied, "workspace deny");
+    assert!(
+        stdout(&denied).contains("turned down"),
+        "{}",
+        stdout(&denied)
+    );
+    let again = bisa(dir.path(), &["workspace", "admit", &asked[2]]);
+    assert_eq!(again.status.code(), Some(1), "{}", stderr(&again));
+    assert!(
+        stderr(&again).contains("not waiting on you"),
+        "{}",
+        stderr(&again)
+    );
+    let people = json(&bisa(dir.path(), &["--json", "workspace", "people"]));
+    assert!(
+        people["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["pubkey"] == "02".repeat(32) && p["role"] == "member"),
+        "{people}"
     );
     drop(node);
 }

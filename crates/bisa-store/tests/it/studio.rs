@@ -1299,3 +1299,75 @@ fn a_conversation_takes_no_first_line_from_a_membership_and_counts_an_agent_once
     assert_eq!(row.first_line.as_deref(), Some("I am here"));
     assert_eq!(row.agents, vec![agent.id.to_string()], "named once");
 }
+
+/// A person's message is held where it is applied: the row is written
+/// before the message is in the room, so nothing that reads the room — a
+/// session starting, a node stopped that instant — finds it unread. A local
+/// post, and a person's reaction, are held by nothing; a message that could
+/// not be held is not in the room.
+#[test]
+fn a_persons_message_is_held_as_it_lands() {
+    let (_d1, host) = ws();
+    let (_d2, guest) = ws();
+    let bob = guest.owner_principal();
+    host.add_member(bob.clone(), MemberRole::Member, Default::default())
+        .unwrap();
+    let said = said_in(&guest, &host, "general", "from outside");
+    let id = said.id.to_hex();
+    assert!(matches!(
+        host.ingest_remote_event(&said).unwrap(),
+        IngestOutcome::AppliedConversation { .. }
+    ));
+    let held = host.held_messages().unwrap();
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0].event_id, id);
+    assert_eq!(held[0].author, bob);
+    assert_eq!(held[0].scope, "general");
+    assert_eq!(held[0].reason, bisa_store::HeldReason::Pending);
+    assert!(host.held_and_refused_ids().unwrap().contains(&id));
+    // Offered again by a relay: one fact, one row.
+    assert!(matches!(
+        host.ingest_remote_event(&said).unwrap(),
+        IngestOutcome::Duplicate
+    ));
+    assert_eq!(host.held_messages().unwrap().len(), 1);
+
+    // The owner's own words are held by nothing.
+    host.post_message(
+        "general",
+        MessageBody::post("mine"),
+        None,
+        &[],
+        &[],
+        None,
+        bisa_store::PostOrigin::Asked,
+    )
+    .unwrap();
+    assert_eq!(host.held_messages().unwrap().len(), 1);
+
+    // The held list will not write: the message is kept out, and offered
+    // again it lands — held.
+    let later = said_in(&guest, &host, "general", "a second");
+    let held_file = host.paths().held_file();
+    let sound = std::fs::read(&held_file).unwrap();
+    std::fs::write(&held_file, b"{ not json").unwrap();
+    let refused = host.ingest_remote_event(&later).unwrap();
+    assert!(
+        matches!(&refused, IngestOutcome::Rejected { reason } if reason.contains("could not be held")),
+        "{refused:?}"
+    );
+    assert!(
+        !host
+            .messages("general", None, 10)
+            .unwrap()
+            .iter()
+            .any(|m| m.content == "a second"),
+        "a message that could not be held is in the room"
+    );
+    std::fs::write(&held_file, &sound).unwrap();
+    assert!(matches!(
+        host.ingest_remote_event(&later).unwrap(),
+        IngestOutcome::AppliedConversation { .. }
+    ));
+    assert_eq!(host.held_messages().unwrap().len(), 2);
+}

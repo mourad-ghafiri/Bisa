@@ -286,19 +286,20 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `GET /workspace/people` | The people hosted here (every member but the owner): each with its role, label, face (`photo`, set on their own node), who invited them, what client they said they use, the permissions of the role, and the standing channels a guest is rostered on. |
 | `PUT /workspace/me` | The owner's own profile: `{label?, photo?}` — each kept when absent, cleared with `null`; the face a picture this machine holds within `MAX_FACE_BYTES` (16 KiB), refused by name otherwise. What this node's lists draw for you and what every host you are a guest of is told (14-collaboration). Answers your row. |
 | `POST /workspace/people` | Admit a person by pubkey without an invite: `{pubkey, role?, label?}` — `role` is admin \| member \| guest (default). Answers the person and the people. |
-| `PUT /workspace/people/{pubkey}/role` | Change a person's role: `{role}` — admin \| member \| guest. Their reach follows; the host tells them. |
-| `DELETE /workspace/people/{pubkey}` | Remove a person: off every roster, their held messages dropped, their row gone; the host tells them. What they already received cannot be un-sent. |
-| `GET /workspace/invites` | Every invitation, newest first, with its state — pending, requested (waiting on you under `collab.join = ask`), accepted, refused, revoked, expired. Never a secret. |
-| `POST /workspace/invites` | Make a single-use invitation: `{role?, channels?, label?}` — the role granted (guest by default), the standing channels a guest is put on, what to call them. Answers the record, the `link` (`bisa://join/…`) and the `code` (`<nprofile>:<secret>`): the secret exists in this answer and nowhere else. Expires after `collab.invite_ttl_hours`. |
-| `DELETE /workspace/invites/{id}` | Withdraw a pending invitation; a code already claimed stays claimed. |
-| `POST /workspace/invites/{id}/admit` | Admit the person waiting on a requested invitation (`collab.join = ask`): a member at the invitation's role and channels; the host welcomes them. |
-| `POST /workspace/invites/{id}/refuse` | Turn down the person waiting on a requested invitation; the host tells them. |
-| `GET /messages/held` | Messages from people on other nodes that no agent may hear yet — waiting for the classifier, or held by it with the reason. |
-| `POST /messages/{id}/release` | Let a held message through: the agents it addresses are woken as if it had just arrived. |
-| `POST /messages/{id}/refuse` | Refuse a held message: the row is gone and no agent ever hears it; the message stays in its scope's log. `message.refused` on the bus; 400 when nothing is held under that id. |
+| `PUT /workspace/people/{pubkey}/role` | Change a person's role: `{role}` — admin \| member \| guest. Their reach follows; the host tells them. 404 for a key that is nobody here. |
+| `DELETE /workspace/people/{pubkey}` | Remove a person: off every roster, their held messages dropped, their row gone; the host tells them. What they already received cannot be un-sent. 404 for a key that is nobody here. |
+| `GET /workspace/invites` | Every invitation, newest first, with its state — pending, requested (waiting on you under `collab.join = ask`), accepted, refused, revoked, expired. One whose time ran out since the last read is marked here, and `invite.changed` says so once. Never a secret. |
+| `POST /workspace/invites` | Make a single-use invitation: `{role?, channels?, label?}` — the role granted (the workspace's `collab.default_role` when not named — guest, unless set), the standing channels a guest is put on, what to call them. Answers the record, the `link` (`bisa://join/…`) and the `code` (`<nprofile>:<secret>`): the secret exists in this answer and nowhere else. Expires after `collab.invite_ttl_hours`. |
+| `DELETE /workspace/invites/{id}` | Withdraw a pending invitation; a code already claimed stays claimed. 404 for an id that is no invitation. |
+| `POST /workspace/invites/{id}/admit` | Admit the person waiting on a requested invitation (`collab.join = ask`): a member at the invitation's role and channels; the host welcomes them. 404 for an id that is no invitation, 409 for one that is not waiting on you — settled already. |
+| `POST /workspace/invites/{id}/refuse` | Turn down the person waiting on a requested invitation; the host tells them. 404 for an id that is no invitation, 409 for one that is not waiting on you. |
+| `GET /messages/held` | Messages from people on other nodes that no agent may hear or read yet — waiting for the classifier, or held by it with the reason. |
+| `POST /messages/{id}/release` | Let a held message through: the agents it addresses are woken and handed that message. One whose author is no longer a member, or whose room is gone, is refused instead and the answer says why (400) — never `message.released`. 404 when nothing is held under that id. |
+| `POST /messages/{id}/refuse` | Refuse a held message: the row is gone and no agent ever hears or reads it; the message stays in its scope's log. `message.refused` on the bus; 404 when nothing is held under that id. |
 | `GET /hosts` | The workspaces this node is a guest of: each host's card, the role granted, where the membership stands (requested, member, refused, removed, left). Empty when the node runs no collaboration pump. |
 | `POST /hosts/join` | Join a workspace from an invitation: `{code, label?}` — the link or the text code. The code's relays join `sync.relays`; the claim is sent; answers the membership as it stands after the host's first word or the wait (`state`: member, requested, refused). 409 without a collaboration pump. |
-| `DELETE /hosts/{host}` | Leave a workspace: the host is told, the replica stays marked as left. |
+| `DELETE /hosts/{host}` | Leave a workspace: the host is told — and told again when it next speaks, if it did not hear — and the replica stays marked as left. |
+| `POST /hosts/{host}/forget` | Forget a membership that is over — left, removed from, or refused: its session is closed and its replica moved whole to `hosts-forgotten/<host>.<secs>/`, read by nothing. Answers `{forgotten, kept}`. 400 by name while the membership stands or waits on the host (leave it first); 404 for a workspace this node is no guest of. |
 | `GET /hosts/{host}/channels` | The standing channels this person reaches on that host, each with its unread count. |
 | `GET /hosts/{host}/dms` | The direct channels this person is in on that host, each with its unread count. |
 | `POST /hosts/{host}/dms` | Ask the host for a direct channel with these people: `{members}` (pubkeys the host's directory names). The host answers with the channels; the new one appears among them. |
@@ -309,6 +310,9 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `POST /hosts/{host}/messages/{id}/retract` | Take back one of this person's own hosted messages or reactions. |
 | `POST /hosts/{host}/read` | Mark a hosted scope read: `{scope}`. |
 | `GET /sync` | The wire as it stands: whether a pump runs, whether `sync.enabled` is on, every configured relay in order with its health (status — `off` while the switch is off — attempts, success rate, latency, bytes), counts published and ingested, the last catch-up, people hosted here, hosts joined, and the direct transport's endpoint and sessions. |
+| `POST /sync/relays` | Add one relay to `sync.relays` (machine scope): `{url}` → `{added, relays}`. Made on the list as it stands, under one writer — two adds at once keep both. A relay is one relay whatever its spelling: one already configured answers `added: false`. 400 for a URL that is not `ws(s)://`. |
+| `DELETE /sync/relays` | Remove one relay from `sync.relays`: `?url=` → `{removed, relays}`; one that is not configured answers `removed: false`. |
+| `POST /sync/relays/reset` | Go back to the relays a fresh node is given: the machine's own list is cleared. Answers `{reset, relays}`. |
 | `POST /sync/relays/check` | Try one relay once, on a throwaway connection, before it is added: `{url}` → `{ok, latency_ms?, error?}`. 400 for a URL that is not `ws(s)://`. |
 | `POST /sync/relays/reconnect` | Drop every relay connection and open them again. |
 

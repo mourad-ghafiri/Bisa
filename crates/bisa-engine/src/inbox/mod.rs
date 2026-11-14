@@ -867,6 +867,11 @@ impl Facts {
                 Vec::new()
             }
         };
+        // An invitation whose time ran out is marked — and said — by the
+        // first read that finds it (`mark_invites_expired`).
+        if let Err(e) = ws.mark_invites_expired() {
+            tracing::debug!(target: "bisa_engine", "the invitations' expiry could not be marked: {e}");
+        }
         let invites = ws.invites().unwrap_or_else(|e| {
             tracing::warn!(target: "bisa_engine", "the invitations cannot be read; the Inbox shows no join waiting: {e}");
             Vec::new()

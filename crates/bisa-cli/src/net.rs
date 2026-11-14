@@ -61,27 +61,59 @@ fn sync_settings(ws: &Workspace) -> Result<SyncSettings> {
     Ok(SyncSettings::from_resolved(&ws.settings(None)?))
 }
 
-/// Write `sync.relays` at the machine scope — through the node when one
-/// runs, so the pump hears it live.
-async fn write_relays(ctx: &Ctx, relays: &[String]) -> Result<()> {
-    let value = json!(relays);
+/// One change to `sync.relays` through the engine's one writer
+/// (`collab::edit_relays`) — the node's when one runs, so the pump hears it
+/// live; this command's own engine otherwise. Answers whether the list
+/// moved, and the list. Read, changed and written back whole from here, two
+/// adds at once kept one.
+async fn edit_relays(
+    ctx: &Ctx,
+    edit: bisa_engine::collab::RelayEdit,
+) -> Result<(bool, Vec<String>)> {
+    use bisa_engine::collab::RelayEdit;
     if let Some(node) = ctx.node_client().await {
-        node.put(
-            "/settings/machine",
-            json!({"values": {bisa_core::collab_settings::keys::SYNC_RELAYS: value}}),
-        )
-        .await?;
-        return Ok(());
+        let (answer, word) = match &edit {
+            RelayEdit::Add(url) => (
+                node.post("/sync/relays", json!({"url": url})).await?,
+                "added",
+            ),
+            RelayEdit::Remove(url) => (
+                node.delete(&format!("/sync/relays?url={}", query_value(url)))
+                    .await?,
+                "removed",
+            ),
+            // LCOV_EXCL_START no verb resets the list from the terminal; by construction
+            RelayEdit::Reset => (node.post("/sync/relays/reset", json!({})).await?, "reset"),
+            // LCOV_EXCL_STOP
+        };
+        let relays = answer["relays"]
+            .as_array()
+            .map(|all| {
+                all.iter()
+                    .filter_map(|r| r.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Ok((answer[word].as_bool().unwrap_or(false), relays));
     }
     let (engine, _) = ctx.engine().await?;
-    engine.set_setting(
-        bisa_core::SettingScope::Machine,
-        None,
-        bisa_core::collab_settings::keys::SYNC_RELAYS,
-        value,
-    )?;
+    let edited = bisa_engine::collab::edit_relays(engine.inner(), edit);
     engine.shutdown().await;
-    Ok(())
+    let edited = edited?;
+    Ok((edited.changed, edited.relays))
+}
+
+/// A value as it goes into a query: everything but the unreserved
+/// characters percent-encoded.
+fn query_value(raw: &str) -> String {
+    raw.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
 }
 
 pub async fn relay_add(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
@@ -89,13 +121,8 @@ pub async fn relay_add(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
     if !is_relay_url(&url) {
         bail!(bisa_core::text!("cli-net-relay-ws-wss-url"));
     }
-    let mut relays = sync_settings(&ctx.workspace()?)?.relays;
     // One row a relay, whatever its spelling.
-    let added = !relays.iter().any(|r| bisa_core::same_relay(r, &url));
-    if added {
-        relays.push(url.clone());
-        write_relays(ctx, &relays).await?;
-    }
+    let (added, relays) = edit_relays(ctx, bisa_engine::collab::RelayEdit::Add(url)).await?;
     out.say(&if added {
         bisa_core::text!("cli-net-relay-added")
     } else {
@@ -106,13 +133,8 @@ pub async fn relay_add(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
 }
 
 pub async fn relay_remove(ctx: &Ctx, out: &Out, url: &str) -> Result<()> {
-    let mut relays = sync_settings(&ctx.workspace()?)?.relays;
-    let before = relays.len();
-    relays.retain(|r| !bisa_core::same_relay(r, url));
-    let removed = relays.len() != before;
-    if removed {
-        write_relays(ctx, &relays).await?;
-    }
+    let edit = bisa_engine::collab::RelayEdit::Remove(url.trim().to_string());
+    let (removed, relays) = edit_relays(ctx, edit).await?;
     out.say(&if removed {
         bisa_core::text!("cli-net-relay-removed")
     } else {
@@ -136,6 +158,11 @@ pub async fn relay_list(ctx: &Ctx, out: &Out) -> Result<()> {
                 out.human(&line);
             }
         }
+        // `urls`: the configured addresses, in both shapes this verb
+        // answers — a script reads one field whether a node runs or not.
+        let urls: Vec<serde_json::Value> = relays.iter().map(|r| r["url"].clone()).collect();
+        let mut v = v;
+        v["urls"] = json!(urls);
         out.json_value(v);
         return Ok(());
     }
@@ -154,7 +181,11 @@ pub async fn relay_list(ctx: &Ctx, out: &Out) -> Result<()> {
             out.human(&format!("{r:<40} off"));
         }
     }
-    out.json_value(json!({"enabled": settings.enabled, "relays": settings.relays}));
+    out.json_value(json!({
+        "enabled": settings.enabled,
+        "relays": settings.relays,
+        "urls": settings.relays,
+    }));
     Ok(())
 }
 
@@ -405,9 +436,55 @@ fn hosted_role(word: &str) -> Result<MemberRole> {
     Ok(role)
 }
 
+/// A person's key as it was typed, read the way the node reads one:
+/// trimmed and lowercased. Typed in capitals it was refused here and taken
+/// there.
+fn a_key(typed: &str) -> Result<(bisa_core::PrincipalId, String)> {
+    let hex = typed.trim().to_lowercase();
+    let pk = bisa_core::PrincipalId::new(hex.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok((pk, hex))
+}
+
+/// A moment as a person reads it: `2026-11-14 09:30 UTC`, from unix
+/// seconds. A sentence printed the number.
+pub(crate) fn a_date(secs: u64) -> String {
+    // Days to a civil date (Howard Hinnant's `civil_from_days`).
+    let days = (secs / 86_400) as i64;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let of_day = secs % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        of_day / 3_600,
+        of_day % 3_600 / 60
+    )
+}
+
+/// Why a message is held, in the catalogue's words.
+fn held_words(reason: &bisa_store::HeldReason) -> String {
+    use bisa_store::HeldReason;
+    bisa_i18n::say(&match reason {
+        HeldReason::Pending => bisa_core::text!("cli-net-held-being-read"),
+        HeldReason::Harmful { why } => {
+            bisa_core::text!("cli-net-held-harmful", why = why.to_string())
+        }
+        HeldReason::NoVerdict { why } => {
+            bisa_core::text!("cli-net-held-no-verdict", why = why.to_string())
+        }
+    })
+}
+
 pub async fn set_role(ctx: &Ctx, out: &Out, pubkey: &str, role: &str) -> Result<()> {
     let role = hosted_role(role)?;
-    let pk = bisa_core::PrincipalId::new(pubkey.to_string()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let (pk, pubkey) = a_key(pubkey)?;
+    let pubkey = pubkey.as_str();
     let person = if let Some(node) = ctx.node_client().await {
         let v = node
             .put(
@@ -434,7 +511,8 @@ pub async fn set_role(ctx: &Ctx, out: &Out, pubkey: &str, role: &str) -> Result<
 }
 
 pub async fn remove_person(ctx: &Ctx, out: &Out, pubkey: &str) -> Result<()> {
-    let pk = bisa_core::PrincipalId::new(pubkey.to_string()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let (pk, pubkey) = a_key(pubkey)?;
+    let pubkey = pubkey.as_str();
     if let Some(node) = ctx.node_client().await {
         node.delete(&format!("/workspace/people/{pubkey}")).await?;
     } else {
@@ -466,12 +544,12 @@ pub async fn held(ctx: &Ctx, out: &Out) -> Result<()> {
     }
     for h in &held {
         out.human(&format!(
-            "{}  {:<10}  {}  {}…  {}",
+            "{}  {}  {}  {}…  {}",
             h.event_id,
-            h.held_at,
+            a_date(h.held_at),
             h.scope,
             &h.author.as_hex()[..8],
-            h.reason.words()
+            held_words(&h.reason)
         ));
     }
     out.json_value(json!({"held": held}));
@@ -541,16 +619,17 @@ pub async fn refuse_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
 pub async fn invite(
     ctx: &Ctx,
     out: &Out,
-    role: &str,
+    role: Option<&str>,
     channels: &[String],
     label: Option<String>,
 ) -> Result<()> {
-    let role = hosted_role(role)?;
+    // Not named, the role is the workspace's default — the engine's to read.
+    let role = role.map(hosted_role).transpose()?;
     let (invite, link, code) = if let Some(node) = ctx.node_client().await {
         let v = node
             .post(
                 "/workspace/invites",
-                json!({"role": role.as_str(), "channels": channels, "label": label}),
+                json!({"role": role.map(|r| r.as_str()), "channels": channels, "label": label}),
             )
             .await?;
         (
@@ -569,10 +648,13 @@ pub async fn invite(
         engine.shutdown().await;
         (serde_json::to_value(&invite)?, code.link()?, code.text()?)
     };
+    // The role the invitation was made at — the one named, or the
+    // workspace's default the engine read.
+    let made_as = invite["role"].as_str().unwrap_or_default().to_string();
     out.say(&bisa_core::text!(
         "cli-net-invitation-made-expires-share-one-these",
-        a0 = (role.as_str()).to_string(),
-        a1 = (invite["expires_at"]).to_string()
+        a0 = made_as,
+        a1 = a_date(invite["expires_at"].as_u64().unwrap_or_default())
     ));
     out.human(&format!("\n  {link}\n  {code}\n"));
     out.say(&bisa_core::text!(
@@ -614,6 +696,33 @@ pub async fn revoke(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
         serde_json::to_value(i)?
     };
     out.say(&bisa_core::text!("cli-net-invitation-withdrawn"));
+    out.json_value(json!({"invite": invite}));
+    Ok(())
+}
+
+/// The owner's word on a join request (`collab.join = ask`): admit the
+/// person waiting on an invitation, or turn them down. Without these the
+/// *ask* mode could only be answered from the desktop.
+pub async fn settle(ctx: &Ctx, out: &Out, id: &str, admit: bool) -> Result<()> {
+    let id = id.parse::<bisa_core::InviteId>().map_err(|e| {
+        anyhow::anyhow!(bisa_core::text!("cli-net-bad-invite-id", e = e.to_string()))
+    })?;
+    let invite = if let Some(node) = ctx.node_client().await {
+        let door = if admit { "admit" } else { "refuse" };
+        node.post(&format!("/workspace/invites/{id}/{door}"), json!({}))
+            .await?["invite"]
+            .clone()
+    } else {
+        let (engine, _) = ctx.engine().await?;
+        let settled = bisa_engine::collab::settle_invite(engine.inner(), id, admit);
+        engine.shutdown().await;
+        serde_json::to_value(settled?)?
+    };
+    out.say(&if admit {
+        bisa_core::text!("cli-net-request-admitted")
+    } else {
+        bisa_core::text!("cli-net-request-denied")
+    });
     out.json_value(json!({"invite": invite}));
     Ok(())
 }
@@ -664,7 +773,18 @@ pub async fn join(ctx: &Ctx, out: &Out, code: &str, label: Option<String>) -> Re
         if relays.is_empty() {
             bail!(bisa_core::text!("cli-net-no-relay-reach-host-through-code"));
         }
-        write_relays(ctx, &relays).await?;
+        // Each adopted through the engine's one writer of the list.
+        let (engine, _) = ctx.engine().await?;
+        let adopted: Result<(), bisa_engine::EngineError> = parsed
+            .relays
+            .iter()
+            .filter(|r| is_relay_url(r))
+            .try_for_each(|r| {
+                let add = bisa_engine::collab::RelayEdit::Add(r.clone());
+                bisa_engine::collab::edit_relays(engine.inner(), add).map(|_| ())
+            });
+        engine.shutdown().await;
+        adopted?;
         let pool = Relays::start(ws.owner_keys().clone(), &relays).await;
         let guests = Guests::open(
             ws.owner_keys().clone(),
@@ -727,7 +847,14 @@ pub async fn leave(ctx: &Ctx, out: &Out, host: &str) -> Result<()> {
         node.delete(&format!("/hosts/{host}")).await?;
     } else {
         let ws = Arc::new(ctx.workspace()?);
-        let relays = sync_settings(&ws)?.relays;
+        // The wire off, no relay is dialled: the membership is marked as
+        // left here, and the host hears when it next speaks to it.
+        let settings = sync_settings(&ws)?;
+        let relays = if settings.enabled {
+            settings.relays
+        } else {
+            Vec::new()
+        };
         let pool = Relays::start(ws.owner_keys().clone(), &relays).await;
         let guests = Guests::open(
             ws.owner_keys().clone(),
@@ -740,6 +867,36 @@ pub async fn leave(ctx: &Ctx, out: &Out, host: &str) -> Result<()> {
     }
     out.say(&bisa_core::text!("cli-net-left", host = host.to_string()));
     out.json_value(json!({"left": host}));
+    Ok(())
+}
+
+/// Forget a workspace this node left, was removed from or was refused by:
+/// its copy is moved aside whole, and it is listed no more.
+pub async fn forget(ctx: &Ctx, out: &Out, host: &str) -> Result<()> {
+    let host = host.trim().to_lowercase();
+    let kept = if let Some(node) = ctx.node_client().await {
+        node.post(&format!("/hosts/{host}/forget"), json!({}))
+            .await?["kept"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        let ws = Arc::new(ctx.workspace()?);
+        let pool = Relays::start(ws.owner_keys().clone(), &[]).await;
+        let guests = Guests::open(
+            ws.owner_keys().clone(),
+            &ctx.data_dir,
+            pool,
+            Arc::new(WorkspaceFaces(Arc::clone(&ws))),
+        )?;
+        guests.forget(&host).await?.display().to_string()
+    };
+    out.say(&bisa_core::text!(
+        "cli-net-forgotten",
+        host = host.to_string(),
+        kept = kept.to_string()
+    ));
+    out.json_value(json!({"forgotten": host, "kept": kept}));
     Ok(())
 }
 
@@ -1099,27 +1256,23 @@ impl CollabDoors for Pump {
             // engine, so it is said on the bus: this pump re-reads what it
             // holds, and a screen showing the relays shows these. The pool
             // takes them at once: the claim below goes out through them.
-            let mut relays = sync_settings(&self.ws)
-                .map_err(|e| CollabRefusal::Failed(e.to_string()))?
-                .relays;
-            let mut grew = false;
+            // Each through the engine's one writer of the list
+            // (`collab::edit_relays`): written whole from a copy read here,
+            // a relay added at the same moment elsewhere was lost.
+            let mut adopted: Option<Vec<String>> = None;
             for r in &parsed.relays {
-                if is_relay_url(r) && !relays.iter().any(|have| bisa_core::same_relay(have, r)) {
-                    relays.push(r.clone());
-                    grew = true;
-                } else if !is_relay_url(r) {
+                if is_relay_url(r) {
+                    let add = bisa_engine::collab::RelayEdit::Add(r.clone());
+                    let edited = bisa_engine::collab::edit_relays(&self.engine, add)
+                        .map_err(|e| CollabRefusal::Failed(e.to_string()))?;
+                    if edited.changed {
+                        adopted = Some(edited.relays);
+                    }
+                } else {
                     tracing::warn!(target: "bisa_cli", relay = %r, "an invite named a relay that is no relay URL here (wss://, or ws:// on this machine); not adopted");
                 }
             }
-            if grew {
-                bisa_engine::settings::set(
-                    &self.engine,
-                    bisa_core::SettingScope::Machine,
-                    None,
-                    bisa_core::collab_settings::keys::SYNC_RELAYS,
-                    json!(relays),
-                )
-                .map_err(|e| CollabRefusal::Failed(e.to_string()))?;
+            if let Some(relays) = adopted {
                 self.relays.set_relays(&relays).await;
             }
             if self.relays.count().await == 0 {
@@ -1140,6 +1293,9 @@ impl CollabDoors for Pump {
     }
     fn leave(&self, host: String) -> BoxFuture<'_, Result<(), CollabRefusal>> {
         Box::pin(async move { self.guests.leave(&host).await.map_err(refused) })
+    }
+    fn forget(&self, host: String) -> BoxFuture<'_, Result<std::path::PathBuf, CollabRefusal>> {
+        Box::pin(async move { self.guests.forget(&host).await.map_err(refused) })
     }
     fn hosted_channels(
         &self,
@@ -1324,6 +1480,46 @@ mod tests {
         );
         // `environment` is the default, and a proxy may be in the environment.
         assert_eq!(doctor_preamble(true, 1, "environment", true).len(), 4);
+    }
+
+    /// A moment reads as a date, a key as the node reads one, a held
+    /// message's reason in the catalogue's words, and a relay's address
+    /// goes into a query whole.
+    #[test]
+    fn a_date_a_key_a_reason_and_a_query_read_as_what_they_are() {
+        assert_eq!(a_date(0), "1970-01-01 00:00 UTC");
+        assert_eq!(
+            a_date(951_782_400 + 13 * 3600 + 5 * 60),
+            "2000-02-29 13:05 UTC"
+        );
+        assert_eq!(a_date(1_794_614_399), "2026-11-13 23:59 UTC");
+        assert_eq!(a_date(1_794_614_400), "2026-11-14 00:00 UTC");
+
+        let hex = "AB".repeat(32);
+        let (pk, lower) = a_key(&format!("  {hex} ")).unwrap();
+        assert_eq!(lower, "ab".repeat(32));
+        assert_eq!(pk.as_hex(), lower);
+        assert!(a_key("not a key").is_err());
+
+        use bisa_store::HeldReason;
+        assert_eq!(held_words(&HeldReason::Pending), "being read");
+        assert_eq!(
+            held_words(&HeldReason::Harmful {
+                why: "asks for a key".into()
+            }),
+            "held — asks for a key"
+        );
+        assert_eq!(
+            held_words(&HeldReason::NoVerdict {
+                why: "timed out".into()
+            }),
+            "held — no verdict: timed out"
+        );
+
+        assert_eq!(
+            query_value("wss://Relay.example:443/a b"),
+            "wss%3A%2F%2FRelay.example%3A443%2Fa%20b"
+        );
     }
 
     #[test]

@@ -547,7 +547,7 @@ async fn the_owner_s_word_on_a_claim_that_waited_admits_or_refuses() {
     let r = rig("SAFE");
     let inner = Arc::clone(r.engine.inner());
     let ws = r.engine.workspace();
-    let (invite, code) = create_invite(&inner, MemberRole::Member, vec![], None).unwrap();
+    let (invite, code) = create_invite(&inner, Some(MemberRole::Member), vec![], None).unwrap();
     let dana = PrincipalId::new(nostr::key::Keys::generate().public_key().to_hex()).unwrap();
     let claimed = ws
         .claim_and_admit(
@@ -571,7 +571,7 @@ async fn the_owner_s_word_on_a_claim_that_waited_admits_or_refuses() {
     );
 
     let shared = vec![bisa_core::ChannelId::new(&r.scope).unwrap()];
-    let (invite, code) = create_invite(&inner, MemberRole::Guest, shared, None).unwrap();
+    let (invite, code) = create_invite(&inner, Some(MemberRole::Guest), shared, None).unwrap();
     let eve = PrincipalId::new(nostr::key::Keys::generate().public_key().to_hex()).unwrap();
     ws.claim_and_admit(&hash_secret(&code.secret), &eve, None, None, true)
         .unwrap();
@@ -672,5 +672,489 @@ async fn a_refusal_drops_the_row_and_wakes_nobody() {
         bisa_engine::collab::release_message(&inner, &id).is_err(),
         "nothing left to release"
     );
+    r.engine.shutdown().await;
+}
+
+// -- the hold kept true -------------------------------------------------------
+
+/// The person's message as their node relays it: taken in by the store —
+/// held as it lands — and read by the engine that hears it arrive.
+fn arrives(r: &Rig) {
+    let outcome = r.engine.workspace().ingest_remote_event(&r.event).unwrap();
+    assert!(
+        matches!(
+            outcome,
+            bisa_store::IngestOutcome::AppliedConversation { .. }
+        ),
+        "{outcome:?}"
+    );
+}
+
+async fn held_as(
+    r: &Rig,
+    rx: &mut tokio::sync::broadcast::Receiver<bisa_engine::EngineEvent>,
+    pending: bool,
+) {
+    let id = r.event.id.to_hex();
+    common::wait_for(rx, "the message is held", |ev| {
+        matches!(
+            &ev.payload,
+            EnginePayload::MessageHeld { event, reason, .. }
+                if *event == id && (matches!(reason, HeldReason::Pending) == pending)
+        )
+    })
+    .await;
+}
+
+fn asks(r: &Rig, text: &str) {
+    let core = r
+        .engine
+        .workspace()
+        .get_agent(&AgentId::general())
+        .unwrap()
+        .pubkey;
+    bisa_engine::messaging::post_as_person(
+        r.engine.inner(),
+        &r.scope,
+        bisa_engine::messaging::PersonPost {
+            text: text.into(),
+            context: vec![],
+            reply_to: None,
+            mentions: vec![core.as_hex().to_string()],
+            attachments: vec![],
+            artifacts: vec![],
+        },
+    )
+    .unwrap();
+}
+
+/// The prompts of the core agent's turns in the room — not the classifier's.
+fn turns(r: &Rig) -> Vec<String> {
+    r.prompts
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| p.contains("--- conversation ---"))
+        .cloned()
+        .collect()
+}
+
+/// The owner's word on a message stands whatever the classifier says after
+/// it: refused while it was being read, a *harmful* that lands later holds
+/// nothing again, and a *safe* releases nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_stands_whatever_the_classifier_says_after() {
+    for verdict in ["HARMFUL: it asks for a key", "SAFE"] {
+        let r = rig(verdict);
+        let inner = Arc::clone(r.engine.inner());
+        let mut rx = r.engine.events();
+        let id = r.event.id.to_hex();
+        let judged = {
+            let inner = Arc::clone(&inner);
+            let (scope, event, member) = (r.scope.clone(), r.event.clone(), r.member.clone());
+            tokio::spawn(async move {
+                on_remote_message(&inner, scope, event, member, MemberRole::Member).await
+            })
+        };
+        held_as(&r, &mut rx, true).await;
+        bisa_engine::collab::refuse_message(&inner, &id).unwrap();
+        judged.await.unwrap();
+
+        let ws = r.engine.workspace();
+        assert!(
+            ws.held_messages().unwrap().is_empty(),
+            "{verdict}: a refused message was held again"
+        );
+        assert!(ws.held_and_refused_ids().unwrap().contains(&id));
+        let mut released = false;
+        while let Ok(ev) = rx.try_recv() {
+            released |= matches!(&ev.payload, EnginePayload::MessageReleased { .. });
+        }
+        assert!(!released, "{verdict}: a refused message was released");
+        // Handed back by a relay, or read again at a start: refused is refused.
+        on_remote_message(
+            &inner,
+            r.scope.clone(),
+            r.event.clone(),
+            r.member.clone(),
+            MemberRole::Member,
+        )
+        .await;
+        assert!(ws.held_messages().unwrap().is_empty());
+        r.engine.shutdown().await;
+    }
+}
+
+/// Let through by the owner while it was being read, a message is heard
+/// once: the *harmful* that lands after holds nothing again — held again,
+/// the owner let it through a second time and the agents heard it twice.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_let_through_is_heard_once() {
+    let r = rig_with("HARMFUL: late", true, true, None);
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    let id = r.event.id.to_hex();
+    arrives(&r);
+    held_as(&r, &mut rx, true).await;
+    bisa_engine::collab::release_message(&inner, &id).unwrap();
+    // The verdict lands on a row that is the owner's, and changes nothing.
+    common::until("the verdict to land", || {
+        let asked = r.prompts.lock().unwrap().len();
+        (asked >= 1).then_some(())
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(r.engine.workspace().held_messages().unwrap().is_empty());
+    let mut released = 0;
+    while let Ok(ev) = rx.try_recv() {
+        if matches!(&ev.payload, EnginePayload::MessageReleased { event, .. } if *event == id) {
+            released += 1;
+        }
+    }
+    assert_eq!(released, 1, "let through once");
+    assert!(
+        bisa_engine::collab::release_message(&inner, &id).is_err(),
+        "nothing is held to let through again"
+    );
+    r.engine.shutdown().await;
+}
+
+/// A message left *being read* when the node stopped is read when it
+/// starts; one whose room holds no such message is refused, and with the
+/// classifier off for people outside they are let through.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_being_read_when_the_node_stopped_is_read_when_it_starts() {
+    let r = rig("HARMFUL: it asks for a key");
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    let id = r.event.id.to_hex();
+    arrives(&r);
+    held_as(&r, &mut rx, false).await;
+    let ws = r.engine.workspace();
+    // As a stop left it: the row says *being read*, and nobody is reading.
+    ws.restate_held(&id, HeldReason::Pending).unwrap().unwrap();
+    ws.hold_message(
+        "f".repeat(64).as_str(),
+        &r.scope,
+        r.member.clone(),
+        HeldReason::Pending,
+    )
+    .unwrap()
+    .unwrap();
+    bisa_engine::collab::resume_pending(Arc::clone(&inner)).await;
+    let held = ws.held_messages().unwrap();
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0].event_id, id);
+    assert!(
+        matches!(held[0].reason, HeldReason::Harmful { .. }),
+        "read again: {:?}",
+        held[0].reason
+    );
+    assert!(
+        ws.held_and_refused_ids().unwrap().contains(&"f".repeat(64)),
+        "a row for a message the room does not hold is refused"
+    );
+    // A row that is not waiting is not read again.
+    let before = r.prompts.lock().unwrap().len();
+    bisa_engine::collab::resume_pending(Arc::clone(&inner)).await;
+    assert_eq!(r.prompts.lock().unwrap().len(), before);
+
+    // Turned off meanwhile: what waited is let through.
+    r.engine
+        .set_setting(
+            bisa_core::SettingScope::Workspace,
+            None,
+            "security.collaboration.classify",
+            json!(false),
+        )
+        .unwrap();
+    ws.restate_held(&id, HeldReason::Pending).unwrap().unwrap();
+    bisa_engine::collab::resume_pending(Arc::clone(&inner)).await;
+    assert!(ws.held_messages().unwrap().is_empty());
+    assert!(!ws.held_and_refused_ids().unwrap().contains(&id));
+    r.engine.shutdown().await;
+}
+
+/// C5: a held message is in nothing an agent reads. The hold stopped the
+/// wake and nothing else — the next fresh session in the room was given the
+/// message in its transcript. Let through, it is there; refused, never.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_message_is_in_no_transcript() {
+    let r = rig_with("HARMFUL: it asks for a key", true, true, None);
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    let id = r.event.id.to_hex();
+    arrives(&r);
+    held_as(&r, &mut rx, false).await;
+
+    asks(&r, "what did I miss?");
+    let first = common::until("the core agent's turn", || turns(&r).into_iter().next()).await;
+    assert!(first.contains("what did I miss?"), "{first}");
+    assert!(
+        !first.contains("hello from outside"),
+        "a held message was read by an agent: {first}"
+    );
+
+    bisa_engine::collab::release_message(&inner, &id).unwrap();
+    let after = common::until("the turn the release wakes", || {
+        turns(&r).into_iter().nth(1)
+    })
+    .await;
+    assert!(after.contains("hello from outside"), "{after}");
+    r.engine.shutdown().await;
+
+    let r = rig_with("HARMFUL: it asks for a key", true, true, None);
+    let mut rx = r.engine.events();
+    arrives(&r);
+    held_as(&r, &mut rx, false).await;
+    bisa_engine::collab::refuse_message(r.engine.inner(), &r.event.id.to_hex()).unwrap();
+    asks(&r, "anything new?");
+    let turn = common::until("the core agent's turn", || turns(&r).into_iter().next()).await;
+    assert!(
+        !turn.contains("hello from outside"),
+        "a refused message was read by an agent: {turn}"
+    );
+    r.engine.shutdown().await;
+}
+
+/// A release that can deliver nothing says why and refuses the message
+/// instead: its room holds no such message, or its author is gone. And what
+/// is held in a room that is deleted, or of a message its author takes
+/// back, is nobody's to let through.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_release_for_a_room_that_is_gone_says_so() {
+    let r = rig("HARMFUL: no");
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    let ws = r.engine.workspace();
+    let ghost = "e".repeat(64);
+    ws.hold_message(&ghost, &r.scope, r.member.clone(), HeldReason::Pending)
+        .unwrap()
+        .unwrap();
+    let refused = bisa_engine::collab::release_message(&inner, &ghost).unwrap_err();
+    assert!(refused.to_string().contains("is gone"), "{refused}");
+    assert!(ws.held_messages().unwrap().is_empty());
+    assert!(ws.held_and_refused_ids().unwrap().contains(&ghost));
+    let mut said = (false, false);
+    while let Ok(ev) = rx.try_recv() {
+        match &ev.payload {
+            EnginePayload::MessageRefused { event, .. } if *event == ghost => said.0 = true,
+            EnginePayload::MessageReleased { .. } => said.1 = true,
+            _ => {}
+        }
+    }
+    assert_eq!(said, (true, false), "refused, and never said released");
+
+    // The author takes their message back while it is held.
+    arrives(&r);
+    held_as(&r, &mut rx, false).await;
+    let id = r.event.id.to_hex();
+    let taken_back = {
+        use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+        EventBuilder::new(Kind::from(bisa_core::kind::KIND_RETRACTION), "")
+            .tags([
+                Tag::parse([
+                    "a",
+                    &format!(
+                        "{}:{}:{}",
+                        bisa_core::kind::KIND_CHANNEL,
+                        ws.owner_keys().public_key().to_hex(),
+                        r.scope
+                    ),
+                ])
+                .unwrap(),
+                Tag::parse(["e", &id]).unwrap(),
+            ])
+            .finalize(r.theirs.owner_keys())
+            .unwrap()
+    };
+    ws.ingest_remote_event(&taken_back).unwrap();
+    common::wait_for(
+        &mut rx,
+        "the held row of a message taken back goes",
+        |ev| matches!(&ev.payload, EnginePayload::MessageRefused { event, .. } if *event == id),
+    )
+    .await;
+    assert!(ws.held_messages().unwrap().is_empty());
+
+    // A room deleted with a message held in it.
+    ws.hold_message(
+        &"d".repeat(64),
+        &r.scope,
+        r.member.clone(),
+        HeldReason::Pending,
+    )
+    .unwrap()
+    .unwrap();
+    let room = ws
+        .get_channel(&bisa_core::ChannelId::new(r.scope.as_str()).unwrap())
+        .unwrap();
+    bisa_engine::messaging::delete_channel(&inner, bisa_core::DeletableChannel::new(room).unwrap())
+        .await
+        .unwrap();
+    common::wait_for(&mut rx, "what was held in a deleted room goes", |ev| {
+        matches!(&ev.payload, EnginePayload::MessageRefused { event, .. } if *event == "d".repeat(64))
+    })
+    .await;
+    assert!(ws.held_messages().unwrap().is_empty());
+    r.engine.shutdown().await;
+}
+
+/// What is removed with a person is said: the rows held of theirs.
+#[tokio::test(flavor = "multi_thread")]
+async fn what_was_held_of_a_person_removed_is_said_and_read_by_nobody() {
+    let r = rig_with("HARMFUL: no", true, true, None);
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    let id = r.event.id.to_hex();
+    arrives(&r);
+    held_as(&r, &mut rx, false).await;
+    bisa_engine::collab::remove_person(&inner, &r.member).unwrap();
+    common::wait_for(
+        &mut rx,
+        "the dropped row is said",
+        |ev| matches!(&ev.payload, EnginePayload::MessageRefused { event, .. } if *event == id),
+    )
+    .await;
+    asks(&r, "who was that?");
+    let turn = common::until("the core agent's turn", || turns(&r).into_iter().next()).await;
+    assert!(
+        !turn.contains("hello from outside"),
+        "what was held of somebody removed was read by an agent: {turn}"
+    );
+    r.engine.shutdown().await;
+}
+
+/// C7: what leaves the machine is redacted — the chips with the words. A
+/// terminal's tail, a selection, a diff, an annotation rode raw to a guest.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_terminals_tail_is_redacted_before_it_leaves() {
+    use bisa_core::ContextRef;
+    let r = rig("SAFE");
+    let inner = Arc::clone(r.engine.inner());
+    let key = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+    let chips = vec![
+        ContextRef::Terminal {
+            session: "t1".into(),
+            tail: format!("export TOKEN={key}"),
+        },
+        ContextRef::Selection {
+            path: bisa_core::RelPath::new("src/a.rs").unwrap(),
+            range: bisa_core::LineRange { start: 1, end: 2 },
+            text: format!("let k = \"{key}\";"),
+        },
+        ContextRef::File {
+            path: bisa_core::RelPath::new("src/a.rs").unwrap(),
+        },
+        ContextRef::DiffHunk {
+            path: bisa_core::RelPath::new("src/a.rs").unwrap(),
+            scope: bisa_core::DiffScope::Unstaged,
+            hunk: format!("+let k = \"{key}\";"),
+            patch: format!("@@ -1 +1 @@\n+let k = \"{key}\";"),
+        },
+        ContextRef::Annotation {
+            page: bisa_core::PageRef::Url {
+                url: "http://localhost:3000/".into(),
+            },
+            selector: "#token".into(),
+            excerpt: format!("<input value=\"{key}\">"),
+            note: format!("hide {key}"),
+        },
+        ContextRef::Capture {
+            device: "sim".into(),
+            label: "home".into(),
+            shot: r
+                .engine
+                .workspace()
+                .put_attachment(b"\x89PNG\r\n\x1a\nIHDR-tiny", "home.png", "image/png")
+                .unwrap(),
+            mark: None,
+            note: format!("the field shows {key}"),
+        },
+    ];
+    // Into a room a person on another node reaches.
+    let leaves = bisa_engine::messaging::chips_for(&inner, &r.scope, chips.clone());
+    let said = serde_json::to_string(&leaves).unwrap();
+    assert!(!said.contains(key), "{said}");
+    assert_eq!(leaves.len(), 6);
+    assert_eq!(
+        leaves[2], chips[2],
+        "a chip with no words of its own is as it was"
+    );
+    // Into one nobody outside reaches, a chip is the person's own.
+    let own = r
+        .engine
+        .workspace()
+        .create_channel(
+            "mine",
+            None,
+            RosterPolicy::Listed {
+                agents: vec![],
+                teams: vec![],
+                humans: vec![],
+            },
+            Tags::default(),
+        )
+        .unwrap();
+    r.engine
+        .workspace()
+        .set_role(&r.member, MemberRole::Guest)
+        .unwrap();
+    assert_eq!(
+        bisa_engine::messaging::chips_for(&inner, own.id.as_str(), chips.clone()),
+        chips
+    );
+    // And through the door a person posts by, the member reaching the
+    // room again.
+    r.engine
+        .workspace()
+        .set_role(&r.member, MemberRole::Member)
+        .unwrap();
+    let id = bisa_engine::messaging::post_as_person(
+        &inner,
+        &r.scope,
+        bisa_engine::messaging::PersonPost {
+            text: "look".into(),
+            context: chips,
+            reply_to: None,
+            mentions: vec![],
+            attachments: vec![],
+            artifacts: vec![],
+        },
+    )
+    .unwrap();
+    let stored = r.engine.workspace().get_message(&id).unwrap().unwrap();
+    assert!(
+        !serde_json::to_string(&stored.context)
+            .unwrap()
+            .contains(key),
+        "{:?}",
+        stored.context
+    );
+    r.engine.shutdown().await;
+}
+
+/// `collab.default_role` is what an invitation is made at when no role is
+/// named — read in the engine, so every door agrees.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_invitation_with_no_role_takes_the_workspaces_default() {
+    let r = rig("SAFE");
+    let inner = Arc::clone(r.engine.inner());
+    let (made, _) = create_invite(&inner, None, vec![], None).unwrap();
+    assert_eq!(made.role, MemberRole::Guest, "the default's default");
+    r.engine
+        .set_setting(
+            bisa_core::SettingScope::Workspace,
+            None,
+            "collab.default_role",
+            json!("member"),
+        )
+        .unwrap();
+    let (made, _) = create_invite(&inner, None, vec![], None).unwrap();
+    assert_eq!(made.role, MemberRole::Member);
+    let (named, _) = create_invite(&inner, Some(MemberRole::Admin), vec![], None).unwrap();
+    assert_eq!(named.role, MemberRole::Admin, "a role named is the role");
+    // And the list an engine door reads marks nothing that is still good.
+    assert_eq!(bisa_engine::collab::invites(&inner).unwrap().len(), 3);
     r.engine.shutdown().await;
 }

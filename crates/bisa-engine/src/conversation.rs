@@ -499,15 +499,60 @@ impl ConvSession {
     }
 }
 
+/// **What an agent is given of a room**: its last `limit` messages, oldest
+/// first, with every message from outside that is held — being read, or
+/// kept back — and every one refused left out (14-collaboration, C5). The
+/// one read behind everything an agent reads of a room: the transcript of
+/// a fresh session, the message a live one is handed, the files and the
+/// chips of the newest. The hold stopped the wake and nothing else: the
+/// next fresh session in that room was given the held message in its
+/// transcript, unread.
+fn heard_tail(inner: &Inner, scope: &str, limit: usize) -> Vec<bisa_store::MessageRow> {
+    let withheld = match inner.ws.held_and_refused_ids() {
+        Ok(ids) => ids,
+        // LCOV_EXCL_START: the held file unreadable under a read; a disk arm
+        Err(e) => {
+            tracing::warn!(scope = %scope, "what is held could not be read; nothing is left out of what the agent reads: {e}");
+            HashSet::new()
+        } // LCOV_EXCL_STOP
+    };
+    let tail = |n: usize| inner.ws.transcript_tail(scope, n).unwrap_or_default();
+    if withheld.is_empty() {
+        return tail(limit);
+    }
+    let mut heard: Vec<bisa_store::MessageRow> = tail(limit + withheld.len())
+        .into_iter()
+        .filter(|m| !withheld.contains(&m.id))
+        .collect();
+    let over = heard.len().saturating_sub(limit);
+    heard.drain(..over);
+    heard
+}
+
+/// The newest message of a room an agent may read.
+fn newest_heard(inner: &Inner, scope: &str) -> Option<bisa_store::MessageRow> {
+    heard_tail(inner, scope, 1).pop()
+}
+
+/// The message a turn of (scope, agent) answers: the one its wake was for,
+/// when a release named it and an agent may read it — else the newest.
+fn message_handed(inner: &Inner, key: &(String, String)) -> Option<bisa_store::MessageRow> {
+    let named = inner.conversation.handed.remove(key).map(|(_, id)| id);
+    named
+        .filter(|id| {
+            inner
+                .ws
+                .held_and_refused_ids()
+                .is_ok_and(|withheld| !withheld.contains(id))
+        })
+        .and_then(|id| inner.ws.get_message(&id).ok().flatten())
+        .filter(|m| !m.retracted)
+        .or_else(|| newest_heard(inner, &key.0))
+}
+
 /// The newest message in a scope: what woke the turn beginning now.
 fn newest_message_id(inner: &Inner, scope: &str) -> Option<String> {
-    inner
-        .ws
-        .messages(scope, None, 1)
-        .unwrap_or_default()
-        .into_iter()
-        .next_back()
-        .map(|m| m.id)
+    newest_heard(inner, scope).map(|m| m.id)
 }
 
 /// A turn begins: fold away what others wrote, open the turn's record.
@@ -545,6 +590,11 @@ pub struct ConversationState {
     /// that led to the run never hears the answer to its own work as a new
     /// occurrence. Absent when a person's word woke the turn.
     caused: DashMap<(String, String), bisa_core::RunId>,
+    /// The message a wake of a (scope, agent) is *for*, when it is not the
+    /// newest in its room: one from outside let through — by the
+    /// classifier, or by the owner, perhaps long after others were said. A
+    /// live session is handed that one. Absent, it is handed the newest.
+    handed: DashMap<(String, String), String>,
 }
 
 /// The agents whose wake in a scope is held — queued behind a turn already
@@ -667,7 +717,29 @@ pub(crate) fn dispatch(
     on_behalf_of: Option<(bisa_core::PrincipalId, bisa_core::MemberRole)>,
 ) {
     crate::listen::ear::on_message(inner, scope, event, origin);
-    dispatch_to(inner, scope, event, origin, on_behalf_of, None);
+    dispatch_to(inner, scope, event, origin, on_behalf_of, None, false);
+}
+
+/// [`dispatch`] for a message from outside that was let through — by the
+/// classifier's *safe*, or by the owner: whoever it wakes is handed *that*
+/// message. A release can come long after its message; handed the newest of
+/// the room instead, a live session answered something else.
+pub(crate) fn dispatch_released(
+    inner: &Arc<Inner>,
+    scope: &str,
+    event: &nostr::event::Event,
+    on_behalf_of: (bisa_core::PrincipalId, bisa_core::MemberRole),
+) {
+    crate::listen::ear::on_message(inner, scope, event, PostOrigin::Asked);
+    dispatch_to(
+        inner,
+        scope,
+        event,
+        PostOrigin::Asked,
+        Some(on_behalf_of),
+        None,
+        true,
+    );
 }
 
 /// The one question a triage asks the Decision-Making Agent.
@@ -683,6 +755,7 @@ fn dispatch_to(
     origin: PostOrigin,
     on_behalf_of: Option<(bisa_core::PrincipalId, bisa_core::MemberRole)>,
     triaged: Option<AgentId>,
+    released: bool,
 ) {
     let author = event.pubkey.to_hex();
     let Ok(agents) = inner.ws.list_agents() else {
@@ -885,7 +958,15 @@ fn dispatch_to(
                     .and_then(|r| r.answer(TRIAGE_QUESTION)?.chosen().map(str::to_string))
                     .and_then(|id| AgentId::new(id.as_str()).ok())
                     .unwrap_or(default_id);
-                    dispatch_to(&inner, &scope, &event, origin, on_behalf_of, Some(chosen));
+                    dispatch_to(
+                        &inner,
+                        &scope,
+                        &event,
+                        origin,
+                        on_behalf_of,
+                        Some(chosen),
+                        released,
+                    );
                 });
                 return;
             }
@@ -985,6 +1066,16 @@ fn dispatch_to(
         }
 
         let key = (scope.to_string(), agent.id.to_string());
+        // Which message this wake is for, when a release named it; an
+        // ordinary wake is handed the newest, as it always was.
+        if released {
+            inner
+                .conversation
+                .handed
+                .insert(key.clone(), event.id.to_hex());
+        } else {
+            inner.conversation.handed.remove(&key);
+        }
         match crate::listen::run_of_message(inner, &event.id.to_hex()) {
             Some(run) => inner.conversation.caused.insert(key, run),
             None => inner.conversation.caused.remove(&key).map(|(_, run)| run),
@@ -1240,10 +1331,7 @@ fn render_message(inner: &Arc<Inner>, m: &bisa_store::MessageRow, who: &Labeller
 /// messages, oldest first. The harness holds the rest as its own context.
 fn transcript(inner: &Arc<Inner>, scope: &str, me: &str) -> String {
     let who = Labeller::new(inner, me);
-    inner
-        .ws
-        .transcript_tail(scope, TRANSCRIPT_WINDOW)
-        .unwrap_or_default()
+    heard_tail(inner, scope, TRANSCRIPT_WINDOW)
         .into_iter()
         .filter(|m| !m.retracted)
         .map(|m| render_message(inner, &m, &who))
@@ -1263,12 +1351,7 @@ fn transcript(inner: &Arc<Inner>, scope: &str, me: &str) -> String {
 /// at — the transcript already says it is absent, and an adapter given an
 /// unreadable path could only log a failure.
 fn latest_attachments(inner: &Arc<Inner>, scope: &str) -> Vec<bisa_harness::Attachment> {
-    inner
-        .ws
-        .messages(scope, None, 1)
-        .unwrap_or_default()
-        .into_iter()
-        .next_back()
+    newest_heard(inner, scope)
         .map(|m| {
             // An artifact's bytes are an attachment's: a chart an agent made
             // reaches an image-taking harness the way a photo does.
@@ -1534,12 +1617,7 @@ async fn wake_attempt(
                 // message that carries a file ends in an attachment line, and
                 // that is what a live session would have been handed instead
                 // of the question.
-                let text = inner
-                    .ws
-                    .messages(scope, None, 1)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .next_back()
+                let text = message_handed(inner, &key)
                     .map(|m| {
                         crate::framing::follow_up_text(
                             render_message(inner, &m, &Labeller::new(inner, agent_id)),
@@ -1657,6 +1735,9 @@ async fn wake_attempt(
         facts.goal,
         facts.project(),
     );
+    // A fresh session is given the room, the released message in it:
+    // nothing stays named for a later turn of a live one.
+    inner.conversation.handed.remove(&key);
     let candidates = vec![agent.harness.clone()];
     // The setting is read for the project the conversation stands in.
     let effort_setting = crate::effort::setting(inner, facts.project());
@@ -1666,12 +1747,7 @@ async fn wake_attempt(
     let judged = match judged {
         Some(judged) => judged,
         None => {
-            let asked = inner
-                .ws
-                .messages(scope, None, 1)
-                .unwrap_or_default()
-                .into_iter()
-                .next_back()
+            let asked = newest_heard(inner, scope)
                 .map(|m| m.content)
                 .unwrap_or_default();
             crate::decider::walk(
@@ -1901,12 +1977,7 @@ async fn wake_attempt(
     ));
     // The newest message's chips, as a block: what the person attached to
     // the turn being answered, in chip order (ide/09).
-    let latest_context = inner
-        .ws
-        .messages(scope, None, 1)
-        .unwrap_or_default()
-        .into_iter()
-        .next_back()
+    let latest_context = newest_heard(inner, scope)
         .map(|m| m.context)
         .unwrap_or_default();
     let block = crate::framing::context_block(&latest_context);

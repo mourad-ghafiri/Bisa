@@ -234,9 +234,11 @@ that run, the same row a local decision writes (`record_decision`).
 
 ## The security seams
 
-1. **The classifier reads a message from outside before an agent hears it.** The store applies the
-   fact and says `RemoteMessageArrived`; `engine/collab.rs::on_remote_message` holds it
-   (`held.json`, reason `pending`), puts its redacted text and the chips it carries — whole, bounded by the content screen's 16 KiB; longer is no verdict, held with that reason — to the classifier with the message
+1. **The classifier reads a message from outside before an agent hears it.** The store holds the
+   message as it applies it — the row (`held.json`, reason `pending`) is written before the message
+   is in its room, so nothing that reads the room finds it unread, and a hold that cannot be
+   written keeps the message out — and says `RemoteMessageArrived`;
+   `engine/collab.rs::on_remote_message` puts its redacted text and the chips it carries — whole, bounded by the content screen's 16 KiB; longer is no verdict, held with that reason — to the classifier with the message
    brief (`bisa-security/classify.rs::MESSAGE_BRIEF` — prompt injection, secrets asked for, social
    engineering, links to run), and on *safe* releases it into the ordinary dispatch — every
    session it wakes working *for* that person. A workflow's `message` start, wait or boundary
@@ -253,7 +255,21 @@ that run, the same row a local decision writes (`record_decision`).
    message. Every message is read in a task of its
    own, so the list has one writer at a time (`Workspace::held_writes`): a release of one that
    lands as the verdict of another loses neither. `security.collaboration.classify` off
-   dispatches at once.
+   lets it through at once.
+
+   **Held is out of everything an agent reads.** The hold used to stop the wake and nothing else:
+   the next fresh session in the room was given the held message in its transcript. Every read of
+   a room made for an agent — the transcript, the message a live session is handed, the files and
+   chips of the newest — goes through `conversation::heard_tail`, which leaves out what is held
+   and what was refused (`Workspace::held_and_refused_ids`); `held.json` keeps the ids a refusal
+   dropped beside the rows (`refused`, the newest 4096), and what is dropped with a removed author
+   joins them. **The owner's word stands**: a verdict that lands after a release or a refusal
+   finds no row and makes none (`restate_held`), and a refused id is never held again. **A release
+   hands over its message** (`dispatch_released`): the session it wakes answers that one, not the
+   newest of the room; one that can deliver nothing — its author gone, its room gone — refuses the
+   message instead and says why. A held row whose room is deleted, or whose message its author
+   takes back, is refused the same way. **Nothing waits for ever on a stop**: at start the node's
+   engine reads every row left *being read* (`collab::resume_pending`), one at a time.
 2. **An agent woken by an outsider runs with every tool beyond read-only put to the owner.**
    `Judge.on_behalf_of` carries the person and their role through `decide_tool`; with
    `security.collaboration.agent_tools = ask` a rule that would fall through or classify becomes
@@ -331,9 +347,9 @@ workspace, an engine, a harness or the node. The wire shapes it reads — `Hoste
 | C2 | An agent of another node never writes here, whatever it carries: an attestation is admitted only from this node's owner | `store/ingest.rs`; `tests/it/studio.rs` |
 | C3 | A person receives exactly what their role reaches, wrapped to them alone; a guest sees only the channels it is rostered on | `net/truth.rs::reaches_fact`, `net/host.rs::reachers_of`; `tests/it/host.rs` |
 | C4 | An invite secret is stored hashed, claimed once, in constant time, and expires — once under any race: the invitations and the members have one writer | `store/invites.rs::claim_and_admit`; its tests (`two_claims_of_one_code_at_once_admit_one`, `an_invitation_made_while_a_claim_lands_leaves_the_code_spent`) and `tests/it/host.rs` |
-| C5 | A message from outside reaches an agent only after the classifier's *safe*, or the owner's release — and never once its author is no longer a member, whenever that happened | `engine/collab.rs`, `store/held.rs` (one writer of the held list); `tests/it/collab.rs`; the unit test `a_release_and_a_verdict_at_once_lose_neither` in `store/held.rs` |
+| C5 | A message from outside reaches an agent — heard or read — only after the classifier's *safe*, or the owner's release; never once refused, and never once its author is no longer a member, whenever that happened | `engine/collab.rs`, `engine/conversation.rs::heard_tail`, `store/held.rs` (one writer of the held list, the refused ids), `store/ingest.rs` (held as it lands); `tests/it/collab.rs` (`a_held_message_is_in_no_transcript`, `a_refusal_stands_whatever_the_classifier_says_after`, `a_message_let_through_is_heard_once`, `a_message_being_read_when_the_node_stopped_is_read_when_it_starts`), `tests/it/conversation_edges.rs::a_release_hands_over_the_message_released`; the unit test `a_release_and_a_verdict_at_once_lose_neither` in `store/held.rs` |
 | C6 | An agent woken by an outsider asks for every tool beyond read-only unless the owner said otherwise | `engine/security.rs`, `engine/inputs.rs`; `tests/it/collab.rs` |
-| C7 | What leaves the machine is redacted before it is signed | `engine/messaging.rs`, `guest/session.rs`; the guest's unit test `a_guest_joins_is_welcomed_posts_a_redacted_message_and_refuses_an_unreached_channel` in `crates/bisa-guest/src/session.rs` |
+| C7 | What leaves the machine is redacted before it is signed — the words and the chips they carry | `engine/messaging.rs` (`words_for`, `chips_for`), `guest/session.rs`; `tests/it/collab.rs::a_terminals_tail_is_redacted_before_it_leaves`; the guest's unit test `a_guest_joins_is_welcomed_posts_a_redacted_message_and_refuses_an_unreached_channel` in `crates/bisa-guest/src/session.rs` |
 | C8 | The host is the authority: a guest applies only what the host's seal carried | `guest/session.rs::on_incoming`; its unit tests `a_former_members_words_reach_a_newcomer` (the same fact under another seal is dropped), `a_fact_of_another_workspace_is_not_this_hosts` and `a_refusal_and_a_removal_are_kept_in_words_and_a_reopen_finds_the_replica` (another key's welcome ignored) |
 | C9 | A guest replica is apart from the node's own workspace: `hosts/` holds nothing the store reads | `guest/store.rs`, `guest/session.rs` (`HOSTS_DIR`); `crates/bisa-net/tests/it/host.rs::a_replica_of_a_host_is_nothing_the_nodes_own_store_reads` (a node that is also a guest, its own index rebuilt beside the replica) |
 | C10 | A membership is unseated only by the host's word to a member — a removal — never by a refusal, nor by an older word handed back: a member claiming again claims nothing, a refusal a member hears is dropped, and a *waiting* or a refusal said before the welcome changes nothing whenever it arrives | `guest/session.rs::join`, `on_control`; its tests (`an_old_waiting_never_unseats_a_member`, `the_newest_word_stands_whatever_order_they_arrive_in`); the journey `crates/bisa-cli/tests/it/e2e/two_nodes_and_a_relay.rs` |

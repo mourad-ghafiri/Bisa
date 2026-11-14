@@ -14,6 +14,14 @@ notes (`docs/contributing/release.md`).
   session is closed and its replica moved whole to `hosts-forgotten/<host>.<secs>/`. The route, the
   verb and the desktop's door follow.
 
+- **The owner's word on a join request, from the terminal**: `bisa workspace admit <id>` and
+  `bisa workspace deny <id>` — *ask* mode could be answered from the desktop alone.
+- **`bisa workspace forget <host>`** and `POST /hosts/{host}/forget`: a membership that is over is
+  taken off the list, its copy kept aside.
+- **`POST /sync/relays`, `DELETE /sync/relays?url=` and `POST /sync/relays/reset`**: one relay added
+  or removed on the list as it stands. `bisa relay list --json` carries `urls` whether a node runs
+  or not.
+
 ### Fixed
 
 - **The people of a workspace have one writer.** `members.json` and `invites.json` were each read,
@@ -131,6 +139,37 @@ notes (`docs/contributing/release.md`).
   and now waits once; settings that will not read make a claim wait on the owner instead of
   admitting at once; `GET /sync` no longer waits behind a pump that is starting; a reader that fell
   behind the pool reads everything again instead of losing what it missed.
+- **A held message is read by no agent.** The classifier's hold stopped the wake and nothing else:
+  the next fresh session in the room was given the held message in its transcript. What an agent is
+  shown of a room now leaves out every message that is held, and every one refused — for good
+  (`held.json` keeps the refused ids). A person's message is held as it lands, before it is in the
+  room.
+- **The owner's word on a held message stands.** A verdict that landed after the owner refused a
+  message held it again, and one that landed after a release held it again to be let through — and
+  heard — twice. A refused message is never held again.
+- **A release delivers its message, or says why it cannot.** A live session woken by a release was
+  handed the newest message of the room instead of the one released; and a release for somebody who
+  had left, or into a room that was gone, said *released* and delivered nothing — it now refuses
+  the message and says why. What is held in a room that is deleted, or of a message its author
+  takes back, is dropped and said.
+- **Nothing is left *being read* for ever.** A message the classifier was reading when the node
+  stopped was read by nothing at the next start; it is read then.
+- **What leaves the machine is redacted, the context with the words**: a terminal's tail, a
+  selection, a diff or an annotation attached to a message rode raw to a guest's copy.
+- **`collab.default_role` is read.** The route, the verb and the dialog each said *guest* for
+  themselves; an invitation with no role named is made at the workspace's default
+  (`bisa workspace invite` no longer defaults `--role` on its own). An invitation's expiry is said
+  (`invite.changed`) by the first read that finds it.
+- **Two relays added at once both stand.** The list was read, changed and written back whole in
+  three places — the relay verbs, a join adopting its invitation's relays, the desktop: the later
+  write undid the earlier. One writer now edits it (`collab::edit_relays`).
+- **Statuses that say what happened**: an unknown person, invitation or held message is 404 (was
+  400), and a join request already settled is 409 — nothing waits on it — where it was a bad
+  request.
+- **The command line, smaller.** `bisa workspace leave` with no node dialled the configured relays
+  with the wire off; `role` and `remove` refused a key typed in capitals that the node takes; the
+  held list and a new invitation printed a unix time where a date belongs; a held message's reason
+  and *the classifier is off* are the catalogue's words.
 
 ## [0.8.0] - 2026-11-13
 

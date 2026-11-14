@@ -164,6 +164,30 @@ impl Workspace {
         Ok(invite)
     }
 
+    /// Mark every invitation whose time ran out as expired, in the file,
+    /// and say each — once: the next call finds none. Answers how many.
+    /// [`Self::invites`] reads them as expired either way; this is what
+    /// makes an expiry a thing that happened, for whoever listens.
+    pub fn mark_invites_expired(&self) -> Result<usize, StoreError> {
+        let _one_writer = self.people_writer();
+        let now = now_secs();
+        let mut file = self.read_invites()?;
+        let mut expired = Vec::new();
+        for row in &mut file.invites {
+            if row.invite.state.is_open() && now >= row.invite.expires_at {
+                row.invite.state = InviteState::Expired;
+                expired.push(row.invite.clone());
+            }
+        }
+        if !expired.is_empty() {
+            self.write_invites(&file)?;
+            for invite in &expired {
+                self.say_invite(invite);
+            }
+        }
+        Ok(expired.len())
+    }
+
     /// Every invite, newest first, expired ones marked as such.
     pub fn invites(&self) -> Result<Vec<Invite>, StoreError> {
         let now = now_secs();
@@ -605,6 +629,41 @@ mod tests {
             "{no_longer_open}"
         );
         assert_eq!(ws.invites().unwrap().len(), 1);
+    }
+
+    /// An invitation whose time ran out is marked and said by the first
+    /// read that looks — once; the list reads it as expired either way.
+    #[test]
+    fn an_expiry_is_marked_and_said_once() {
+        let (_dir, ws) = ws();
+        let mut heard = ws.subscribe_store_events();
+        let made = ws
+            .create_invite(MemberRole::Member, vec![], None, 3600, hash("e1"))
+            .unwrap();
+        ws.create_invite(MemberRole::Guest, vec![], None, 3600, hash("e2"))
+            .unwrap();
+        assert_eq!(ws.mark_invites_expired().unwrap(), 0, "both still good");
+        let mut file = ws.read_invites().unwrap();
+        let row = file
+            .invites
+            .iter_mut()
+            .find(|r| r.invite.id == made.id)
+            .unwrap();
+        row.invite.expires_at = row.invite.created_at;
+        ws.write_invites(&file).unwrap();
+        while heard.try_recv().is_ok() {}
+        assert_eq!(ws.mark_invites_expired().unwrap(), 1);
+        assert_eq!(ws.invite(made.id).unwrap().state, InviteState::Expired);
+        let mut said = 0;
+        while let Ok(ev) = heard.try_recv() {
+            if let crate::workspace::StoreEvent::InviteChanged { invite } = ev {
+                assert_eq!(invite.id, made.id);
+                assert_eq!(invite.state, InviteState::Expired);
+                said += 1;
+            }
+        }
+        assert_eq!(said, 1);
+        assert_eq!(ws.mark_invites_expired().unwrap(), 0, "said once");
     }
 
     #[test]

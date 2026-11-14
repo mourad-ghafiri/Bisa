@@ -1193,3 +1193,96 @@ async fn an_agents_reply_in_a_group_wakes_only_whom_it_names() {
     assert_eq!(ws.messages(&scope, None, 50).unwrap().len(), 3);
     engine.shutdown().await;
 }
+
+/// A message from outside, let through by the owner after other things
+/// were said: the live session it wakes is handed *that* message. Handed
+/// the newest of the room instead, it answered something else — and while
+/// the message is held, nothing a live session is handed carries it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_release_hands_over_the_message_released() {
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = Arc::new(MockAdapter {
+        answers_follow_ups: true,
+        ..lingering("chat-harness", "here to stay")
+    });
+    let engine = engine_on(&dir, &adapter, design_off_config());
+    let ws = engine.workspace();
+    // No classifier to ask: a message from outside is held with no verdict,
+    // for the owner.
+    engine
+        .set_setting(
+            bisa_core::SettingScope::Workspace,
+            None,
+            "security.classifier.enabled",
+            serde_json::json!(false),
+        )
+        .unwrap();
+    let mut core = ws.get_agent(&AgentId::general()).unwrap();
+    core.respond = bisa_core::RespondPolicy::Members;
+    let core_key = core.pubkey.clone();
+    ws.update_agent(core).unwrap();
+    let bob = nostr::key::Keys::generate();
+    let bob_id = PrincipalId::new(bob.public_key().to_hex()).unwrap();
+    ws.add_member(bob_id, bisa_core::MemberRole::Member, Default::default())
+        .unwrap();
+    let mut events = engine.events();
+
+    say(ws, "general", "stay a while", &[]);
+    assert!(replied(&mut events, "general").await, "the session is live");
+
+    let from_outside = EventBuilder::new(
+        Kind::from(bisa_core::kind::KIND_MESSAGE),
+        serde_json::to_string(&MessageBody::post("hello from outside")).unwrap(),
+    )
+    .tags([
+        Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:general",
+                bisa_core::kind::KIND_CHANNEL,
+                ws.owner_keys().public_key().to_hex()
+            ),
+        ])
+        .unwrap(),
+        Tag::parse(["p", core_key.as_hex()]).unwrap(),
+    ])
+    .finalize(&bob)
+    .unwrap();
+    let id = from_outside.id.to_hex();
+    ws.ingest_remote_event(&from_outside).unwrap();
+    until("the message held with no verdict", || {
+        ws.held_reason(&id)
+            .unwrap()
+            .filter(|r| matches!(r, bisa_store::HeldReason::NoVerdict { .. }))
+    })
+    .await;
+
+    say(ws, "general", "something newer", &[]);
+    assert!(replied(&mut events, "general").await);
+    let followed = adapter.follow_ups();
+    assert_eq!(followed.len(), 1, "{followed:?}");
+    assert!(followed[0].contains("something newer"), "{followed:?}");
+    assert!(
+        !followed[0].contains("hello from outside"),
+        "a held message was handed to a live session: {followed:?}"
+    );
+
+    bisa_engine::collab::release_message(engine.inner(), &id).unwrap();
+    until("the released message handed over", || {
+        (adapter.follow_ups().len() == 2).then_some(())
+    })
+    .await;
+    let followed = adapter.follow_ups();
+    assert!(
+        followed[1].contains("hello from outside"),
+        "the session was handed something else: {:?}",
+        followed[1]
+    );
+    assert!(
+        !followed[1].contains("something newer"),
+        "{:?}",
+        followed[1]
+    );
+    engine.shutdown().await;
+}

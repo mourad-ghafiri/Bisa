@@ -4,12 +4,17 @@
 //! Three things, each a seam the security features hook:
 //!
 //! - **A message from outside is read before an agent hears it.** The store
-//!   applies it and says so (`StoreEvent::RemoteMessageArrived`); this module
-//!   holds it, puts its redacted text to the classifier with the message
-//!   brief, and either releases it into the ordinary dispatch — every session
-//!   it wakes working *for* that person — or keeps it held with the reason,
-//!   for the owner to release by hand. Off (`security.collaboration.classify`),
-//!   it dispatches at once.
+//!   holds it as it applies it and says so
+//!   (`StoreEvent::RemoteMessageArrived`); this module puts its redacted
+//!   text to the classifier with the message brief, and either releases it
+//!   into the ordinary dispatch — every session it wakes working *for* that
+//!   person — or keeps it held with the reason, for the owner to release by
+//!   hand. Off (`security.collaboration.classify`), it is let through at
+//!   once. While it is held — and for good once refused — it is in nothing
+//!   an agent reads (`conversation::heard_tail`). The owner's word on a
+//!   message stands whatever the classifier says after it
+//!   (`restate_held`), and a message left *being read* when the node
+//!   stopped is read when it starts ([`resume_pending`]).
 //! - **A message that leaves the machine is redacted before it is signed**
 //!   ([`scope_leaves_the_machine`], read by `messaging::post_as_person`).
 //! - **Invitations and people** are the owner's acts through the store —
@@ -18,7 +23,7 @@
 //!   the bus for the screens. The host's pump (`bisa-net`) hears the same
 //!   store events and tells the people.
 
-use crate::conversation::dispatch;
+use crate::conversation::{dispatch, dispatch_released};
 use crate::events::{EngineEvent, EnginePayload};
 use crate::{EngineError, Inner};
 use bisa_collab::{hash_secret, mint_secret, InviteCode};
@@ -78,7 +83,16 @@ pub async fn on_remote_message(
     role: MemberRole,
 ) {
     let policy = inner.security.policy();
+    let id = event.id.to_hex();
     if !policy.collaboration.classify {
+        // Nothing reads it first: the row it arrived under goes, and it is
+        // heard at once.
+        if let Err(e) = inner.ws.release_message(&id) {
+            // LCOV_EXCL_START: the held file unreadable; a disk arm
+            tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot let a message through: {e}");
+            return;
+            // LCOV_EXCL_STOP
+        }
         dispatch(
             inner,
             &scope,
@@ -88,15 +102,27 @@ pub async fn on_remote_message(
         );
         return;
     }
-    let id = event.id.to_hex();
-    if let Err(e) = inner
+    match inner
         .ws
         .hold_message(&id, &scope, author.clone(), HeldReason::Pending)
     {
+        Ok(Some(_)) => {}
+        // The owner refused it already: nobody reads it, nobody hears it.
+        Ok(None) => return,
         // LCOV_EXCL_START: the held file unwritable; a disk arm
-        tracing::warn!("cannot hold {id}: {e}");
-        return;
-        // LCOV_EXCL_STOP
+        Err(e) => {
+            // Not heard, and said so: logged alone, the message sat in its
+            // room with no caution on it and no way to let it through.
+            tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot hold: {e}");
+            announce_held(
+                inner,
+                &scope,
+                &id,
+                &author,
+                HeldReason::NoVerdict { why: e.to_string() },
+            );
+            return;
+        } // LCOV_EXCL_STOP
     }
     announce_held(inner, &scope, &id, &author, HeldReason::Pending);
     let (text, context) = serde_json::from_str::<MessageBody>(&event.content)
@@ -159,13 +185,7 @@ pub async fn on_remote_message(
                 scope: scope.clone(),
                 event: id,
             }));
-            dispatch(
-                inner,
-                &scope,
-                &event,
-                PostOrigin::Asked,
-                Some((author, role)),
-            );
+            dispatch_released(inner, &scope, &event, (author, role));
         }
         Ok(ClassifierVerdict::Harmful { reason }) => {
             keep_held(
@@ -188,33 +208,21 @@ pub async fn on_remote_message(
     }
 }
 
+/// The classifier's word on a message that waits for it. A row the owner
+/// let through or refused meanwhile is theirs, and one whose author was
+/// removed went with them: nothing is held again under the id
+/// (`restate_held` never makes a row), and nothing is said.
 fn keep_held(inner: &Arc<Inner>, scope: &str, id: &str, author: PrincipalId, reason: HeldReason) {
-    // A person removed while the verdict was pending took their held row
-    // with them; holding it again would leave a row nobody can act on.
-    if current_role(inner, &author, id).is_none() {
-        return;
-    }
-    if let Err(e) = inner
-        .ws
-        .hold_message(id, scope, author.clone(), reason.clone())
-    {
-        // LCOV_EXCL_START: the held file unwritable under the verdict; a disk arm
-        tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot hold: {e}");
-        return;
-        // LCOV_EXCL_STOP
-    }
-    // Read once more after the hold: a removal that ran between the check
-    // above and the write (`remove_person` takes the member row first) left
-    // this row behind, and it is dropped here rather than kept for nobody.
-    if current_role(inner, &author, id).is_none() {
-        // LCOV_EXCL_START: a removal between the check and the write; a race no test can time
-        if let Err(e) = inner.ws.drop_held_of(&author) {
-            tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot drop a held row of a person who left: {e}");
+    match inner.ws.restate_held(id, reason.clone()) {
+        Ok(Some(_)) => announce_held(inner, scope, id, &author, reason),
+        Ok(None) => {
+            tracing::info!(target: "bisa_engine::collab", event = %id, "a verdict landed on a message already answered, or whose author left; it changes nothing");
         }
-        return;
-        // LCOV_EXCL_STOP
+        // LCOV_EXCL_START: the held file unwritable under the verdict; a disk arm
+        Err(e) => {
+            tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot restate a hold: {e}")
+        } // LCOV_EXCL_STOP
     }
-    announce_held(inner, scope, id, &author, reason);
 }
 
 /// The role a person holds now, or `None` — said in the log — when they
@@ -222,10 +230,12 @@ fn keep_held(inner: &Arc<Inner>, scope: &str, id: &str, author: PrincipalId, rea
 fn current_role(inner: &Inner, author: &PrincipalId, event: &str) -> Option<MemberRole> {
     match inner.ws.member_role(author) {
         Ok(Some(role)) => Some(role),
+        // LCOV_EXCL_START: the author removed between the judgement and the release; a race no test can time
         Ok(None) => {
             tracing::info!(target: "bisa_engine::collab", event, author = %person_words(inner, author), "the author is no longer a member; the message is not delivered");
             None
         }
+        // LCOV_EXCL_STOP
         // LCOV_EXCL_START: the members file unreadable; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_engine::collab", event, "the author's role could not be read; the message is not delivered: {e}");
@@ -257,50 +267,68 @@ pub async fn classify_message(
 ) -> Result<ClassifierVerdict, EngineError> {
     let policy = inner.security.policy();
     if !policy.classifier.enabled {
-        return Err(EngineError::Security("the classifier is off".into()));
+        return Err(EngineError::Security(
+            bisa_core::text!("engine-collab-classifier-off").to_string(),
+        ));
     }
     crate::classifier::classify_message(inner, subject, &policy.classifier).await
 }
 
 /// The owner lets a held message through: the agents it addressed hear it
-/// now, as if it had just arrived.
+/// now, handed that message — not whatever is newest in its room.
+///
+/// A release that can deliver nothing says why, and never says *released*:
+/// when its author is no longer a member, or its room is gone, the message
+/// is refused instead — out of what any agent reads, for good.
 pub fn release_message(inner: &Arc<Inner>, event_id: &str) -> Result<(), EngineError> {
-    let Some(held) = inner.ws.release_message(event_id)? else {
-        return Err(EngineError::Invalid(bisa_core::text!(
+    let no_such = || {
+        EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-no-held-message",
             event_id = event_id.to_string()
-        )));
+        ))
     };
+    let held = inner
+        .ws
+        .held_messages()?
+        .into_iter()
+        .find(|h| h.event_id == event_id)
+        .ok_or_else(no_such)?;
+    let role = inner.ws.member_role(&held.author)?;
+    let event = inner.ws.conversation_event(&held.scope, event_id)?;
+    let (Some(role), Some(event)) = (role, event) else {
+        refuse_message(inner, event_id)?;
+        return Err(EngineError::Invalid(if role.is_none() {
+            bisa_core::text!(
+                "error-engine-invalid-author-no-longer-member-message-not-delivered",
+                event_id = event_id.to_string()
+            )
+        } else {
+            bisa_core::text!(
+                "error-engine-invalid-room-gone-message-not-delivered",
+                event_id = event_id.to_string()
+            )
+        }));
+    };
+    // The row is the gate: whoever takes it delivers, once.
+    if inner.ws.release_message(event_id)?.is_none() {
+        // LCOV_EXCL_START: the row taken between the read and the release; a race no test can time
+        return Err(no_such());
+        // LCOV_EXCL_STOP
+    }
     inner.emit(EngineEvent::global(EnginePayload::MessageReleased {
         scope: held.scope.clone(),
         event: event_id.to_string(),
     }));
-    // The held row is gone either way; a person who left since is told
-    // about in a sentence, and nothing is delivered for them.
-    let Some(role) = inner.ws.member_role(&held.author)? else {
-        return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-author-no-longer-member-message-not-delivered",
-            event_id = event_id.to_string()
-        )));
-    };
-    if let Some(event) = inner.ws.conversation_event(&held.scope, event_id)? {
-        dispatch(
-            inner,
-            &held.scope,
-            &event,
-            PostOrigin::Asked,
-            Some((held.author, role)),
-        );
-    }
+    dispatch_released(inner, &held.scope, &event, (held.author, role));
     Ok(())
 }
 
 /// The owner refuses a held message: the row is gone and no agent ever
-/// hears it — the message stays in its scope's log, as every message does.
-/// Nothing is dispatched; the fact is said so the Pulse and the People panel
-/// move. A message nobody holds is refused by name.
+/// hears or reads it — the message stays in its scope's log, as every
+/// message does. Nothing is dispatched; the fact is said so the Pulse and
+/// the People panel move. A message nobody holds is refused by name.
 pub fn refuse_message(inner: &Arc<Inner>, event_id: &str) -> Result<HeldMessage, EngineError> {
-    let Some(held) = inner.ws.remove_held(event_id)? else {
+    let Some(held) = inner.ws.refuse_held(event_id)? else {
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-no-held-message",
             event_id = event_id.to_string()
@@ -314,18 +342,80 @@ pub fn refuse_message(inner: &Arc<Inner>, event_id: &str) -> Result<HeldMessage,
     Ok(held)
 }
 
+/// At start: every message left *being read* when the node stopped — or
+/// taken in by a pump with no engine beside it — is read now, one at a
+/// time. Nothing read them again: the row said *being read* for ever, the
+/// owner's *Let through* waited on a verdict nobody was fetching, and the
+/// message was heard by no one. One whose author has left since, or whose
+/// room is gone, is refused. With the classifier off for messages from
+/// outside they are let through, as they would have been.
+pub async fn resume_pending(inner: Arc<Inner>) {
+    let waiting: Vec<HeldMessage> = match inner.ws.held_messages() {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|h| h.reason == HeldReason::Pending)
+            .collect(),
+        // LCOV_EXCL_START: the held file unreadable at start; a disk arm
+        Err(e) => {
+            tracing::warn!(target: "bisa_engine::collab", "the held messages could not be read at start: {e}");
+            return;
+        } // LCOV_EXCL_STOP
+    };
+    for held in waiting {
+        let role = inner.ws.member_role(&held.author).ok().flatten();
+        let event = inner
+            .ws
+            .conversation_event(&held.scope, &held.event_id)
+            .ok()
+            .flatten();
+        match (role, event) {
+            (Some(role), Some(event)) => {
+                on_remote_message(&inner, held.scope, event, held.author, role).await;
+            }
+            _ => {
+                if let Err(e) = refuse_message(&inner, &held.event_id) {
+                    // LCOV_EXCL_START: the row gone or the file unwritable under the start; a race, a disk arm
+                    tracing::debug!(target: "bisa_engine::collab", event = %held.event_id, "a row nobody can answer was not dropped: {e}");
+                    // LCOV_EXCL_STOP
+                }
+            }
+        }
+    }
+}
+
+/// A room deleted, or a message taken back by its author: what was held
+/// there, or of it, is nobody's to let through any more.
+fn refuse_what_is_moot(inner: &Arc<Inner>, moot: impl Fn(&HeldMessage) -> bool) {
+    let held = match inner.ws.held_messages() {
+        Ok(held) => held,
+        Err(_) => return, // LCOV_EXCL_LINE: the held file unreadable under the listener; a disk arm
+    };
+    for row in held.into_iter().filter(|h| moot(h)) {
+        if let Err(e) = refuse_message(inner, &row.event_id) {
+            // LCOV_EXCL_START: the row answered meanwhile; a race no test can time
+            tracing::debug!(target: "bisa_engine::collab", event = %row.event_id, "a moot hold was not dropped: {e}");
+            // LCOV_EXCL_STOP
+        }
+    }
+}
+
 // -- invitations ---------------------------------------------------------
 
 /// Make an invite: the record the host keeps and the code the person
 /// carries — the secret exists in the code and nowhere else.
+///
+/// A role that is not named is the workspace's (`collab.default_role`) —
+/// read here, so the route, the verb and the dialog agree. Each said *guest*
+/// for itself, and the setting was read by nothing.
 pub fn create_invite(
     inner: &Arc<Inner>,
-    role: MemberRole,
+    role: Option<MemberRole>,
     channels: Vec<ChannelId>,
     label: Option<String>,
 ) -> Result<(Invite, InviteCode), EngineError> {
     let resolved = inner.ws.settings(None)?;
     let collab = CollabSettings::from_resolved(&resolved);
+    let role = role.unwrap_or(collab.default_role);
     let sync = SyncSettings::from_resolved(&resolved);
     let label = label.map(|l| inner.security.redact_inbound(&l, "invite"));
     let secret = mint_secret();
@@ -338,6 +428,14 @@ pub fn create_invite(
     )?;
     let code = InviteCode::new(inner.ws.owner_keys().public_key(), &sync.relays, secret);
     Ok((invite, code))
+}
+
+/// Every invitation, newest first. One whose time ran out since it was last
+/// read is marked expired here — and said, once, so the screens and the
+/// Pulse hear an expiry that otherwise happened to nobody.
+pub fn invites(inner: &Arc<Inner>) -> Result<Vec<Invite>, EngineError> {
+    inner.ws.mark_invites_expired()?;
+    Ok(inner.ws.invites()?)
 }
 
 pub fn revoke_invite(inner: &Arc<Inner>, id: InviteId) -> Result<Invite, EngineError> {
@@ -370,7 +468,24 @@ pub fn set_role(
 /// meanwhile (`keep_held`) finds nobody to hold a message for. What they
 /// already hold of this workspace cannot be un-sent.
 pub fn remove_person(inner: &Arc<Inner>, pubkey: &PrincipalId) -> Result<(), EngineError> {
-    Ok(inner.ws.remove_person(pubkey)?)
+    let theirs: Vec<HeldMessage> = inner
+        .ws
+        .held_messages()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|h| &h.author == pubkey)
+        .collect();
+    inner.ws.remove_person(pubkey)?;
+    // What was held of theirs went with them — said, so a list of held
+    // messages on screen does not keep rows nobody can answer.
+    for held in theirs {
+        inner.emit(EngineEvent::global(EnginePayload::MessageRefused {
+            scope: held.scope,
+            event: held.event_id,
+            author: held.author,
+        }));
+    }
+    Ok(())
 }
 
 /// The owner's own profile — their label, their face — as `PUT /workspace/me`
@@ -417,6 +532,75 @@ pub fn add_person(
     // LCOV_EXCL_STOP
 }
 
+// -- the relays ----------------------------------------------------------
+
+/// One change to the list of relays (`sync.relays`, machine scope).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RelayEdit {
+    Add(String),
+    Remove(String),
+    /// Back to the relays a fresh node is given.
+    Reset,
+}
+
+/// What an edit of the relays did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelaysEdited {
+    /// Whether the list moved: a relay already configured is added by
+    /// nothing, one not configured removed by nothing.
+    pub changed: bool,
+    pub relays: Vec<String>,
+}
+
+/// One writer of the list at a time, in this process.
+static RELAY_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Add a relay, remove one, or go back to the defaults — on the list as it
+/// stands, under one lock. Three places each read the list, changed their
+/// copy and wrote it back whole: two adds at once kept one. A relay is one
+/// relay whatever its spelling (`bisa_core::same_relay`); the spelling a
+/// person typed is what is kept. The write is a setting's, so whoever
+/// listens — the pump, the screens — hears it move.
+pub fn edit_relays(inner: &Arc<Inner>, edit: RelayEdit) -> Result<RelaysEdited, EngineError> {
+    use bisa_core::collab_settings::keys::SYNC_RELAYS;
+    let _one_writer = RELAY_EDITS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut relays = SyncSettings::from_resolved(&inner.ws.settings(None)?).relays;
+    let before = relays.clone();
+    match edit {
+        RelayEdit::Add(url) => {
+            let url = url.trim().to_string();
+            if !bisa_core::is_relay_url(&url) {
+                return Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-relay-ws-wss-url"
+                )));
+            }
+            if !relays.iter().any(|r| bisa_core::same_relay(r, &url)) {
+                relays.push(url);
+            }
+        }
+        RelayEdit::Remove(url) => relays.retain(|r| !bisa_core::same_relay(r, url.trim())),
+        RelayEdit::Reset => {
+            crate::settings::unset(inner, bisa_core::SettingScope::Machine, None, SYNC_RELAYS)?;
+            let relays = SyncSettings::from_resolved(&inner.ws.settings(None)?).relays;
+            return Ok(RelaysEdited {
+                changed: relays != before,
+                relays,
+            });
+        }
+    }
+    let changed = relays != before;
+    if changed {
+        crate::settings::set(
+            inner,
+            bisa_core::SettingScope::Machine,
+            None,
+            SYNC_RELAYS,
+            serde_json::json!(relays),
+        )?;
+    }
+    Ok(RelaysEdited { changed, relays })
+}
+
 // -- the bus -------------------------------------------------------------
 
 /// Relay the store's word about people and invitations to the screens.
@@ -441,6 +625,23 @@ pub fn spawn_listener(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
                 }
                 Ok(StoreEvent::InviteChanged { invite }) => {
                     inner.emit(EngineEvent::global(EnginePayload::InviteChanged { invite }));
+                }
+                Ok(StoreEvent::DefinitionRemoved { kind, d: id })
+                    if kind == bisa_core::kind::KIND_CHANNEL =>
+                {
+                    refuse_what_is_moot(&inner, |h| h.scope == id);
+                }
+                Ok(StoreEvent::RemoteFactArrived { event, .. })
+                    if event.kind.as_u16() == bisa_core::kind::KIND_RETRACTION =>
+                {
+                    let taken_back: Vec<String> = event
+                        .tags
+                        .iter()
+                        .map(|t| t.as_slice())
+                        .filter(|t| t.len() >= 2 && t[0] == "e")
+                        .map(|t| t[1].clone())
+                        .collect();
+                    refuse_what_is_moot(&inner, |h| taken_back.contains(&h.event_id));
                 }
                 Ok(_) => {}
                 // LCOV_EXCL_START: the bus lagging or closing under the listener; a race no test can time

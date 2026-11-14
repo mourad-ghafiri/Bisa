@@ -967,6 +967,15 @@ impl Engine {
         let intake_task = tokio::spawn(intake::serve(Arc::clone(&inner), listener));
         let conversation_task = conversation::spawn_listener(&inner);
         let collab_task = collab::spawn_listener(&inner);
+        // What was left *being read* when the node stopped is read now —
+        // by the node's engine, which stays to hear the verdict; a command's
+        // own engine is gone before one could land.
+        if inner.config.events_enabled {
+            tokio::spawn(survive(
+                "held messages left being read",
+                collab::resume_pending(Arc::clone(&inner)),
+            ));
+        }
         let drawings_task = drawings::spawn_listener(&inner);
         // The ear hears the bus whether or not the rest runs: a run's waits
         // and boundary events are its, never a person's switch's.

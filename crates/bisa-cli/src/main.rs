@@ -637,9 +637,9 @@ enum RelayCmd {
 enum WorkspaceCmd {
     /// Make a single-use invitation: prints the link and the code
     Invite {
-        /// admin | member | guest
-        #[arg(long, default_value = "guest")]
-        role: String,
+        /// admin | member | guest — the workspace's `collab.default_role` when not named
+        #[arg(long)]
+        role: Option<String>,
         /// A standing channel a guest is put on (repeatable)
         #[arg(long = "channel")]
         channels: Vec<String>,
@@ -662,6 +662,12 @@ enum WorkspaceCmd {
     Hosts,
     /// Leave a workspace you are a guest of
     Leave { host: String },
+    /// Forget a workspace you left or were removed from; its copy is kept aside
+    Forget { host: String },
+    /// Admit the person waiting on an invitation (collab.join = ask)
+    Admit { id: String },
+    /// Turn down the person waiting on an invitation
+    Deny { id: String },
     /// Everyone in this workspace: the owner and the people hosted here
     People,
     /// Change a person's role: admin | member | guest
@@ -1114,12 +1120,15 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
                 role,
                 channels,
                 label,
-            } => net::invite(ctx, out, &role, &channels, label).await,
+            } => net::invite(ctx, out, role.as_deref(), &channels, label).await,
             WorkspaceCmd::Invites => net::invites(ctx, out).await,
             WorkspaceCmd::Revoke { id } => net::revoke(ctx, out, &id).await,
             WorkspaceCmd::Join { code, label } => net::join(ctx, out, &code, label).await,
             WorkspaceCmd::Hosts => net::hosts(ctx, out).await,
             WorkspaceCmd::Leave { host } => net::leave(ctx, out, &host).await,
+            WorkspaceCmd::Forget { host } => net::forget(ctx, out, &host).await,
+            WorkspaceCmd::Admit { id } => net::settle(ctx, out, &id, true).await,
+            WorkspaceCmd::Deny { id } => net::settle(ctx, out, &id, false).await,
             WorkspaceCmd::People => net::people(ctx, out).await,
             WorkspaceCmd::Role { pubkey, role } => net::set_role(ctx, out, &pubkey, &role).await,
             WorkspaceCmd::Remove { pubkey } => net::remove_person(ctx, out, &pubkey).await,

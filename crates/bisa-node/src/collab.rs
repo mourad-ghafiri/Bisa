@@ -114,6 +114,9 @@ pub trait CollabDoors: Send + Sync {
         participants: Vec<String>,
     ) -> BoxFuture<'_, Result<(), CollabRefusal>>;
     fn hosted_read(&self, host: String, scope: String) -> BoxFuture<'_, Result<(), CollabRefusal>>;
+    /// Forget a membership that is over: its session closed, its copy moved
+    /// aside. Answers where the copy was kept.
+    fn forget(&self, host: String) -> BoxFuture<'_, Result<std::path::PathBuf, CollabRefusal>>;
 }
 
 pub type Collab = Arc<dyn CollabDoors>;
@@ -135,6 +138,7 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/hosts", get(hosts))
         .route("/hosts/join", post(join))
         .route("/hosts/{host}", delete(leave))
+        .route("/hosts/{host}/forget", post(forget))
         .route("/hosts/{host}/channels", get(hosted_channels))
         .route("/hosts/{host}/dms", get(hosted_dms).post(hosted_open_dm))
         .route("/hosts/{host}/members", get(hosted_members))
@@ -146,6 +150,8 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/hosts/{host}/messages/{id}/retract", post(hosted_retract))
         .route("/hosts/{host}/read", post(hosted_read))
         .route("/sync", get(sync))
+        .route("/sync/relays", post(add_relay).delete(remove_relay))
+        .route("/sync/relays/reset", post(reset_relays))
         .route("/sync/relays/check", post(check_relay))
         .route("/sync/relays/reconnect", post(reconnect))
 }
@@ -189,6 +195,65 @@ fn invite_id(s: &str) -> Result<InviteId, ApiError> {
             e = e.to_string()
         ))
     })
+}
+
+/// The invitation under `id`, or a 404 that names it: an id that is no
+/// invitation is nothing to act on, not a malformed request.
+fn invitation(state: &Shared, id: InviteId) -> Result<bisa_core::Invite, ApiError> {
+    state
+        .engine
+        .workspace()
+        .invites()?
+        .into_iter()
+        .find(|i| i.id == id)
+        .ok_or_else(|| {
+            not_found(bisa_core::text!(
+                "error-store-invalid-no-invite",
+                id = id.to_string()
+            ))
+        })
+}
+
+/// The invitation a person waits on under `id`: a 404 for no invitation, a
+/// 409 for one that is not waiting on the owner — settled already, or never
+/// asked for. The request is sound; what it is about has moved.
+fn waiting(state: &Shared, id: InviteId) -> Result<(), ApiError> {
+    let invite = invitation(state, id)?;
+    if matches!(invite.state, bisa_core::InviteState::Requested { .. }) {
+        return Ok(());
+    }
+    Err(conflict(bisa_core::text!(
+        "error-store-invalid-invite-not-waiting-you",
+        id = id.to_string(),
+        a0 = invite.state.as_str().to_string()
+    )))
+}
+
+/// A 404 for a message nothing holds.
+fn held_under(state: &Shared, id: &str) -> Result<(), ApiError> {
+    if state.engine.workspace().held_reason(id)?.is_some() {
+        return Ok(());
+    }
+    Err(not_found(bisa_core::text!(
+        "error-engine-invalid-no-held-message",
+        event_id = id.to_string()
+    )))
+}
+
+/// A 404 for a key that is nobody here.
+fn a_person(state: &Shared, pk: &PrincipalId) -> Result<(), ApiError> {
+    let known = state
+        .engine
+        .workspace()
+        .member(pk)?
+        .is_some_and(|m| m.role.is_hosted());
+    if known {
+        return Ok(());
+    }
+    Err(not_found(bisa_core::text!(
+        "error-store-invalid-not-member",
+        pubkey = pk.to_string()
+    )))
 }
 
 // -- roles and people -----------------------------------------------------------
@@ -276,6 +341,7 @@ async fn set_role(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let pk = pubkey(&hex)?;
     let role = hosted_role(&body.role)?;
+    a_person(&state, &pk)?;
     let person = bisa_engine::collab::set_role(state.engine.inner(), &pk, role)?;
     Ok(Json(
         json!({"person": person, "people": person_rows(&state)?}),
@@ -295,7 +361,7 @@ async fn remove_person(
 
 async fn invites(State(state): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(
-        json!({"invites": state.engine.workspace().invites()?}),
+        json!({"invites": bisa_engine::collab::invites(state.engine.inner())?}),
     ))
 }
 
@@ -303,7 +369,8 @@ async fn create_invite(
     State(state): State<Shared>,
     crate::Body(body): crate::Body<NewInviteBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let role = hosted_role(body.role.as_deref().unwrap_or("guest"))?;
+    // Not named, the role is the workspace's default (`collab.default_role`).
+    let role = body.role.as_deref().map(hosted_role).transpose()?;
     let channels = body
         .channels
         .iter()
@@ -320,7 +387,9 @@ async fn revoke_invite(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let invite = bisa_engine::collab::revoke_invite(state.engine.inner(), invite_id(&id)?)?;
+    let id = invite_id(&id)?;
+    invitation(&state, id)?;
+    let invite = bisa_engine::collab::revoke_invite(state.engine.inner(), id)?;
     Ok(Json(json!({"invite": invite})))
 }
 
@@ -328,7 +397,9 @@ async fn admit_invite(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let invite = bisa_engine::collab::settle_invite(state.engine.inner(), invite_id(&id)?, true)?;
+    let id = invite_id(&id)?;
+    waiting(&state, id)?;
+    let invite = bisa_engine::collab::settle_invite(state.engine.inner(), id, true)?;
     Ok(Json(json!({"invite": invite})))
 }
 
@@ -336,7 +407,9 @@ async fn refuse_invite(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let invite = bisa_engine::collab::settle_invite(state.engine.inner(), invite_id(&id)?, false)?;
+    let id = invite_id(&id)?;
+    waiting(&state, id)?;
+    let invite = bisa_engine::collab::settle_invite(state.engine.inner(), id, false)?;
     Ok(Json(json!({"invite": invite})))
 }
 
@@ -352,6 +425,7 @@ async fn release(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    held_under(&state, &id)?;
     bisa_engine::collab::release_message(state.engine.inner(), &id)?;
     Ok(Json(json!({"released": id})))
 }
@@ -360,6 +434,7 @@ async fn refuse(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    held_under(&state, &id)?;
     bisa_engine::collab::refuse_message(state.engine.inner(), &id)?;
     Ok(Json(json!({"refused": id})))
 }
@@ -395,6 +470,20 @@ async fn leave(
     let host = pubkey(&host)?;
     doors(&state)?.leave(host.as_hex().to_string()).await?;
     Ok(Json(json!({"left": host})))
+}
+
+/// Forget a membership that is over — left, removed from, or refused: its
+/// copy is moved aside whole and its section goes. One that stands or
+/// waits is refused by name: leave it first.
+async fn forget(
+    State(state): State<Shared>,
+    AxPath(host): AxPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let host = pubkey(&host)?;
+    let kept = doors(&state)?.forget(host.as_hex().to_string()).await?;
+    Ok(Json(
+        json!({"forgotten": host, "kept": kept.display().to_string()}),
+    ))
 }
 
 async fn hosted_channels(
@@ -563,6 +652,43 @@ async fn check_relay(
     Ok(Json(doors(&state)?.check_relay(url).await))
 }
 
+/// The relay named by a body or a query, trimmed.
+#[derive(Deserialize)]
+struct RelayQuery {
+    url: String,
+}
+
+fn relays_answer(edited: bisa_engine::collab::RelaysEdited, word: &str) -> Json<serde_json::Value> {
+    Json(json!({word: edited.changed, "relays": edited.relays}))
+}
+
+/// Add one relay to `sync.relays` — on the list as it stands, under the
+/// engine's one writer: two adds at once keep both. One already configured,
+/// whatever its spelling, is added by nothing.
+async fn add_relay(
+    State(state): State<Shared>,
+    crate::Body(body): crate::Body<RelayUrlBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let edit = bisa_engine::collab::RelayEdit::Add(body.url);
+    let edited = bisa_engine::collab::edit_relays(state.engine.inner(), edit)?;
+    Ok(relays_answer(edited, "added"))
+}
+
+async fn remove_relay(
+    State(state): State<Shared>,
+    Query(q): Query<RelayQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let edit = bisa_engine::collab::RelayEdit::Remove(q.url);
+    let edited = bisa_engine::collab::edit_relays(state.engine.inner(), edit)?;
+    Ok(relays_answer(edited, "removed"))
+}
+
+async fn reset_relays(State(state): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
+    let edit = bisa_engine::collab::RelayEdit::Reset;
+    let edited = bisa_engine::collab::edit_relays(state.engine.inner(), edit)?;
+    Ok(relays_answer(edited, "reset"))
+}
+
 async fn reconnect(State(state): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     doors(&state)?.reconnect().await;
     Ok(Json(json!({"ok": true})))
@@ -594,52 +720,52 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "PUT",
         path: "/workspace/people/{pubkey}/role",
-        summary: "Change a person's role: `{role}` — admin | member | guest. Their reach follows; the host tells them.",
+        summary: "Change a person's role: `{role}` — admin | member | guest. Their reach follows; the host tells them. 404 for a key that is nobody here.",
     },
     RouteDoc {
         method: "DELETE",
         path: "/workspace/people/{pubkey}",
-        summary: "Remove a person: off every roster, their held messages dropped, their row gone; the host tells them. What they already received cannot be un-sent.",
+        summary: "Remove a person: off every roster, their held messages dropped, their row gone; the host tells them. What they already received cannot be un-sent. 404 for a key that is nobody here.",
     },
     RouteDoc {
         method: "GET",
         path: "/workspace/invites",
-        summary: "Every invitation, newest first, with its state — pending, requested (waiting on you under `collab.join = ask`), accepted, refused, revoked, expired. Never a secret.",
+        summary: "Every invitation, newest first, with its state — pending, requested (waiting on you under `collab.join = ask`), accepted, refused, revoked, expired. One whose time ran out since the last read is marked here, and `invite.changed` says so once. Never a secret.",
     },
     RouteDoc {
         method: "POST",
         path: "/workspace/invites",
-        summary: "Make a single-use invitation: `{role?, channels?, label?}` — the role granted (guest by default), the standing channels a guest is put on, what to call them. Answers the record, the `link` (`bisa://join/…`) and the `code` (`<nprofile>:<secret>`): the secret exists in this answer and nowhere else. Expires after `collab.invite_ttl_hours`.",
+        summary: "Make a single-use invitation: `{role?, channels?, label?}` — the role granted (the workspace's `collab.default_role` when not named — guest, unless set), the standing channels a guest is put on, what to call them. Answers the record, the `link` (`bisa://join/…`) and the `code` (`<nprofile>:<secret>`): the secret exists in this answer and nowhere else. Expires after `collab.invite_ttl_hours`.",
     },
     RouteDoc {
         method: "DELETE",
         path: "/workspace/invites/{id}",
-        summary: "Withdraw a pending invitation; a code already claimed stays claimed.",
+        summary: "Withdraw a pending invitation; a code already claimed stays claimed. 404 for an id that is no invitation.",
     },
     RouteDoc {
         method: "POST",
         path: "/workspace/invites/{id}/admit",
-        summary: "Admit the person waiting on a requested invitation (`collab.join = ask`): a member at the invitation's role and channels; the host welcomes them.",
+        summary: "Admit the person waiting on a requested invitation (`collab.join = ask`): a member at the invitation's role and channels; the host welcomes them. 404 for an id that is no invitation, 409 for one that is not waiting on you — settled already.",
     },
     RouteDoc {
         method: "POST",
         path: "/workspace/invites/{id}/refuse",
-        summary: "Turn down the person waiting on a requested invitation; the host tells them.",
+        summary: "Turn down the person waiting on a requested invitation; the host tells them. 404 for an id that is no invitation, 409 for one that is not waiting on you.",
     },
     RouteDoc {
         method: "GET",
         path: "/messages/held",
-        summary: "Messages from people on other nodes that no agent may hear yet — waiting for the classifier, or held by it with the reason.",
+        summary: "Messages from people on other nodes that no agent may hear or read yet — waiting for the classifier, or held by it with the reason.",
     },
     RouteDoc {
         method: "POST",
         path: "/messages/{id}/release",
-        summary: "Let a held message through: the agents it addresses are woken as if it had just arrived.",
+        summary: "Let a held message through: the agents it addresses are woken and handed that message. One whose author is no longer a member, or whose room is gone, is refused instead and the answer says why (400) — never `message.released`. 404 when nothing is held under that id.",
     },
     RouteDoc {
         method: "POST",
         path: "/messages/{id}/refuse",
-        summary: "Refuse a held message: the row is gone and no agent ever hears it; the message stays in its scope's log. `message.refused` on the bus; 400 when nothing is held under that id.",
+        summary: "Refuse a held message: the row is gone and no agent ever hears or reads it; the message stays in its scope's log. `message.refused` on the bus; 404 when nothing is held under that id.",
     },
     RouteDoc {
         method: "GET",
@@ -654,7 +780,12 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "DELETE",
         path: "/hosts/{host}",
-        summary: "Leave a workspace: the host is told, the replica stays marked as left.",
+        summary: "Leave a workspace: the host is told — and told again when it next speaks, if it did not hear — and the replica stays marked as left.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/hosts/{host}/forget",
+        summary: "Forget a membership that is over — left, removed from, or refused: its session is closed and its replica moved whole to `hosts-forgotten/<host>.<secs>/`, read by nothing. Answers `{forgotten, kept}`. 400 by name while the membership stands or waits on the host (leave it first); 404 for a workspace this node is no guest of.",
     },
     RouteDoc {
         method: "GET",
@@ -705,6 +836,21 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "GET",
         path: "/sync",
         summary: "The wire as it stands: whether a pump runs, whether `sync.enabled` is on, every configured relay in order with its health (status — `off` while the switch is off — attempts, success rate, latency, bytes), counts published and ingested, the last catch-up, people hosted here, hosts joined, and the direct transport's endpoint and sessions.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/sync/relays",
+        summary: "Add one relay to `sync.relays` (machine scope): `{url}` → `{added, relays}`. Made on the list as it stands, under one writer — two adds at once keep both. A relay is one relay whatever its spelling: one already configured answers `added: false`. 400 for a URL that is not `ws(s)://`.",
+    },
+    RouteDoc {
+        method: "DELETE",
+        path: "/sync/relays",
+        summary: "Remove one relay from `sync.relays`: `?url=` → `{removed, relays}`; one that is not configured answers `removed: false`.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/sync/relays/reset",
+        summary: "Go back to the relays a fresh node is given: the machine's own list is cleared. Answers `{reset, relays}`.",
     },
     RouteDoc {
         method: "POST",

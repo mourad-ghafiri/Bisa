@@ -54,8 +54,11 @@ else: the host keeps a hash. Withdraw a pending one from Settings › Workspace 
 they are welcomed again as they are, and the code is still good for the person it was made for. The same panel admits somebody **by key** — 64 hexadecimal
 characters, nobody already here — and says under the field which of those a typed key fails.
 
-`collab.join` decides what a valid code does: `admit` (the default) admits at once; `ask` puts the
-claim in your Inbox — *Bob asks to join as a guest* — with **Admit** and **Refuse**. `collab.name`
+An invitation made with no role named is made at `collab.default_role` (guest, unless you set
+it). `collab.join` decides what a valid code does: `admit` (the default) admits at once; `ask` puts the
+claim in your Inbox — *Bob asks to join as a guest* — with **Admit** and **Refuse**
+(`bisa workspace admit <id>` and `bisa workspace deny <id>` from the terminal; the id is the
+invitation's, in `bisa workspace invites`). `collab.name`
 is what guests see your workspace called.
 
 ## Relays
@@ -73,6 +76,9 @@ all** (each relay tried once on a throwaway connection, on or off), **Check** be
 **Remove**, **Reset to the defaults** when the list differs from them, and **Reconnect**. The
 list is the `sync.relays` setting at the machine scope (`bisa relay add|remove|list|check [url]` —
 `check` with no URL tries every configured relay), so a change reaches the running node at once.
+A relay is added and removed on the list as it stands (`POST` and `DELETE /sync/relays`), so two
+changes made at the same moment — a relay you add while a join adopts its invitation's — both
+stand.
 A relay is one relay whatever its spelling — capitals in the host, a trailing slash, the default
 port — so the same address typed twice is *already configured*, and its row shows its health as
 you typed it. `sync.interval_secs` is the catch-up; `sync.publish_relay_list` says which relays this key reads,
@@ -113,7 +119,13 @@ machine, and is sent on its own when a relay answers — in the order you wrote 
 
 Leave from Settings › Workspace › People › *Workspaces you are in*, or `bisa workspace leave
 <host>`. The host is told — and told again when it next speaks to you, if it did not hear the
-first time; what you received stays on your machine, marked as left. The desktop
+first time; what you received stays on your machine, marked as left. With the wire off, a leave
+from the terminal contacts no relay: it is marked here and said when the host next speaks.
+
+Once a membership is over — you left, were removed, or were refused — you can **forget** it:
+`bisa workspace forget <host>` takes the workspace off your list and moves what you held of it,
+whole, to `hosts-forgotten/<host>.<time>/` in your data folder, where nothing reads it. A
+membership that still stands is left first. The desktop
 forgets the places you had in that workspace — its channels and direct messages — so no door
 returns to a conversation you can no longer reach; the same when a host removes you. It forgets
 only on memberships the node answered: a read of them that failed says nothing of who left, and
@@ -128,14 +140,18 @@ Three things read what crosses the wire:
   injection, a secret asked for, a link to run — is **held**: you see it with a caution, in the
   Inbox under People and at `GET /messages/held`, and it reaches no agent until you decide. Settings
   › People lists every held message — who, where, since when, and the classifier's reason — with
-  **Let through** (the agents it addresses hear it now) and **Refuse** (no agent ever hears it; the
-  message stays in its channel's log, and the refusal cannot be undone); `bisa workspace held`,
+  **Let through** (the agents it addresses hear it now, and answer that message) and **Refuse**
+  (no agent ever hears or reads it; the message stays in its channel's log, and the refusal cannot
+  be undone). While a message is held no agent reads it either — it is left out of what an agent
+  is shown of the room — and your word on it stands whatever the classifier says afterwards. A
+  message that was still being read when the node stopped is read when it starts; `bisa workspace held`,
   `bisa workspace release <id>` and `bisa workspace refuse <id>` are the same from the terminal.
 - **An agent woken by an outsider** puts every tool beyond reading to you first
   (`security.collaboration.agent_tools = ask`, the default); `as_owner` runs it as your own message
   would.
 - **The redactor** runs over every message before it is signed — on your node for what leaves it,
-  and on a guest's for what they send you — so a pasted token arrives as a placeholder.
+  the context you attach with it (a selection, a diff, a terminal's tail) included, and on a
+  guest's for what they send you — so a pasted token arrives as a placeholder.
 
 Governance decides gates: *Only me · Me and the admins · Me, the admins and the members · A list*.
 A guest never decides — not even on a goal assigned to them: an assignment hands a goal's gates to

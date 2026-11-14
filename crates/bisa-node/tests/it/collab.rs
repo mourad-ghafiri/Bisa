@@ -127,6 +127,14 @@ impl CollabDoors for FakeCollab {
         self.note(format!("leave {host}"));
         Box::pin(async move { self.known(&host) })
     }
+    fn forget(&self, host: String) -> BoxFuture<'_, Result<std::path::PathBuf, CollabRefusal>> {
+        self.note(format!("forget {host}"));
+        Box::pin(async move {
+            self.known(&host)?;
+            // This fake's one membership stands: it is left first.
+            Err(CollabRefusal::Refused("leave this workspace first".into()))
+        })
+    }
     fn hosted_channels(
         &self,
         host: String,
@@ -324,7 +332,7 @@ async fn invitations_people_rosters_and_held_messages_over_http() {
             None,
         )
         .await;
-    assert_eq!(code_, 400, "nothing waits on a pending invitation");
+    assert_eq!(code_, 409, "nothing waits on a pending invitation");
     let (code_, v) = node
         .req("DELETE", &format!("/workspace/invites/{invite_id}"), None)
         .await;
@@ -431,9 +439,9 @@ async fn invitations_people_rosters_and_held_messages_over_http() {
     let v = node.get("/messages/held").await;
     assert!(v["held"].as_array().unwrap().is_empty(), "gone: {v}");
     let (code_, v) = node.req("POST", "/messages/e-held/refuse", None).await;
-    assert_eq!(code_, 400, "refused once: {v}");
+    assert_eq!(code_, 404, "refused once: {v}");
     let (code_, _) = node.req("POST", "/messages/e-held/release", None).await;
-    assert_eq!(code_, 400, "nothing left to release");
+    assert_eq!(code_, 404, "nothing left to release");
 
     // A person who left keeps a row: what happened to them is still the
     // notices that concern you — the row was built from the members alone,
@@ -925,4 +933,185 @@ async fn the_hosted_doors_refuse_an_empty_emoji_a_message_to_nobody_and_say_when
         "{v}"
     );
     node.shutdown().await;
+}
+
+/// An id that is well formed and names nothing is *not found* — a person,
+/// an invitation, a held message — where each used to be a bad request;
+/// and a join request settled already is a conflict, not a malformed one.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_person_invitation_or_held_message_is_not_found() {
+    let node = Node::start().await;
+    let nobody = nostr::key::Keys::generate().public_key().to_hex();
+    let (code, v) = node
+        .req(
+            "PUT",
+            &format!("/workspace/people/{nobody}/role"),
+            Some(json!({"role": "member"})),
+        )
+        .await;
+    assert_eq!(code, 404, "{v}");
+    // The owner is no person of their own workspace to promote.
+    let owner = node.ws.owner_principal();
+    let (code, v) = node
+        .req(
+            "PUT",
+            &format!("/workspace/people/{owner}/role"),
+            Some(json!({"role": "member"})),
+        )
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req("DELETE", &format!("/workspace/people/{nobody}"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+
+    // An invitation's id that names none.
+    let v = node.post("/workspace/invites", json!({})).await;
+    assert_eq!(v["invite"]["role"], json!("guest"), "the default role: {v}");
+    let id = v["invite"]["id"].as_str().unwrap().to_string();
+    node.req("DELETE", &format!("/workspace/invites/{id}"), None)
+        .await;
+    // Well formed, and no invitation of this workspace.
+    let unknown = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    for (method, path) in [
+        ("DELETE", format!("/workspace/invites/{unknown}")),
+        ("POST", format!("/workspace/invites/{unknown}/admit")),
+        ("POST", format!("/workspace/invites/{unknown}/refuse")),
+    ] {
+        let (code, v) = node.req(method, &path, None).await;
+        assert_eq!(code, 404, "{method} {path}: {v}");
+    }
+    // One that is not waiting on the owner: withdrawn, here.
+    for verb in ["admit", "refuse"] {
+        let (code, v) = node
+            .req("POST", &format!("/workspace/invites/{id}/{verb}"), None)
+            .await;
+        assert_eq!(code, 409, "{v}");
+        assert!(
+            v["error"].as_str().unwrap().contains("not waiting on you"),
+            "{v}"
+        );
+    }
+
+    // A message nothing holds.
+    for verb in ["release", "refuse"] {
+        let (code, v) = node
+            .req(
+                "POST",
+                &format!("/messages/{}/{verb}", "ab".repeat(32)),
+                None,
+            )
+            .await;
+        assert_eq!(code, 404, "{v}");
+    }
+    node.shutdown().await;
+}
+
+/// The list of relays has one writer: a relay is added and removed on the
+/// list as it stands, two adds at once keep both, a relay is one relay
+/// whatever its spelling, and a reset goes back to what a fresh node holds.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_relay_adds_at_once_keep_both() {
+    let node = Arc::new(Node::start().await);
+    let fresh = node.get("/sync").await["relays"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap();
+    let adds: Vec<_> = (0..6)
+        .map(|n| {
+            let node = Arc::clone(&node);
+            tokio::spawn(async move {
+                node.post(
+                    "/sync/relays",
+                    json!({"url": format!("wss://relay-{n}.example")}),
+                )
+                .await
+            })
+        })
+        .collect();
+    for add in adds {
+        assert_eq!(add.await.unwrap()["added"], json!(true));
+    }
+    let listed = node.get("/sync").await;
+    assert_eq!(
+        listed["relays"].as_array().map(Vec::len),
+        Some(fresh + 6),
+        "an add was lost: {listed}"
+    );
+
+    // One relay, whatever its spelling.
+    let v = node
+        .post("/sync/relays", json!({"url": "wss://Relay-0.Example:443/"}))
+        .await;
+    assert_eq!(v["added"], json!(false), "{v}");
+    assert_eq!(v["relays"].as_array().map(Vec::len), Some(fresh + 6));
+    let (code, v) = node
+        .req("POST", "/sync/relays", Some(json!({"url": "https://nope"})))
+        .await;
+    assert_eq!(code, 400, "{v}");
+
+    let (code, v) = node
+        .req(
+            "DELETE",
+            "/sync/relays?url=wss%3A%2F%2FRELAY-1.example",
+            None,
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["removed"], json!(true), "{v}");
+    assert_eq!(v["relays"].as_array().map(Vec::len), Some(fresh + 5));
+    let (_, v) = node
+        .req("DELETE", "/sync/relays?url=wss%3A%2F%2Fnever.example", None)
+        .await;
+    assert_eq!(v["removed"], json!(false), "{v}");
+
+    let v = node.post("/sync/relays/reset", json!({})).await;
+    assert_eq!(v["reset"], json!(true), "{v}");
+    assert_eq!(v["relays"].as_array().map(Vec::len), Some(fresh));
+    let v = node.post("/sync/relays/reset", json!({})).await;
+    assert_eq!(v["reset"], json!(false), "nothing to go back from: {v}");
+    match Arc::try_unwrap(node) {
+        Ok(node) => node.shutdown().await,
+        Err(_) => panic!("the node is still held"),
+    }
+}
+
+/// Forgetting a membership goes through the doors: a workspace this node
+/// is no guest of is not found, one that still stands is refused by name,
+/// and a node with no pump says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_membership_is_forgotten_through_the_doors() {
+    let (fake, host) = FakeCollab::new();
+    let node = Node::start_with_collab(fake.clone()).await;
+    let elsewhere = nostr::key::Keys::generate().public_key().to_hex();
+    let (code, v) = node
+        .req("POST", &format!("/hosts/{elsewhere}/forget"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req("POST", &format!("/hosts/{host}/forget"), None)
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap()
+            .contains("leave this workspace first"),
+        "{v}"
+    );
+    assert!(fake
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&format!("forget {host}")));
+    let (code, v) = node.req("POST", "/hosts/zz/forget", None).await;
+    assert_eq!(code, 400, "{v}");
+    node.shutdown().await;
+
+    let bare = Node::start().await;
+    let (code, v) = bare
+        .req("POST", &format!("/hosts/{host}/forget"), None)
+        .await;
+    assert_eq!(code, 409, "{v}");
+    bare.shutdown().await;
 }

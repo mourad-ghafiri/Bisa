@@ -7,6 +7,13 @@
 //! whoever the message addressed, as if it had just arrived. The list has
 //! one writer at a time (`Workspace::held_writes`): messages are read in
 //! tasks of their own, and a release of one lands as the verdict of another.
+//!
+//! **A held message is read by no agent, and a refused one never is.** The
+//! file keeps, beside the rows, the ids a refusal dropped (`refused`,
+//! bounded): what an agent is given of a room leaves out both
+//! ([`Workspace::held_and_refused_ids`]). A message is held where it is
+//! applied — ingest writes its row before the message is in the room — so
+//! there is no instant in which a session starting reads it unread.
 
 use crate::error::StoreError;
 use crate::workspace::{now_secs, Workspace};
@@ -49,6 +56,25 @@ pub struct HeldMessage {
 #[derive(Serialize, Deserialize, Default)]
 pub(crate) struct HeldFile {
     held: Vec<HeldMessage>,
+    /// The ids of messages refused — by the owner, or dropped with their
+    /// author — which no agent ever reads. The newest [`MAX_REFUSED`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    refused: Vec<String>,
+}
+
+/// How many refused ids are remembered: the newest stay.
+const MAX_REFUSED: usize = 4096;
+
+impl HeldFile {
+    fn refuse(&mut self, event_id: &str) {
+        if !self.refused.iter().any(|id| id == event_id) {
+            self.refused.push(event_id.to_string());
+        }
+        if self.refused.len() > MAX_REFUSED {
+            let over = self.refused.len() - MAX_REFUSED;
+            self.refused.drain(..over);
+        }
+    }
 }
 
 impl Workspace {
@@ -73,16 +99,20 @@ impl Workspace {
         self.held_writes.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Hold a message, or restate why one is held.
+    /// Hold a message, or restate why one is held. One the owner refused is
+    /// not held again: `None`.
     pub fn hold_message(
         &self,
         event_id: &str,
         scope: &str,
         author: PrincipalId,
         reason: HeldReason,
-    ) -> Result<HeldMessage, StoreError> {
+    ) -> Result<Option<HeldMessage>, StoreError> {
         let _one_writer = self.held_writer();
         let mut file = self.read_held()?;
+        if file.refused.iter().any(|id| id == event_id) {
+            return Ok(None);
+        }
         let row = match file.held.iter_mut().find(|h| h.event_id == event_id) {
             Some(existing) => {
                 existing.reason = reason;
@@ -101,7 +131,7 @@ impl Workspace {
             }
         };
         self.write_held(&file)?;
-        Ok(row)
+        Ok(Some(row))
     }
 
     /// Say again why a held message is held — the classifier's word on a
@@ -173,6 +203,32 @@ impl Workspace {
         Ok(Some(row))
     }
 
+    /// Refuse a held message: the row is gone and its id is kept, so no
+    /// agent ever reads it. `None` when nothing was held under that id.
+    pub fn refuse_held(&self, event_id: &str) -> Result<Option<HeldMessage>, StoreError> {
+        let _one_writer = self.held_writer();
+        let mut file = self.read_held()?;
+        let Some(i) = file.held.iter().position(|h| h.event_id == event_id) else {
+            return Ok(None);
+        };
+        let row = file.held.remove(i);
+        file.refuse(event_id);
+        self.write_held(&file)?;
+        Ok(Some(row))
+    }
+
+    /// The ids of the messages no agent may read: those held, and those
+    /// refused.
+    pub fn held_and_refused_ids(&self) -> Result<std::collections::HashSet<String>, StoreError> {
+        let file = self.read_held()?;
+        Ok(file
+            .held
+            .into_iter()
+            .map(|h| h.event_id)
+            .chain(file.refused)
+            .collect())
+    }
+
     /// Every held message, oldest first.
     pub fn held_messages(&self) -> Result<Vec<HeldMessage>, StoreError> {
         let mut rows = self.read_held()?.held;
@@ -190,17 +246,22 @@ impl Workspace {
             .map(|h| h.reason))
     }
 
-    /// Drop every held message of one author — they were removed.
+    /// Drop every held message of one author — they were removed. What was
+    /// held of theirs was never let through: it is read by no agent after.
     pub fn drop_held_of(&self, author: &PrincipalId) -> Result<usize, StoreError> {
         let _one_writer = self.held_writer();
         let mut file = self.read_held()?;
-        let before = file.held.len();
-        file.held.retain(|h| &h.author != author);
-        let dropped = before - file.held.len();
-        if dropped > 0 {
+        let (theirs, kept): (Vec<HeldMessage>, Vec<HeldMessage>) = std::mem::take(&mut file.held)
+            .into_iter()
+            .partition(|h| &h.author == author);
+        file.held = kept;
+        for row in &theirs {
+            file.refuse(&row.event_id);
+        }
+        if !theirs.is_empty() {
             self.write_held(&file)?;
         }
-        Ok(dropped)
+        Ok(theirs.len())
     }
 }
 
@@ -224,7 +285,7 @@ mod tests {
         let held = ws
             .hold_message("e1", "general", bob.clone(), HeldReason::Pending)
             .unwrap();
-        assert_eq!(held.reason, HeldReason::Pending);
+        assert_eq!(held.unwrap().reason, HeldReason::Pending);
         assert_eq!(ws.held_reason("e1").unwrap(), Some(HeldReason::Pending));
         let again = ws
             .hold_message(
@@ -236,7 +297,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(again.reason.words(), "held — asks for a token");
+        assert_eq!(again.unwrap().reason.words(), "held — asks for a token");
         assert_eq!(
             ws.held_messages().unwrap().len(),
             1,
@@ -353,7 +414,11 @@ mod tests {
             .unwrap()
             .expect("the row that waits");
         assert_eq!(restated.reason, harmful);
-        assert_eq!(restated.held_at, held.held_at, "the same row, said again");
+        assert_eq!(
+            restated.held_at,
+            held.unwrap().held_at,
+            "the same row, said again"
+        );
         assert_eq!(ws.held_messages().unwrap(), vec![restated]);
 
         ws.remove_held("e1").unwrap().expect("the owner's word");
@@ -363,5 +428,52 @@ mod tests {
             "the owner's word stands"
         );
         assert_eq!(ws.restate_held("never-held", harmful).unwrap(), None);
+    }
+
+    /// A refused message is read by no agent, ever: its id stays when its
+    /// row goes — by the owner's refusal, or with its author — and it is
+    /// never held again. A release keeps nothing: the message is the room's.
+    #[test]
+    fn a_refused_message_stays_refused_and_a_released_one_is_the_rooms() {
+        let (_dir, ws) = ws();
+        let bob = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        for id in ["refused", "released", "theirs"] {
+            ws.hold_message(id, "general", bob.clone(), HeldReason::Pending)
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(ws.held_and_refused_ids().unwrap().len(), 3);
+        assert_eq!(
+            ws.refuse_held("refused").unwrap().unwrap().event_id,
+            "refused"
+        );
+        assert!(ws.refuse_held("refused").unwrap().is_none(), "once");
+        assert!(ws.release_message("released").unwrap().is_some());
+        assert_eq!(ws.drop_held_of(&bob).unwrap(), 1);
+        assert!(ws.held_messages().unwrap().is_empty());
+        let withheld = ws.held_and_refused_ids().unwrap();
+        assert!(withheld.contains("refused") && withheld.contains("theirs"));
+        assert!(!withheld.contains("released"));
+        // Handed back by a relay, or read again at a start: not held again.
+        assert!(ws
+            .hold_message("refused", "general", bob.clone(), HeldReason::Pending)
+            .unwrap()
+            .is_none());
+        assert!(ws.held_messages().unwrap().is_empty());
+        assert!(ws
+            .restate_held("refused", HeldReason::Pending)
+            .unwrap()
+            .is_none());
+        // A file written before refusals were kept reads as none refused.
+        std::fs::write(ws.paths().held_file(), br#"{"held":[]}"#).unwrap();
+        assert!(ws.held_and_refused_ids().unwrap().is_empty());
+        // The newest are kept, within the bound.
+        let mut file = HeldFile::default();
+        for n in 0..(MAX_REFUSED + 2) {
+            file.refuse(&format!("r{n}"));
+        }
+        file.refuse("r5");
+        assert_eq!(file.refused.len(), MAX_REFUSED);
+        assert_eq!(file.refused[0], "r2");
     }
 }

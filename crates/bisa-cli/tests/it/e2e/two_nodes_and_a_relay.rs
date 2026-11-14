@@ -306,13 +306,9 @@ fn a_person_on_another_node_is_invited_joins_speaks_is_read_and_is_removed() {
         .as_array()
         .map(Vec::len)
         .unwrap_or_default();
-    let (status, released) = host.call(
-        "POST",
-        &format!("/messages/{held_id}/release"),
-        &[],
-        Some(&json!({})),
-    );
-    assert_eq!(status, 200, "{released}");
+    // The owner's verb, through the node that wakes the agents.
+    let released = host.json(&["workspace", "release", &held_id]);
+    assert_eq!(released["released"], held_id.as_str(), "{released}");
     let (_, still_held) = host.call("GET", "/messages/held", &[], None);
     assert_eq!(still_held["held"], json!([]), "released, nothing is held");
     let _ = heard_before;
@@ -621,6 +617,9 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
     assert_eq!(status, 404, "{fetched}");
 
     // --- the guest leaves, and is gone on both sides ------------------------------------
+    // A membership that stands is not forgotten: it is left first.
+    let stands = guest.refused(&["workspace", "forget", &owner]);
+    assert!(stands.contains("leave this workspace first"), "{stands}");
     let left = guest.json(&["workspace", "leave", &owner]);
     assert_eq!(left["left"], owner.as_str(), "{left}");
     // The guest keeps what it held, and says where it stands: it left.
@@ -631,6 +630,17 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         let people = host.json(&["workspace", "people"]);
         (people["people"].as_array()?.len() == 1).then_some(())
     });
+    // Over, it is forgotten: listed no more, its copy kept aside whole.
+    let forgotten = guest.json(&["workspace", "forget", &owner.to_uppercase()]);
+    assert_eq!(forgotten["forgotten"], owner.as_str(), "{forgotten}");
+    let kept = std::path::PathBuf::from(forgotten["kept"].as_str().expect("where it went"));
+    assert!(
+        kept.join("host.json").is_file() && kept.to_string_lossy().contains("hosts-forgotten"),
+        "{forgotten}"
+    );
+    assert_eq!(guest.json(&["workspace", "hosts"])["hosts"], json!([]));
+    let gone = guest.refused(&["workspace", "forget", &owner]);
+    assert!(gone.contains("not a member"), "{gone}");
 
     // --- a join that waits on the owner, asked with no node of the guest's own -------------
     host.ok(&["settings", "set", "workspace", "collab.join", "ask"]);
@@ -661,7 +671,40 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         waiting.to_string().contains("requested"),
         "the host asked to admit by hand: {waiting}"
     );
+    // The owner's word from the terminal: without it *ask* could be
+    // answered from the desktop alone.
+    let asked_id = host.until("the request in the host's list", || {
+        host.json(&["workspace", "invites"])["invites"]
+            .as_array()?
+            .iter()
+            .find(|i| i["state"]["state"] == "requested")
+            .and_then(|i| i["id"].as_str().map(str::to_string))
+    });
+    let admitted = host.json(&["workspace", "admit", &asked_id]);
+    assert_eq!(
+        admitted["invite"]["state"]["state"], "accepted",
+        "{admitted}"
+    );
+    let people = host.json(&["workspace", "people"]);
+    assert!(
+        people["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["pubkey"] == bob.as_str() && p["role"] == "member"),
+        "{people}"
+    );
+    // Settled, it waits on nobody: said, through the node and without one.
+    let settled = host.refused(&["workspace", "deny", &asked_id]);
+    assert!(settled.contains("not waiting on you"), "{settled}");
+    host.refused(&["workspace", "admit", "not-an-id"]);
+    // A key typed in capitals is the same person.
+    let promoted = host.json(&["workspace", "role", &bob.to_uppercase(), "admin"]);
+    assert_eq!(promoted["person"]["role"], "admin", "{promoted}");
+    host.ok(&["workspace", "remove", &bob.to_uppercase()]);
     host.stop();
+    let offline = host.refused(&["workspace", "deny", &asked_id]);
+    assert!(offline.contains("not waiting on you"), "{offline}");
 
     // --- without a node: the host's verbs on the workspace itself ----------------------------
     let invited = host.json(&[
@@ -743,9 +786,25 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         "sync.relays",
         &json!([relay.url]).to_string(),
     ]);
-    // Leaving a host one already left, with no node of one's own, is a leave.
+    // Leaving a host with no node of one's own is a leave — and again with
+    // the wire off, when no relay is dialled for it: the membership is
+    // marked as left here.
+    let first = guest.json(&["workspace", "leave", &owner]);
+    assert_eq!(first["left"], owner.as_str(), "{first}");
+    guest.ok(&["settings", "set", "machine", "sync.enabled", "false"]);
     let again = guest.json(&["workspace", "leave", &owner]);
     assert_eq!(again["left"], owner.as_str(), "{again}");
+    let hosts = guest.json(&["workspace", "hosts"]);
+    assert_eq!(hosts["hosts"][0]["state"]["state"], "left", "{hosts}");
+    // And forgotten with no node, its copy kept aside.
+    let forgotten = guest.json(&["workspace", "forget", &owner]);
+    assert!(
+        std::path::Path::new(forgotten["kept"].as_str().expect("where it went"))
+            .join("host.json")
+            .is_file(),
+        "{forgotten}"
+    );
+    assert_eq!(guest.json(&["workspace", "hosts"])["hosts"], json!([]));
 }
 
 /// What this node's own channel holds, as its node lists it.
