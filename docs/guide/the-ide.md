@@ -77,8 +77,9 @@ current-state timer is on hover. The order never moves. Hover a project
   for `+` — a new workstream — and the toolbar's `+` offers a project or a workstream on the one you
   are in. Right-click a project for *Rename*, *Set photo*, *Move to a group*, *Attach to a goal*,
   *New goal with this project*, *New workstream*, *Archive or remove project…* (or *Unarchive*); a group or a goal heading for *New goal
-  from these N projects*; a workstream for *Rename*, *New shell here*, a harness, *Diff against
-  base*, *Close*; a harness for *Terminate* — the same as closing its tab: the process is ended, the row goes with the tab;
+  from these N projects*; a workstream for *Rename*, *New shell here*, a harness — *Resume Claude
+  Code here* once it has run there, with *New Claude Code here* beside it for a fresh session —,
+  *Diff against base*, *Close*; a harness for *Terminate* — the same as closing its tab: the process is ended, the row goes with the tab;
   a shell to focus, restart, close (the others here, the exited ones); an engine session to show
   in the Agent panel, answer in the Inbox, or — while it runs — abort. Fold a workstream and its harness rows fold
   with it — the row keeps a mark per harness and shell, its state mark and its port chips. **A collapsed
@@ -1364,6 +1365,11 @@ of the platform's is injected into it, and it keeps your browser and its own pro
 one launch, so nothing is reported and each one's own prompt is the only one. A project's `terminal.default_harness`
 setting makes the plain control open that harness instead. From the palette, `Terminal: Claude Code here` and friends open the same
 things without a pointer.
+
+**Another tab from the strip.** With a terminal tab active, the strip's **+** opens another shell
+in the same place in one click, and the caret beside it lists what the Terminal caret lists: a
+shell, the project's run command, and every harness — *resume* when it has run there, *fresh
+session* beside it. The two carets are one list.
 
 **Splits.** With a terminal tab active the strip's controls cut the focused pane to the right or
 downwards and open a shell in the new half. Once split, each pane gets its own tab strip; drag a tab

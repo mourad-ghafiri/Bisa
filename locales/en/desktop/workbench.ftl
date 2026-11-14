@@ -425,6 +425,7 @@ workbench-rail-menu-close-workstream = Close workstream…
 workbench-rail-menu-new-here = New { $h } here
 workbench-rail-menu-new-shell-here = New shell here
 workbench-rail-menu-open = Open
+workbench-rail-menu-resume-here = Resume { $h } here
 workbench-rail-menu-show-agent-panel = Show in the Agent panel
 workbench-rail-project-row-actions = Actions for { $p }
 workbench-rail-project-row-agents-working-shells = { $agents } agents · { $working } working · { $live } shells

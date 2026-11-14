@@ -69,7 +69,7 @@ export { Tabs } from "./Tabs";
 export { ScreenBar } from "./ScreenBar";
 export type { TabDef } from "./Tabs";
 /** Closeable document/terminal tabs. `Tabs` is the fixed view switcher. */
-export { TabStrip, StripControlButton } from "./TabStrip";
+export { TabStrip, StripControlButton, STRIP_CONTROL } from "./TabStrip";
 export * as sessionState from "./sessionState.mjs";
 export { SessionMark, sessionGlyph } from "./SessionMark";
 export type { SessionWord, SessionTone } from "./sessionState.mjs";

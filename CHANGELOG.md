@@ -21,6 +21,12 @@ notes (`docs/contributing/release.md`).
   or removed on the list as it stands. `bisa relay list --json` carries `urls` whether a node runs
   or not.
 
+- **A harness from the tab strip.** In the Project IDE, the centre strip's **+** keeps opening a
+  shell in one click, and a caret beside it now lists what the header's Terminal caret lists: a
+  shell, the project's run command, and every harness — *resume* when it has run in that place,
+  *fresh session* beside it. The two carets are one list (`launchMenuModel`), so they cannot
+  disagree.
+
 ### Fixed
 
 - **The people of a workspace have one writer.** `members.json` and `invites.json` were each read,
@@ -193,6 +199,10 @@ notes (`docs/contributing/release.md`).
   and a join request's line were assembled by lowercasing a label — a guest's channel names with
   it. Each is one catalogue sentence; *Leave* and *Forget…* on a row name their workspace to a
   screen reader.
+- **The rail says *resume* when it resumes.** A workstream's right-click menu read *New Claude Code
+  here* over a click that continued the last session there, and offered no way to start without
+  it. It now reads *Resume Claude Code here*, with *New Claude Code here* beside it; a harness that
+  never ran there reads as before.
 
 ## [0.8.0] - 2026-11-13
 

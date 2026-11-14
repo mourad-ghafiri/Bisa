@@ -57,6 +57,13 @@ import { nextStripIndex, stripTabStop } from "./tabStripModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 /**
+ * The shape of a control in a strip's trailing slot, for the one such control
+ * that is not this file's button: a menu's trigger, which the menu renders as
+ * a button of its own (`ui/triggers.ts`) around whatever it is handed.
+ */
+export const STRIP_CONTROL = "anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text";
+
+/**
  * A control in a strip's trailing slot — pin, split, close pane, new shell:
  * one shape for the document strip's and the terminal strip's, so the two
  * slots read as one bar.
@@ -84,7 +91,7 @@ export function StripControlButton({
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={cn("anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45", FOCUS_RING, active && "bg-selected text-text")}
+      className={cn(STRIP_CONTROL, "disabled:opacity-45", FOCUS_RING, active && "bg-selected text-text")}
     >
       {children}
     </button>

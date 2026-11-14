@@ -1,18 +1,32 @@
 /**
  * The controls that act on the focused terminal, drawn in the centre strip's
- * trailing slot while a terminal tab is active: new shell here, send to agent,
- * split, close pane, restart. They act on the terminal store only — the
- * layer that draws the shells is the panel's, mounted in `App.tsx`.
+ * trailing slot while a terminal tab is active: new shell here — and, on the
+ * caret beside it, what else to open here —, send to agent, split, close
+ * pane, restart. They act on the terminal store only — the layer that draws
+ * the shells is the panel's, mounted in `App.tsx`.
+ *
+ * # The + and its caret
+ *
+ * The + opens another shell where the active terminal is rooted, in one
+ * click: it is what a person presses without looking, and it never asks. The
+ * caret beside it lists what the header's Terminal caret lists — the shell,
+ * the project's run command, every harness with *resume* or *fresh session*
+ * (`useLaunchMenu`, over `launchMenuModel.launchMenu`) — so a harness is one
+ * step from the strip the terminals ride, and the two carets cannot disagree:
+ * they are one list. *New shell here* wears `new_terminal`'s chord there, the
+ * key that does the same in the workbench.
  */
 
 import { useEffect, useState } from "react";
-import { FOCUS_RING, ICON, StripControlButton, Tooltip, cn } from "../ui";
+import { FOCUS_RING, ICON, Menu, STRIP_CONTROL, StripControlButton, Tooltip, cn } from "../ui";
 import { attachContext } from "../views/_workbench/agentPaneStore";
 import { terminalChip } from "../views/_workbench/contextChips.mjs";
 import { terminalTail } from "../terminal/tails";
+import { placeNoun } from "./launchMenuModel.mjs";
 import { leaves } from "./paneTreeModel.mjs";
 import { terminalChipName } from "./terminalChipModel.mjs";
 import { isLive, terminalTitle } from "./terminalsModel.mjs";
+import { useLaunchMenu } from "./useLaunchMenu";
 import {
   closeTerminalPane,
   openTerminalIn,
@@ -54,17 +68,35 @@ export function TerminalStripControls() {
   const manyPanes = leaves(panes).length > 1;
   const blank = useBlankTail(activeSession?.key ?? null);
   const nothingToSend = t("shell-terminal-strip-controls-nothing-to-send");
+  // What else opens where the active terminal is rooted — the Terminal
+  // caret's own list, read through the one hook both carets share.
+  const openHere = useLaunchMenu(activeSession ? { scope: activeSession.scope, id: activeSession.id, label: activeSession.label } : null, { shellCommand: "new_terminal" });
+  const whatToOpen = activeSession ? t("shell-terminal-launcher-what-to-open-in", { where: placeNoun(activeSession.scope) }) : "";
   return (
     <span className="inline-flex items-center gap-0.5 px-1">
       {activeSession && (
-        <Tooltip label={t("shell-terminal-strip-controls-new-shell-in", { title: terminalTitle(activeSession) })}>
-          <StripControlButton label={t("shell-terminal-launcher-new-shell-here")}
-            onClick={() =>
-              openTerminalIn({ scope: activeSession.scope, id: activeSession.id, label: activeSession.label })
-            }>
-            <ICON.add size={13} aria-hidden />
-          </StripControlButton>
-        </Tooltip>
+        // One control in two halves, with no gap between them: the + for
+        // the shell, the caret for everything else. The halves stretch to
+        // one height, so a hover on either is the same block.
+        <span className="inline-flex items-stretch">
+          <Tooltip label={t("shell-terminal-strip-controls-new-shell-in", { title: terminalTitle(activeSession) })}>
+            <StripControlButton label={t("shell-terminal-launcher-new-shell-here")}
+              onClick={() =>
+                openTerminalIn({ scope: activeSession.scope, id: activeSession.id, label: activeSession.label })
+              }>
+              <ICON.add size={13} aria-hidden />
+            </StripControlButton>
+          </Tooltip>
+          <Menu
+            label={whatToOpen}
+            items={openHere}
+            trigger={
+              <span title={whatToOpen} className={cn(STRIP_CONTROL, "inline-flex items-center self-stretch px-0.5")}>
+                <ICON.expanded size={11} aria-hidden />
+              </span>
+            }
+          />
+        </span>
       )}
       {activeSession &&
         (blank ? (

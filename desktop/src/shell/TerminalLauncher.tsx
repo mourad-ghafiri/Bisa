@@ -51,14 +51,19 @@
  * A second entry opens a fresh one, and appears only when the first would not
  * already do that — two entries that do the same thing is a choice the reader
  * has to work out is not one.
+ *
+ * # The list is not this control's alone
+ *
+ * What the caret lists — and whether a harness resumes — is
+ * `launchMenuModel.mjs`'s, bound to acts by `useLaunchMenu`. The centre
+ * strip's + has a caret with the same list (`TerminalStripControls.tsx`),
+ * and the palette and the rail read the same rule, so no two doors to a
+ * harness can say different things about one click.
  */
 
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { ICON, Menu, Tooltip, cn, harnessMark, useToast } from "../ui";
-import type { MenuItem } from "../ui";
-import { chordHint } from "../ui/keymapHints";
-import { runCommandItem, runDoor } from "../views/_workbench/runCommandModel.mjs";
+import { ICON, Menu, Tooltip, cn, harnessMark } from "../ui";
 
 /** The preferred harness's own mark on the split button. */
 function PreferredMark({ id }: { id: string }) {
@@ -67,23 +72,11 @@ function PreferredMark({ id }: { id: string }) {
 }
 import type { TerminalScope } from "../terminal/session";
 import { useLaunchableHarnesses } from "./useHarnesses";
-import { hasLaunched, isLive, isRootedAt, launchKey } from "./terminalsModel.mjs";
-import { runTheCommand, useRunCommand } from "./useRunCommand";
-import { useServing } from "./useServing";
-import {
-  canOpenTerminal,
-  openTerminalIn,
-  revealTerminalIn,
-  useTerminals,
-} from "./useTerminals";
+import { placeNoun } from "./launchMenuModel.mjs";
+import { isLive, isRootedAt } from "./terminalsModel.mjs";
+import { useLaunchMenu } from "./useLaunchMenu";
+import { canOpenTerminal, revealTerminalIn, useTerminals } from "./useTerminals";
 import { t } from "../i18n/l10n.mjs";
-
-const NOUN: Record<TerminalScope, string> = {
-  goal: t("shell-terminal-launcher-goal-s-folder"),
-  workstream: t("shell-terminal-launcher-workstream"),
-  work_item: t("shell-terminal-launcher-where-work-item-runs"),
-  machine: t("shell-terminal-launcher-home-directory"),
-};
 
 export function TerminalLauncher({
   scope,
@@ -110,78 +103,29 @@ export function TerminalLauncher({
    */
   wordClassName?: string;
 }) {
-  const toast = useToast();
-  const { sessions, launched } = useTerminals();
+  const { sessions } = useTerminals();
   const launchable = useLaunchableHarnesses();
   const defaultHarness = useDefaultHarness(project);
-  // The project's run command, on a checkout: the item, and whether ⌘⇧R's
-  // door is it (no server up) — then the item wears the chord.
-  const wid = scope === "workstream" ? id : null;
-  const { run } = useRunCommand(wid);
-  const { servers } = useServing(wid);
+  const disabled = disabledReason !== null && disabledReason !== undefined;
+  // What the caret lists — the shell, the run command, every harness with
+  // resume or a fresh session — is the one list every such caret shows
+  // (`launchMenuModel.launchMenu`); the run item is off exactly when this
+  // control is.
+  const items = useLaunchMenu({ scope, id, label }, { busy: disabled });
   if (!canOpenTerminal()) return null;
 
-  const disabled = disabledReason !== null && disabledReason !== undefined;
-  const runItem = wid ? runCommandItem(run, { door: runDoor({ run, servers }).id, busy: disabled }) : null;
   const here = sessions.filter((s) => isRootedAt(s, scope, id) && isLive(s)).length;
   // `terminal.default_harness` (project scope): the plain Terminal control
   // opens that harness when it names one the node can run; otherwise a shell.
   const preferred = launchable.find((h) => h.installed && h.id === defaultHarness) ?? null;
   const mainTarget = preferred ? { scope, id, label, harness: preferred.id } : { scope, id, label };
 
-  const items: MenuItem[] = [
-    {
-      label: here > 0 ? t("shell-terminal-launcher-new-shell-here") : t("shell-terminal-launcher-shell"),
-      icon: ICON.harness,
-      onSelect: () => openTerminalIn({ scope, id, label }),
-    },
-    ...(runItem && wid
-      ? [
-          {
-            label: runItem.label,
-            icon: ICON.play,
-            separatorBefore: true,
-            disabled: runItem.disabled,
-            shortcut: runItem.command ? chordHint(runItem.command) : null,
-            onSelect: () => run && runTheCommand(wid, run, toast.info),
-          } satisfies MenuItem,
-        ]
-      : []),
-    ...launchable.flatMap((h, i): MenuItem[] => {
-      // Not installed stays in the list, disabled: the useful thing to say
-      // about a harness you could have is where to get it, and a menu that
-      // hides it just looks like the app does not support it.
-      const unavailable = t("shell-terminal-launcher-unavailable", { label: h.label, detail: h.detail ?? t("shell-terminal-launcher-not-installed") });
-      const resumes =
-        (h.launch?.resume_args?.length ?? 0) > 0 &&
-        hasLaunched(launched, launchKey(h.id, scope, id));
-
-      const open: MenuItem = {
-        label: h.installed ? (resumes ? t("shell-terminal-launcher-resume", { h: h.label }) : h.label) : unavailable,
-        icon: harnessMark(h.id),
-        separatorBefore: i === 0,
-        disabled: !h.installed,
-        onSelect: () => openTerminalIn({ scope, id, label, harness: h.id }),
-      };
-      if (!resumes || !h.installed) return [open];
-      return [
-        open,
-        {
-          label: t("shell-terminal-launcher-fresh-session", { h: h.label }),
-          icon: ICON.add,
-          // Explicit, so it beats the "has run here before" answer above.
-          onSelect: () => openTerminalIn({ scope, id, label, harness: h.id, resume: false }),
-        },
-      ];
-    }),
-  ];
-
   return (
     <span className={cn("inline-flex items-center", className)}>
       <Tooltip
         label={
           disabledReason ??
-          (here > 0 ? t("shell-terminal-launcher-show-terminal-in", { where: NOUN[scope] }) : t("shell-terminal-launcher-open-terminal-in", { where: NOUN[scope] }))
+          (here > 0 ? t("shell-terminal-launcher-show-terminal-in", { where: placeNoun(scope) }) : t("shell-terminal-launcher-open-terminal-in", { where: placeNoun(scope) }))
         }
       >
         <button
@@ -196,7 +140,7 @@ export function TerminalLauncher({
         </button>
       </Tooltip>
       <Menu
-        label={t("shell-terminal-launcher-what-to-open-in", { where: NOUN[scope] })}
+        label={t("shell-terminal-launcher-what-to-open-in", { where: placeNoun(scope) })}
         items={items}
         trigger={
           <span

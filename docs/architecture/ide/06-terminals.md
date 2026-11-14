@@ -424,7 +424,20 @@ this machine has not approved, and the tab is *run · <command>* — a shell run
 the login shell, never resumed, remembered as a run across a restart.
 
 The caret menu exists — *Shell*, the run command when the project sets one, every harness with an
-interactive form, *resume* vs *fresh session*, disabled entries for harnesses the node did not find. There is a palette entry per harness
+interactive form, *resume* vs *fresh session*, disabled entries for harnesses the node did not find.
+
+**One list, and one rule for *resume*.** What a place can open is `shell/launchMenuModel.mjs`'s:
+`resumesHere` — the harness reports a resume form **and** has run in this very place —,
+`harnessEntries` (one entry that opens each harness, a *fresh* one only beside one that resumes),
+`entryTarget` (`resume: false` on the fresh entry alone) and `launchMenu`, the whole list.
+`shell/useLaunchMenu.ts` binds it to icons and acts, and every door to a harness reads it: the
+header's **Terminal** caret; the caret beside the centre strip's **+** — the + itself still opens
+another shell where the active terminal is rooted, in one click, and its caret lists the same
+things, with *New shell here* wearing `new_terminal`'s chord (`TerminalStripControls.tsx`); the
+palette's rows; and the rail's workstream menu, which says *Resume Claude Code here* over a click
+that resumes and offers *New Claude Code here* beside it (`railMenuModel.workstreamMenuSpec`).
+Each of those used to work the rule out for itself, and the rail had none: it said *New … here*
+over a click that brought an hour of conversation back. There is a palette entry per harness
 (`Terminal: Claude Code here`, `Terminal: Codex here (fresh)`), so the picker is reachable without a
 pointer, and a default harness per project (`terminal.default_harness`, project scope) that the
 plain **Terminal** control opens. **Every harness resumes with its own form**, the tool's own

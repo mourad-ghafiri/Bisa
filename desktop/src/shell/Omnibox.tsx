@@ -57,7 +57,8 @@ import { openUrlInBrowser } from "./browserDoors";
 import { urlRow } from "./omniboxUrlModel.mjs";
 import { canOpenBrowser } from "./useBrowsers";
 import { useLaunchableHarnesses } from "./useHarnesses";
-import { exitNote, hasLaunched, launchKey, terminalTitle, livenessTone, harnessOf } from "./terminalsModel.mjs";
+import { exitNote, terminalTitle, livenessTone, harnessOf } from "./terminalsModel.mjs";
+import { entryTarget, harnessEntries } from "./launchMenuModel.mjs";
 import { terminalTail } from "../terminal/tails";
 import { attachContext } from "../views/_workbench/agentPaneStore";
 import { openPanelView, showRightPanel } from "../views/_workbench/rightPanelStore";
@@ -598,31 +599,30 @@ export function Omnibox({
         leading: <ICON.harness size={14} aria-hidden />,
         run: () => openTerminalIn({ scope, id: root.id }),
       });
-      for (const h of harnesses) {
-        if (!h.installed) continue;
-        const resumes =
-          (h.launch?.resume_args?.length ?? 0) > 0 && hasLaunched(launched, launchKey(h.id, scope, root.id));
+      // The installed harnesses, each with a fresh session beside one that
+      // resumes — the entries every door to a harness reads (`launchMenuModel`).
+      const place = { scope, id: root.id };
+      for (const entry of harnessEntries(harnesses.filter((h) => h.installed), launched, scope, root.id)) {
+        const fresh = entry.kind === "fresh";
         push({
-          key: `t:${h.id}`,
-          label: resumes ? tr("shell-omnibox-terminal-here-resume", { h: h.label }) : tr("shell-omnibox-terminal-here", { h: h.label }),
+          key: fresh ? `t:${entry.harness}:fresh` : `t:${entry.harness}`,
+          label: fresh
+            ? tr("shell-omnibox-terminal-here-fresh-session", { h: entry.name })
+            : entry.resumes
+              ? tr("shell-omnibox-terminal-here-resume", { h: entry.name })
+              : tr("shell-omnibox-terminal-here", { h: entry.name }),
           group: tr("shell-omnibox-do"),
-          keywords: tr("shell-omnibox-terminal-harness-agent", { h: h.id }),
-          leading: (() => {
-            const Mark = harnessMark(h.id);
-            return <Mark size={14} aria-hidden />;
-          })(),
-          run: () => openTerminalIn({ scope, id: root.id, harness: h.id }),
+          keywords: fresh ? tr("shell-omnibox-terminal-harness-agent-new", { h: entry.harness }) : tr("shell-omnibox-terminal-harness-agent", { h: entry.harness }),
+          leading: fresh ? (
+            <ICON.add size={14} aria-hidden />
+          ) : (
+            (() => {
+              const Mark = harnessMark(entry.harness);
+              return <Mark size={14} aria-hidden />;
+            })()
+          ),
+          run: () => openTerminalIn(entryTarget(entry, place)),
         });
-        if (resumes) {
-          push({
-            key: `t:${h.id}:fresh`,
-            label: tr("shell-omnibox-terminal-here-fresh-session", { h: h.label }),
-            group: tr("shell-omnibox-do"),
-            keywords: tr("shell-omnibox-terminal-harness-agent-new", { h: h.id }),
-            leading: <ICON.add size={14} aria-hidden />,
-            run: () => openTerminalIn({ scope, id: root.id, harness: h.id, resume: false }),
-          });
-        }
       }
     }
     push({

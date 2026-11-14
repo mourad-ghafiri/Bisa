@@ -36,6 +36,7 @@ import { attributePorts, portUrl, stopPrompt } from "./portsModel.mjs";
 import type { WorkstreamPort } from "./portsModel.mjs";
 import { useHarnessLabels, useLaunchableHarnesses } from "../../shell/useHarnesses";
 import { agentRowMenuSpec, workstreamMenuSpec } from "./railMenuModel.mjs";
+import { entryTarget, resumesHere } from "../../shell/launchMenuModel.mjs";
 import { terminalTabMenu } from "./tabMenuModel.mjs";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { listUnread } from "../../shell/workspaceLoadModel.mjs";
@@ -122,7 +123,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
   const ws = useWorkspace();
   const toast = useToast();
   const sessions = useSessions();
-  const { sessions: terminals } = useTerminals();
+  const { sessions: terminals, launched } = useTerminals();
   const launchable = useLaunchableHarnesses();
   const [tab, setTabState] = useState<RailTab>(readTab);
   const setTab = (t: RailTab) => {
@@ -504,7 +505,8 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
   /** The workstream row's verbs, from the spec the Workstreams panel shares (`railMenuModel.mjs`). */
   const workstreamMenu = (row: Extract<RailRow, { kind: "workstream" }>): MenuItem[] => {
     const target = { scope: "workstream" as const, id: row.id, label: row.label };
-    const harnesses = launchable.filter((h) => h.installed).map((h) => ({ id: h.id, label: h.label ?? h.id }));
+    // Whether a harness's item resumes is the one rule every door to it reads (`launchMenuModel.resumesHere`).
+    const harnesses = launchable.filter((h) => h.installed).map((h) => ({ id: h.id, label: h.label ?? h.id, resumes: resumesHere(h, launched, "workstream", row.id) }));
     const act: Record<string, () => void> = {
       open: () => navigate({ name: "workbench", scope: "workstream", id: row.id }),
       rename: () => setRenaming({ kind: "workstream", id: row.id, value: row.workstream.name ?? "" }),
@@ -519,7 +521,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
       danger: item.danger,
       disabled: item.disabled,
       separatorBefore: item.separatorBefore,
-      onSelect: item.harness ? () => openTerminalIn({ ...target, harness: item.harness }) : (act[item.id] ?? (() => undefined)),
+      onSelect: item.harness ? () => openTerminalIn(entryTarget({ kind: item.fresh ? "fresh" : "open", harness: item.harness as string }, target)) : (act[item.id] ?? (() => undefined)),
     }));
   };
 

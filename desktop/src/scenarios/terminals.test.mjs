@@ -33,6 +33,8 @@ import {
   terminalTitle,
 } from "../shell/terminalsModel.mjs";
 import { START_QUIET_MS, armed, due, onOutput, said } from "../terminal/resumeStartModel.mjs";
+import { entryTarget, harnessEntries, launchMenu } from "../shell/launchMenuModel.mjs";
+import { workstreamMenuSpec } from "../views/_workbench/railMenuModel.mjs";
 
 const at = (s, key) => s.sessions.find((x) => x.key === key);
 
@@ -238,4 +240,52 @@ test("the strip's split buttons hold while no tab is active, and the launcher's 
   const hook = src("../shell/useTerminals.ts");
   assert.equal((hook.match(/dropScrollback\(/g) ?? []).length, 1, "a closed tab's checkpoint is dropped in one place, from closedKeys");
   assert.ok(hook.includes("for (const key of closedKeys(before, next))"));
+});
+
+test("a harness is one step from the strip its terminals ride: the + caret lists what the Terminal caret lists, and every door says *resume* over the click that resumes", () => {
+  const claude = { id: "claude-code", label: "Claude Code", installed: true, detail: null, launch: { program: "claude", resume_args: ["--continue"] } };
+  const codex = { id: "codex", label: "Codex", installed: true, detail: null, launch: { program: "codex", resume_args: ["resume", "--last"] } };
+  const place = { scope: "workstream", id: "w1", label: "main" };
+  const labels = (state, shells) => launchMenu({ harnesses: [claude, codex], launched: state.launched, scope: "workstream", id: "w1", shells, run: null, shellCommand: "new_terminal" }).map((i) => i.label);
+  const rail = (state) =>
+    workstreamMenuSpec({ primary: true, exists: true, harnesses: harnessEntries([claude, codex], state.launched, "workstream", "w1").filter((e) => e.kind === "open").map((e) => ({ id: e.harness, label: e.name, resumes: e.resumes })), rename: false, close: false })
+      .filter((i) => i.harness)
+      .map((i) => i.label);
+
+  // A shell is open in the workstream; no harness ever ran there.
+  let s = openTerminal(emptyTerminals(), place, 1);
+  assert.deepEqual(labels(s, 1), ["New shell here", "Claude Code", "Codex"]);
+  assert.deepEqual(rail(s), ["New Claude Code here", "New Codex here"]);
+
+  // Claude Code from the caret: its first session there starts fresh.
+  const [open] = harnessEntries([claude, codex], s.launched, "workstream", "w1");
+  s = openTerminal(s, entryTarget(open, place), 2);
+  assert.equal(s.sessions.at(-1).harness, "claude-code");
+  assert.equal(s.sessions.at(-1).resume, false);
+
+  // From then on every door says what the click will do — and offers the other.
+  assert.deepEqual(labels(s, 2), ["New shell here", "Claude Code — resume", "Claude Code — fresh session", "Codex"]);
+  assert.deepEqual(rail(s), ["Resume Claude Code here", "New Claude Code here", "New Codex here"]);
+  const [resume, fresh] = harnessEntries([claude, codex], s.launched, "workstream", "w1");
+  s = openTerminal(s, entryTarget(resume, place), 3);
+  assert.equal(s.sessions.at(-1).resume, true, "the conversation comes back");
+  s = openTerminal(s, entryTarget(fresh, place), 4);
+  assert.equal(s.sessions.at(-1).resume, false, "a new one, though it has run here");
+  // Another workstream has its own history.
+  assert.deepEqual(launchMenu({ harnesses: [claude], launched: s.launched, scope: "workstream", id: "w2", shells: 0, run: null, shellCommand: null }).map((i) => i.label), ["Shell", "Claude Code"]);
+
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const strip = src("../shell/TerminalStripControls.tsx");
+  // The + is what it was: one click, a shell where the active terminal is rooted.
+  assert.match(strip, /<StripControlButton label=\{t\("shell-terminal-launcher-new-shell-here"\)\}\s*onClick=\{\(\) =>\s*openTerminalIn\(\{ scope: activeSession\.scope, id: activeSession\.id, label: activeSession\.label \}\)\s*\}>\s*<ICON\.add size=\{13\} aria-hidden \/>/, "the + still opens a shell in one click");
+  assert.match(strip, /useLaunchMenu\(activeSession \? \{ scope: activeSession\.scope, id: activeSession\.id, label: activeSession\.label \} : null, \{ shellCommand: "new_terminal" \}\)/, "the caret beside it reads the one list, for the same place");
+  assert.match(strip, /<Menu\s+label=\{whatToOpen\}\s+items=\{openHere\}/);
+  const launcher = src("../shell/TerminalLauncher.tsx");
+  assert.match(launcher, /const items = useLaunchMenu\(\{ scope, id, label \}, \{ busy: disabled \}\);/, "the Terminal caret is the same list");
+  // Nobody works the rule out for itself any more.
+  for (const surface of ["../shell/TerminalLauncher.tsx", "../shell/TerminalStripControls.tsx", "../shell/Omnibox.tsx", "../views/_workbench/ProjectRail.tsx", "../shell/useLaunchMenu.ts"]) {
+    assert.doesNotMatch(src(surface), /hasLaunched\(|resume_args/, `${surface} asks the model whether a harness resumes`);
+  }
+  assert.match(src("../shell/Omnibox.tsx"), /harnessEntries\(harnesses\.filter\(\(h\) => h\.installed\), launched, scope, root\.id\)/);
+  assert.match(src("../views/_workbench/ProjectRail.tsx"), /resumes: resumesHere\(h, launched, "workstream", row\.id\)/);
 });

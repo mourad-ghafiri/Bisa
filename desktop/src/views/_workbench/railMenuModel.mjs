@@ -1,7 +1,11 @@
 /**
  * The verbs a workstream row offers (ide/07), as facts — the rail's rows and
  * the Workstreams panel's rows are one list, so the two can never disagree.
- * The views map ids to actions; a harness item carries the harness it starts.
+ * The views map ids to actions; a harness item carries the harness it starts,
+ * and says **resume** when that click will continue the session the harness
+ * left in the workstream — with a new session as the item beside it
+ * (`launchMenuModel.resumesHere` is the rule; the words here are a verb
+ * menu's).
  * The verbs an agent row under it offers are here too (`agentRowMenuSpec`),
  * so *Abort* is offered by the one rule every Stop reads.
  */
@@ -13,17 +17,23 @@ import { t } from "../../i18n/l10n.mjs";
  * @param {{
  *   primary: boolean,          the project's own root — it has no diff and cannot be closed
  *   exists: boolean,           the checkout is on disk — a shell needs it
- *   harnesses: readonly {id: string, label: string}[],  the installed, launchable harnesses
+ *   harnesses: readonly {id: string, label: string, resumes?: boolean}[],  the installed, launchable harnesses — `resumes` when opening one continues its session here
  *   rename: boolean,           the surface has a rename field to offer
  *   close: boolean,            the surface has a close confirmation to offer
  * }} ctx
- * @returns {{id: string, label: string, harness?: string, danger?: boolean, disabled?: boolean, separatorBefore?: boolean}[]}
+ * @returns {{id: string, label: string, harness?: string, fresh?: boolean, danger?: boolean, disabled?: boolean, separatorBefore?: boolean}[]}
  */
 export function workstreamMenuSpec({ primary, exists, harnesses, rename, close }) {
   const items = [{ id: "open", label: t("workbench-rail-menu-open") }];
   if (rename) items.push({ id: "rename", label: t("workbench-project-rail-rename") });
   items.push({ id: "new-shell", label: t("workbench-rail-menu-new-shell-here"), disabled: !exists, separatorBefore: true });
-  for (const h of harnesses) items.push({ id: `harness:${h.id}`, label: t("workbench-rail-menu-new-here", { h: h.label }), harness: h.id, disabled: !exists });
+  for (const h of harnesses) {
+    // The same click either way, so the item says which it is: *New … here*
+    // over a click that resumed told nobody an hour of conversation was
+    // coming back — and offered no way to start without it.
+    items.push({ id: `harness:${h.id}`, label: h.resumes ? t("workbench-rail-menu-resume-here", { h: h.label }) : t("workbench-rail-menu-new-here", { h: h.label }), harness: h.id, disabled: !exists });
+    if (h.resumes) items.push({ id: `fresh:${h.id}`, label: t("workbench-rail-menu-new-here", { h: h.label }), harness: h.id, fresh: true, disabled: !exists });
+  }
   if (!primary) {
     // A branch's own verbs: the diff against its base, and the end. Its pull
     // request needs no verb — *Open* lands on the Workstreams panel, whose

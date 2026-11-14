@@ -22,6 +22,27 @@ test("a workstream row opens, renames, starts a shell or a harness, diffs and cl
   assert.ok(!items.find((i) => i.id === "close").separatorBefore, "closing sits with the diff, under one rule");
 });
 
+test("a harness that has run in the workstream is resumed by its item, and a new session is the item beside it — never *New … here* over a click that resumes", () => {
+  const spec = (harnesses, ctx = {}) => workstreamMenuSpec({ primary: true, exists: true, harnesses, rename: false, close: false, ...ctx });
+  const items = spec([
+    { id: "claude-code", label: "Claude Code", resumes: true },
+    { id: "codex", label: "Codex", resumes: false },
+    { id: "omp", label: "OMP" },
+  ]);
+  assert.deepEqual(
+    items.filter((i) => i.harness).map((i) => [i.id, i.label, i.harness, i.fresh === true]),
+    [
+      ["harness:claude-code", "Resume Claude Code here", "claude-code", false],
+      ["fresh:claude-code", "New Claude Code here", "claude-code", true],
+      ["harness:codex", "New Codex here", "codex", false],
+      // A surface that does not say whether it resumes reads as it always did.
+      ["harness:omp", "New OMP here", "omp", false],
+    ],
+  );
+  const gone = spec([{ id: "claude-code", label: "Claude Code", resumes: true }], { exists: false });
+  assert.ok(gone.filter((i) => i.harness).every((i) => i.disabled), "no checkout on disk: nothing to resume in, nothing to start in");
+});
+
 test("a session row's menu offers Abort only while the session runs or waits on you — never idle between turns; a harness in a terminal only Terminate; a sub-agent nothing", () => {
   const row = (state, extra = {}) => ({ parent: null, terminalKey: null, gateId: null, state, ...extra });
   const ids = (r) => agentRowMenuSpec(r).map((i) => i.id);
