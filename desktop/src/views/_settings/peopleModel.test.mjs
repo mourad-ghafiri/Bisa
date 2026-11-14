@@ -5,6 +5,8 @@ import {
   expiryWords,
   inviteOffer,
   inviteState,
+  joinAskWords,
+  matrixNote,
   matrixRows,
   orderInvites,
   permissionLabel,
@@ -53,7 +55,9 @@ test("a role change and a removal say what they mean", () => {
   assert.match(roleChangeWords("guest", "member"), /Every standing channel opens/);
   assert.match(roleChangeWords("admin", "member"), /lose the channels and the people/);
   assert.match(roleChangeWords("member", "guest"), /only the channels/);
-  assert.match(roleChangeWords("member", "admin"), /invite, promote and remove/);
+  // What the role allows and what their node offers are two things, and the sentence says both.
+  assert.match(roleChangeWords("member", "admin"), /They reach what a member reaches/);
+  assert.match(roleChangeWords("member", "admin"), /no screen or command on their node offers that yet/);
 });
 
 test("invitations have a state in words, an order, an offer and a life", () => {
@@ -127,4 +131,35 @@ test("held messages are rows oldest first, named by the people list, with the cl
   assert.deepEqual(heldRows(null, null, now), []);
   assert.match(refuseHeldWords(rows[0]), /No agent will ever hear it/);
   assert.match(refuseHeldWords(rows[0]), /general's log, where Bob said it/);
+});
+
+test("the matrix says under itself what a hosted role holds and no client offers yet", () => {
+  const matrix = {
+    roles: [
+      { role: "owner", permissions: ["post_in_channels", "decide_gates", "manage_channels", "manage_people", "manage_settings"] },
+      { role: "admin", permissions: ["post_in_channels", "decide_gates", "manage_channels", "manage_people"] },
+      { role: "member", permissions: ["post_in_channels", "decide_gates"] },
+      { role: "guest", permissions: ["post_in_channels"] },
+    ],
+    permissions: ["post_in_channels", "decide_gates", "manage_channels", "manage_people", "manage_settings"].map((permission) => ({ permission, words: permission })),
+  };
+  const note = matrixNote(matrixRows(matrix));
+  assert.equal(
+    note,
+    "A person on another node holds these by their role, and their node has no screen or command for them yet: Decide gates governance names them for; Make and edit channels; Invite, promote and remove people. Today they are yours to do.",
+  );
+  assert.doesNotMatch(note, /Post in the channels|Change settings/, "what is offered, and what only the owner holds, is not in it");
+  // A matrix where no hosted role holds any of them has nothing to say.
+  const ownersOnly = { ...matrix, roles: [matrix.roles[0], { role: "guest", permissions: ["post_in_channels"] }] };
+  assert.equal(matrixNote(matrixRows(ownersOnly)), "");
+  assert.equal(matrixNote(matrixRows(null)), "");
+  assert.equal(matrixNote(null), "");
+});
+
+test("a join request reads as a sentence: who, as what, and a guest's channels as they are written", () => {
+  assert.equal(joinAskWords({ role: "member", channels: [] }, "Bob"), "Bob asks to join as a member");
+  assert.equal(joinAskWords({ role: "admin", channels: [] }, "Bob"), "Bob asks to join as an admin");
+  assert.equal(joinAskWords({ role: "guest", channels: [] }, "Bob"), "Bob asks to join as a guest");
+  assert.equal(joinAskWords({ role: "guest", channels: ["Design-Review", "ops"] }, "Bob"), "Bob asks to join as a guest on #Design-Review, #ops", "a channel's name is not lowercased with the sentence");
+  assert.equal(joinAskWords(null, "a1b2c3d4…"), "a1b2c3d4… asks to join as a guest");
 });

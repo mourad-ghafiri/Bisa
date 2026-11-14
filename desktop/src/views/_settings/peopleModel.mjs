@@ -215,3 +215,34 @@ export function refuseHeldWords(row) {
 export function inviteRole(setting) {
   return HOSTED_ROLES.includes(setting) ? setting : "guest";
 }
+
+/**
+ * The permissions a hosted role holds that no client offers a person on
+ * another node yet: the host admits a member's gate decision and an admin's
+ * channel, and nothing on their node has the screen or the command. Said
+ * under the matrix, so the table reads as what the roles hold and the note
+ * as what is offered today (14-collaboration, *What is open*).
+ */
+const NOT_OFFERED_YET = ["decide_gates", "manage_channels", "manage_people"];
+
+/**
+ * The note under the matrix: the rows a hosted role holds and no client
+ * offers yet, named by their labels; empty when the matrix has none of them.
+ * @param {{ roles: string[], rows: { permission: string, label: string, holds: boolean[] }[] }} table `matrixRows`'s answer
+ */
+export function matrixNote(table) {
+  const hosted = (table?.roles ?? []).map((role) => HOSTED_ROLES.includes(role));
+  const rows = (table?.rows ?? []).filter((row) => NOT_OFFERED_YET.includes(row.permission) && row.holds.some((held, i) => held && hosted[i])).map((row) => row.label);
+  return rows.length ? t("settings-people-matrix-not-offered", { rows: rows.join("; ") }) : "";
+}
+
+/**
+ * The line of a join request: who asks, and as what — a guest's with the
+ * channels the invitation names, as they are written.
+ * @param {{ role?: string, channels?: string[] }} invite @param {string} who
+ */
+export function joinAskWords(invite, who) {
+  const channels = invite?.channels ?? [];
+  if (invite?.role === "guest" && channels.length) return t("settings-people-panel-asks-to-join-on", { who, channels: channels.map((c) => `#${c}`).join(", ") });
+  return t("settings-people-panel-asks-to-join-as", { who, role: String(invite?.role ?? "guest") });
+}

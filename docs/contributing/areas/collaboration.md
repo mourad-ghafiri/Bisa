@@ -11,11 +11,11 @@ Engineering Protocol, over ordinary Nostr relays.
 ## Where it lives
 
 - `crates/bisa-collab/src/wrap.rs`, `crates/bisa-collab/src/control.rs`, `crates/bisa-collab/src/invite_code.rs`, `crates/bisa-collab/src/relays.rs` — the envelope, the words beside the facts, the code a person carries, the pool.
-- `crates/bisa-net/src/host.rs`, `crates/bisa-net/src/truth.rs` — the pump and the one reach rule; `crates/bisa-net/src/iroh_sync.rs` — the direct QUIC transport (feature `iroh`).
+- `crates/bisa-net/src/host.rs`, `crates/bisa-net/src/told.rs`, `crates/bisa-net/src/truth.rs` — the pump, what it heard from and told each person (`net_people.json`), and the one reach rule; `crates/bisa-net/src/iroh_sync.rs` — the direct QUIC transport (feature `iroh`).
 - `crates/bisa-guest/src/session.rs`, `crates/bisa-guest/src/store.rs` — one membership and its replica.
 - `crates/bisa-core/src/kind.rs`, `crates/bisa-core/src/member.rs`, `crates/bisa-core/src/collab_settings.rs` — kind numbers, roles and reach, the rules of the `sync.*` settings.
 - `crates/bisa-store/src/ingest.rs`, `crates/bisa-store/src/invites.rs`, `crates/bisa-store/src/held.rs`, `crates/bisa-store/src/members.rs` — admission, hashed invitations, the held list, members.
-- `crates/bisa-engine/src/collab.rs`, `crates/bisa-engine/src/membership.rs` — the classifier's hold and membership.
+- `crates/bisa-engine/src/collab.rs`, `crates/bisa-engine/src/membership.rs` — the classifier's hold, the relay list's one writer and membership; `crates/bisa-engine/src/conversation.rs::heard_tail` — what an agent is given of a room.
 - `crates/bisa-node/src/collab.rs` — the routes; `crates/bisa-cli/src/net.rs` — the node's pump, guest sessions and pool in one process.
 - `desktop/src/views/_settings/` (people, invitations, relays) and `desktop/src/shell/hostedModel.mjs` — the hosted sections.
 
@@ -34,7 +34,10 @@ Engineering Protocol, over ordinary Nostr relays.
 - A hosted member's node writes only a human's acts under its own key; an agent of another node never writes here (C1, C2, I54).
 - A person receives exactly what their role reaches, wrapped to them alone, never under a shared key (C3, I55).
 - An invitation's secret is stored hashed, claimed once in constant time, and expires (C4, I56).
-- A message from outside reaches an agent only after the classifier's *safe* or the owner's release, and an agent woken by an outsider asks for every tool beyond reading (C5, C6, I57).
+- A message from outside reaches an agent — heard or read — only after the classifier's *safe* or the owner's release, and an agent woken by an outsider asks for every tool beyond reading (C5, C6, I57): every read of a room made for an agent goes through `heard_tail`.
+- The people, the invitations, the held list and the relay list each have one writer: `members.json` and `invites.json` under `people_writes` (order: people → held → roster), `held.json` under `held_writes`, `sync.relays` through `collab::edit_relays`. A new write goes through the door, never a read-change-write of its own.
+- A word between nodes is weighed by the time it was said, on both sides; a fact is one by its id. A reader that takes either may be handed everything again.
+- What a person is told goes through `host::reconcile`, noted as told only when a relay took it — never a one-off send.
 - What leaves the machine is redacted before it is signed (C7); a guest applies only what the host's seal carried (C8); a guest replica is apart from the node's own store (C9).
 - A peer's run snapshot lands only with a local, signed decision for every approval step it passed (I4).
 - No test contacts a public relay: an in-process `LocalRelay`, loopback only.
@@ -44,7 +47,7 @@ Engineering Protocol, over ordinary Nostr relays.
 - `scripts/test lib collab`, `scripts/test lib guest` — the envelope and the pool against a `LocalRelay`; a join and a first message against a fake host.
 - `scripts/test crate net` — reach per role, admission, a relay change live; `FEATURES=iroh scripts/test module net iroh_e2e` — the direct transport on loopback.
 - `scripts/test module engine collab`, `scripts/test module node collab`, `scripts/test module store members`, `scripts/test module store studio` (role admission at ingest).
-- `scripts/test desktop views/_settings` — people, invitations, relay health.
+- `scripts/test desktop views/_settings` — people, invitations, relay health; and the whole desktop suite (`npm test` in `desktop/`) after a change to `net/host.rs` or `guest/session.rs`: `scenarios/faces.test.mjs` reads their source.
 - The journey `crates/bisa-cli/tests/it/e2e/two_nodes_and_a_relay.rs` — two nodes and a relay on loopback: invited, joined, read by the classifier, removed.
 - One module at a time; the whole workspace (`just verify`) only at the end of a pass ([Running](../testing-rules.md#running)).
 

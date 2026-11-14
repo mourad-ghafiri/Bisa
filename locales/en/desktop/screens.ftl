@@ -155,7 +155,12 @@ screens-hosted-section-gone-from-sidebar-left-never = Its section is gone from t
 screens-hosted-text-mentions-replies-reach-host-files = Text, mentions and replies reach the host; files and artifacts stay on this machine.
 screens-hosted-text-only = text only
 screens-hosted-what-already-received-stays-machine-nothing = What you already received stays on this machine; nothing new arrives.
-screens-hosted-words = you are a { $role } at { $host }
+screens-hosted-words = you are { $role ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    } at { $host }
 screens-hosted-write-message = Write a message…
 screens-inbox-actions = Actions for { $title }
 screens-inbox-admit = Admit

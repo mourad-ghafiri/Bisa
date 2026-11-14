@@ -11,6 +11,10 @@ export declare function personName(person: { label?: string | null; pubkey: stri
 export declare function personWords(person: { role: string; client?: string | null; invited_by?: string | null; channels?: string[] }): string;
 export declare function roleChangeWords(from: string, to: string): string | null;
 export declare const REMOVE_WORDS: string;
+/** The note under the matrix: the rows a hosted role holds and no client offers yet. */
+export declare function matrixNote(table: { roles: MemberRole[]; rows: { permission: Permission; label: string; holds: boolean[] }[] }): string;
+/** The line of a join request: who asks, and as what. */
+export declare function joinAskWords(invite: Pick<Invite, "role" | "channels">, who: string): string;
 /** The role the invite dialog opens on: the workspace's default when it is a hosted role, else guest. */
 export declare function inviteRole(setting: unknown): MemberRole;
 export declare function inviteState(invite: Pick<Invite, "state"> | null | undefined): { word: string; tone: "accent" | "warn" | "ok" | "quiet"; open: boolean };

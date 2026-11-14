@@ -832,8 +832,8 @@ settings-people-channel-yet = on no channel yet
 settings-people-channel-yet-2 = { $role } on no channel yet
 settings-people-channels = on { $n } channels
 settings-people-decide-gates-governance-names-them = Decide gates governance names them for
-settings-people-every-channel-direct-messages-agents-mention = Every channel, direct messages, agents by mention, gates, the channels and the people.
-settings-people-every-standing-channel-direct-messages-agents = Every standing channel, direct messages, agents by mention, gates when governance names members.
+settings-people-every-channel-direct-messages-agents-mention = Every standing channel, direct messages, agents by mention. The role also carries gates, channels and people, which their node cannot act on yet.
+settings-people-every-standing-channel-direct-messages-agents = Every standing channel, direct messages, agents by mention. Gates too, when governance names members, once their node can decide them.
 settings-people-every-standing-channel-opens-them-they = Every standing channel opens to them, and they may wake agents by mention.
 settings-people-from = from the { $client }
 settings-people-guest = Guest
@@ -841,6 +841,7 @@ settings-people-install-edit-agents = Install and edit agents
 settings-people-invite-promote-remove-people = Invite, promote and remove people
 settings-people-key-64-hexadecimal-characters = A key is 64 hexadecimal characters.
 settings-people-make-edit-channels = Make and edit channels
+settings-people-matrix-not-offered = A person on another node holds these by their role, and their node has no screen or command for them yet: { $rows }. Today they are yours to do.
 settings-people-member = Member
 settings-people-only-channels-they-put-direct-messages = Only the channels they are put on, and direct messages. No agents.
 settings-people-open-direct-messages = Open direct messages
@@ -853,6 +854,7 @@ settings-people-held-refuse-words = No agent will ever hear it. The message stay
 settings-people-panel-admit = Admit
 settings-people-panel-admit-key = Admit by key
 settings-people-panel-admitting = Admitting…
+settings-people-panel-asks-to-join-on = { $who } asks to join as a guest on { $channels }
 settings-people-panel-bisa-join-nprofile1 = bisa://join/…  or  nprofile1…:…
 settings-people-panel-change-role = Change the role
 settings-people-panel-channel-besides-general-yet-make-one = No channel besides #general yet — make one first, or invite as a member.
@@ -866,6 +868,7 @@ settings-people-panel-done = Done
 settings-people-panel-forget = Forget…
 settings-people-panel-forget-body = It leaves this list and the sidebar. What you received from it is kept aside on this machine, in the hosts-forgotten folder, where nothing reads it. To join again you need a new invitation.
 settings-people-panel-forget-confirm = Forget
+settings-people-panel-forget-named = Forget { $host }…
 settings-people-panel-forget-title = Forget { $host }?
 settings-people-panel-forgotten = Forgotten. What you received is kept aside.
 settings-people-panel-guest-reaches-these-nothing-else-add = A guest reaches these and nothing else. Add more later from the channel's roster.
@@ -886,18 +889,29 @@ settings-people-panel-join-yourself-only-agents-stay-node = You join as yourself
 settings-people-panel-joining = Joining…
 settings-people-panel-leave = Leave
 settings-people-panel-leave-2 = Leave { $leaving }?
+settings-people-panel-leave-named = Leave { $host }
 settings-people-panel-let-through = Let through
 settings-people-panel-let-through-done = Let through: the agents it addresses hear it now.
 settings-people-panel-link = Link
 settings-people-panel-looks-like-invitation = Looks like an invitation.
-settings-people-panel-make = Make { $p } a { $to }?
+settings-people-panel-make = Make { $p } { $to ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    }?
 settings-people-panel-make-invitation = Make the invitation
 settings-people-panel-making = Making…
 settings-people-panel-nobody-else-yet = Nobody else yet
 settings-people-panel-none-made-yet = No invitations yet
 settings-people-panel-none-yet-paste-invitation-above = You are in no other workspace yet
 settings-people-panel-paste-invitation-to-join = Paste an invitation from a host to join their workspace.
-settings-people-panel-now = { $p } is now a { $to }.
+settings-people-panel-now = { $p } is now { $to ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    }.
 settings-people-panel-opens-app-their-machine-panel-code = Opens the app on their machine, on this panel, with the code filled in.
 settings-people-panel-optional = Optional.
 settings-people-panel-paste-what-host-sent = Paste what the host sent you.
@@ -919,17 +933,27 @@ settings-people-panel-somebody-who-already-knows-relays-invitation = For somebod
 settings-people-panel-terminal-bisa-workspace-join-code = For a terminal: bisa workspace join <code>
 settings-people-panel-until-they-say-optional = Until they say. Optional.
 settings-people-panel-waiting = Waiting on you ({ $waiting })
-settings-people-panel-welcomed-channels-sidebar-under-hosted = Welcomed by { $answer } as a { $role }. Its channels are in the sidebar under “Hosted by { $answer }”.
+settings-people-panel-welcomed-channels-sidebar-under-hosted = Welcomed by { $answer } as { $role ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    }. Its channels are in the sidebar under “Hosted by { $answer }”.
 settings-people-panel-what-call-them = What to call them
 settings-people-panel-what-called-there = What to be called there
 settings-people-panel-withdraw = Withdraw
-settings-people-panel-words = you are a { $role }
+settings-people-panel-words = you are { $role ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    }
 settings-people-panel-workspaces = Workspaces you are in ({ $hosts })
 settings-people-post-channels-they-reach = Post in the channels they reach
 settings-people-read-every-standing-channel = Read every standing channel
 settings-people-they-keep-only-channels-they-put = They keep only the channels they are put on. Everything else stops reaching them.
 settings-people-they-lose-channels-people-every-standing = They lose the channels and the people; every standing channel stays.
-settings-people-they-may-make-channels-invite-promote = They may make channels and invite, promote and remove people, beside everything a member has.
+settings-people-they-may-make-channels-invite-promote = They reach what a member reaches. The role also allows making channels and managing people; no screen or command on their node offers that yet.
 settings-people-they-stop-receiving-anything-come-off = They stop receiving anything, come off every roster, and their held messages are dropped. What already reached them cannot be un-sent.
 settings-people-wake-agents-mention = Wake agents by mention
 settings-people-workspace-theirs-everything = This workspace is theirs. Everything.
@@ -1712,7 +1736,12 @@ settings-node-panel-healthy = healthy
 settings-node-panel-unreachable = unreachable
 
 ## Settings › Workspace › People — a request waiting on you (`views/_settings/PeoplePanel.tsx`) — words moved out of the markup.
-settings-people-panel-asks-to-join-as = { $who } asks to join as { $role }
+settings-people-panel-asks-to-join-as = { $who } asks to join as { $role ->
+        [owner] the owner
+        [admin] an admin
+        [member] a member
+       *[guest] a guest
+    }
 
 ## Settings › You › Pet — where it stands (`views/_settings/PetPanel.tsx`) — words moved out of the markup.
 settings-pet-panel-drag-anywhere-keeps-distance-from-edges = Drag it anywhere; it keeps its distance from the edges it is nearest when the window changes size.

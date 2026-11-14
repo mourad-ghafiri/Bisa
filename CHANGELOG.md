@@ -10,14 +10,13 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
-- **A membership that is over can be forgotten** (the guest crate's half: `Guests::forget`): its
-  session is closed and its replica moved whole to `hosts-forgotten/<host>.<secs>/`. The route, the
-  verb and the desktop's door follow.
+- **A membership that is over can be forgotten**: left, removed from or refused, a workspace is
+  taken off your list — Settings › People › *Forget…*, `bisa workspace forget <host>`,
+  `POST /hosts/{host}/forget` — and what you held of it is moved whole to
+  `hosts-forgotten/<host>.<secs>/`, where nothing reads it.
 
 - **The owner's word on a join request, from the terminal**: `bisa workspace admit <id>` and
   `bisa workspace deny <id>` — *ask* mode could be answered from the desktop alone.
-- **`bisa workspace forget <host>`** and `POST /hosts/{host}/forget`: a membership that is over is
-  taken off the list, its copy kept aside.
 - **`POST /sync/relays`, `DELETE /sync/relays?url=` and `POST /sync/relays/reset`**: one relay added
   or removed on the list as it stands. `bisa relay list --json` carries `urls` whether a node runs
   or not.
@@ -186,6 +185,14 @@ notes (`docs/contributing/release.md`).
   list (the panel wrote it back whole from its own copy); *Already configured* and a row's health
   know a relay whatever its spelling; a check's word is said with its age and dropped once the
   relay's state has moved.
+- **The roles are said as they are.** The matrix, an admin's and a member's hints and the
+  role-change confirmation promised what no client offers a person on another node — deciding
+  gates, making channels, inviting and removing people. They now say what the role holds and that
+  their node has no screen or command for it yet; the guide's roles table says the same.
+- **Sentences, not fragments.** *You are a guest*, *Make Bob an admin?*, *Welcomed … as a member*
+  and a join request's line were assembled by lowercasing a label — a guest's channel names with
+  it. Each is one catalogue sentence; *Leave* and *Forget…* on a row name their workspace to a
+  screen reader.
 
 ## [0.8.0] - 2026-11-13
 

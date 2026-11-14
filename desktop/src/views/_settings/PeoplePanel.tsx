@@ -50,6 +50,7 @@ import {
   expiryWords,
   heldRows,
   inviteOffer,
+  joinAskWords,
   inviteState,
   orderInvites,
   personName,
@@ -161,7 +162,6 @@ function InviteDialog({ open, onClose, onMade }: { open: boolean; onClose: () =>
     const of = (key: string) => all.find((r) => r.key === key)?.value;
     return { ttl: of("collab.invite_ttl_hours"), role: of("collab.default_role") };
   }, []);
-  const ttl = { data: collab.data?.ttl };
   // The role an invitation is made at when none is named is the workspace's
   // (`collab.default_role`): the dialog opens on it rather than on a word of its own.
   const defaultRole = inviteRole(collab.data?.role);
@@ -228,7 +228,7 @@ function InviteDialog({ open, onClose, onMade }: { open: boolean; onClose: () =>
         <Field label={tr("settings-people-panel-what-call-them")} hint={tr("settings-people-panel-until-they-say-optional")}>
           <TextInput value={label} onChange={(e) => setLabel(e.target.value)} />
         </Field>
-        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-people-panel-invite-expiry-blurb", { code: (inner) => <span className="font-mono">{inner}</span> }, { expires: expiryWords(Number(ttl.data ?? 24)) })}</p>
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-people-panel-invite-expiry-blurb", { code: (inner) => <span className="font-mono">{inner}</span> }, { expires: expiryWords(Number(collab.data?.ttl ?? 24)) })}</p>
       </div>
     </Dialog>
   );
@@ -274,7 +274,7 @@ function JoinCard({ initial, onJoined, codeRef }: { initial: string | null; onJo
         {answer && (
           <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
             {answer.state.state === "member"
-              ? tr("settings-people-panel-welcomed-channels-sidebar-under-hosted", { answer: hostName(answer), role: roleLabel(answer.role).toLowerCase() })
+              ? tr("settings-people-panel-welcomed-channels-sidebar-under-hosted", { answer: hostName(answer), role: answer.role })
               : answer.state.state === "requested"
                 ? tr("settings-people-panel-has-answered-yet-admits-hand-will", { answer: hostName(answer) })
                 : stateWords(answer)}
@@ -368,7 +368,7 @@ export function PeoplePanel() {
                 <li key={i.id} className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
                   <Avatar id={by} name={label ?? by} size={20} />
                   <span className="min-w-0 flex-1 truncate text-xs">
-                    {tr("settings-people-panel-asks-to-join-as", { who: label ?? `${by.slice(0, 8)}…`, role: inviteOffer(i).toLowerCase() })}
+                    {joinAskWords(i, label ?? `${by.slice(0, 8)}…`)}
                   </span>
                   <Button size="sm" variant="primary" disabled={busyRows.has(i.id)} onClick={() => void once(i.id, () => attempt(() => api.admitInvite(i.id), toast.error, reloadAll))}>{tr("settings-people-panel-admit")}</Button>
                   <Button size="sm" disabled={busyRows.has(i.id)} onClick={() => void once(i.id, () => attempt(() => api.refuseInvite(i.id), toast.error, reloadAll))}>{tr("settings-people-panel-refuse")}</Button>
@@ -548,14 +548,14 @@ export function PeoplePanel() {
                   <Avatar id={h.host.pubkey} name={hostName(h)} size={20} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs">{hostName(h)}</span>
-                    <span className="block truncate text-2xs text-text-dim">{state ?? tr("settings-people-panel-words", { role: roleLabel(h.role).toLowerCase() })}</span>
+                    <span className="block truncate text-2xs text-text-dim">{state ?? tr("settings-people-panel-words", { role: h.role })}</span>
                   </span>
                   <CopyText value={h.host.pubkey} label={`${h.host.pubkey.slice(0, 10)}…`} />
                   {membershipAction(h) === "leave" ? (
-                    <Button size="sm" variant="danger" onClick={() => setLeaving(h)}>{tr("settings-people-panel-leave")}</Button>
+                    <Button size="sm" variant="danger" aria-label={tr("settings-people-panel-leave-named", { host: hostName(h) })} onClick={() => setLeaving(h)}>{tr("settings-people-panel-leave")}</Button>
                   ) : (
                     // Over already — left, removed, refused: there is nothing to leave, only a row to take away.
-                    <Button size="sm" onClick={() => setForgetting(h)}>{tr("settings-people-panel-forget")}</Button>
+                    <Button size="sm" aria-label={tr("settings-people-panel-forget-named", { host: hostName(h) })} onClick={() => setForgetting(h)}>{tr("settings-people-panel-forget")}</Button>
                   )}
                 </li>
               );
@@ -570,14 +570,14 @@ export function PeoplePanel() {
       <ConfirmDialog
         open={changing !== null}
         onClose={() => setChanging(null)}
-        title={changing ? tr("settings-people-panel-make", { p: personName(changing.p), to: roleLabel(changing.to).toLowerCase() }) : ""}
+        title={changing ? tr("settings-people-panel-make", { p: personName(changing.p), to: changing.to }) : ""}
         confirmLabel={tr("settings-people-panel-change-role")}
         body={changing ? (roleChangeWords(changing.p.role, changing.to) ?? "") : ""}
         onConfirm={() => {
           if (!changing) return;
           const { p, to } = changing;
           void attempt(() => api.setPersonRole(p.pubkey, to), toast.error, () => {
-            toast.ok(tr("settings-people-panel-now", { p: personName(p), to: roleLabel(to).toLowerCase() }));
+            toast.ok(tr("settings-people-panel-now", { p: personName(p), to }));
             reloadAll();
           });
         }}

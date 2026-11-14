@@ -339,6 +339,39 @@ workspace, an engine, a harness or the node. The wire shapes it reads — `Hoste
 
 ---
 
+## What is open
+
+Said as it is, so nobody reads a promise into a gap:
+
+- **The tool-ask path of an agent woken by an outsider.** `Judge.on_behalf_of` carries the person
+  for the turn that was woken. It is not carried across an agent's hand-off to another agent, a
+  later wake of the same session overwrites it, an answer the guard remembers is remembered for
+  everyone, an adapter with no tool guard asks nothing, and the classifier's own prompt is not
+  hardened against the message it reads. A security pass of its own.
+- **What a role holds and no client offers.** A member's gate decision and an admin's channel are
+  admitted at the host's ingest; `ManagePeople` is consulted by nothing. No screen or command on a
+  person's own node offers any of the three — the matrix says so under itself, the guide in its
+  roles table. Until a door exists they are the owner's to do.
+- **A host that moves relays.** A welcome's card lists the host's relays and a guest reads the
+  list from nothing after the join: a host that changes relays is found only through one the two
+  still share.
+- **A workspace whose key changed** keeps a second owner row in `members.json`.
+- **No fact sync beyond the ledger.** A fact a relay dropped before a guest came back is not asked
+  for again; the ledger says it was delivered. The first catch-up after a start still reads
+  everything a relay kept — there is no durable cursor.
+- **Nodes on different releases.** A control word with a field this build does not know is dropped
+  whole (`deny_unknown_fields`).
+- **Bounds.** `held.json` (but for its refused ids) and `invites.json` grow until the owner
+  answers or withdraws; the backlog is read whole every round; the rooms a person reaches are read
+  once a person on each pass of `reconcile`.
+- **The direct transport** carries attachment bytes alone: a fact said over it is refused by the
+  coordinate rule, and a guest's copy receives nothing over it.
+- **Small.** Clearing a name never reaches a host (a profile with no label keeps the old one
+  there); a pending invitation does not keep the channel it names from being deleted; an offline
+  `leave` with the wire off is said only when the host next speaks to a node that is running.
+
+---
+
 ## Invariants
 
 | | Invariant | Held by |
@@ -360,13 +393,13 @@ workspace, an engine, a harness or the node. The wire shapes it reads — `Hoste
 
 `scripts/test module core member` (the matrix, reach), `store invites`, `store studio` (role
 admission at ingest), `collab wrap` and `collab relays` (the envelope, the pool against an in-process
-`LocalRelay`), `guest session` (a join and a first message against a fake host), `net host` (reach
+`LocalRelay`), `guest session` (a join and a first message against a fake host; the newest word standing in every order, an unsent post kept and sent, a leave said again, a membership forgotten), `guest store` (a torn line, a room made again, a record that does not read), `net host` — and the pump's unit tests — (what each person is told at start and until a relay takes it, a member's old words, the ledger's forgetting; reach
 per role, admission `admit` and `ask`, a leave, a relay change live; a member's name and face
 kept on their own row alone, a face that lies about its bytes or is over the cap not kept and the
 name landing all the same — `a_person_says_who_they_are_for_themselves_alone_and_a_face_is_kept_only_when_it_is_one`;
 C9 — `a_replica_of_a_host_is_nothing_the_nodes_own_store_reads`), `engine collab` (the
 classifier's hold and release, a member removed while the verdict was pending, a release for
-somebody who left), `node collab` (the routes with
+somebody who left, a held message in no transcript, the owner's word standing over a late verdict, what was left *being read* read at start, chips redacted), `engine conversation_edges` (a release hands over its message), `node collab` (the routes with
 a fake pump), the journeys of `crates/bisa-cli/tests/it/e2e/two_nodes_and_a_relay.rs` — two nodes and
 a relay on loopback: invited, joined, read by the classifier, removed; and the wire off until it
 is turned on, said by the verb and the route alike, then on with no restart, the relays added,

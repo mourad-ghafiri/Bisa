@@ -74,7 +74,7 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
 
   const others = kind === "dm" ? audiencePrincipals(channel).filter((p) => p !== ws.me) : [];
   const title = kind === "dm" ? others.map((p) => hostedNameOf(directory, p)).join(", ") || channel.name : channel.name;
-  const you = t("screens-hosted-words", { role: roleLabel(section.host.role).toLowerCase(), host: hostName(section.host) });
+  const you = t("screens-hosted-words", { role: section.host.role, host: hostName(section.host) });
 
   return (
     <Conversation

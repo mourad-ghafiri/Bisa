@@ -512,25 +512,31 @@ first writer of `Merged`; the host's own word, read back by `codehost::reconcile
 
 The owner makes an invitation (`engine/collab.rs::create_invite` → `store/invites.rs` keeps the
 record and the secret's hash; the code — link and text — is answered once). The person pastes it:
-`POST /hosts/join` → the CLI's `Pump` merges the code's relays into `sync.relays`, and
-`bisa_guest::Guests::join` records the membership as `requested` and sends `join` wrapped to the
-host over the pool. The host's pump (`net/host.rs::on_control`) hands it to the store's one
+`POST /hosts/join` → the CLI's `Pump` adds the code's relays to `sync.relays` through the engine's
+one writer of the list (`collab::edit_relays`), and `bisa_guest::Guests::join` records the
+membership as `requested` and sends `join` wrapped to the host over the pool — a claim no relay
+took puts back what stood. The host's pump (`net/host.rs::on_control`) hands it to the store's one
 admission — `store/invites.rs::claim_and_admit`, whole under the people's writer: the code found in
 constant time, spent, and its claimer made a member at the invitation's role and put on its
 channels (the code put back when the member cannot be written), or the claim recorded as a request
 for the Inbox under `collab.join = ask`. Somebody who is a member already claims nothing and is
-welcomed again. The store says `PeopleChanged { Joined }`; the pump welcomes the person
-with the card, the role, the directory and the channels they reach, then their backlog, each fact
-wrapped to them alone; the guest session applies the welcome (`guest/session.rs::on_control`) and
+welcomed again. The store says `PeopleChanged { Joined }`, which wakes the pump's one rule for
+what a person is told (`net/host.rs::reconcile`): whoever was never welcomed is welcomed with the
+card, the role, the directory and the channels they reach, then their backlog, each fact wrapped to
+them alone — and a word no relay took is owed, and said on every round until one does; the guest session applies the welcome (`guest/session.rs::on_control`) and
 the *Hosted by …* section appears.
 
 The person posts: `GuestSession::post` redacts, signs a `3407` in the host's coordinate, keeps it,
 and wraps it to the host. The host's pump hands it to `store/ingest.rs`, which admits it by role
-and reach and says `RemoteMessageArrived`; the pump relays it to the others who reach the channel;
-`engine/collab.rs::on_remote_message` holds it, asks the classifier with the message brief, and on
-*safe* releases it into `conversation::dispatch` — every session it wakes working *for* that person,
+and reach, **holds it** (`held.json`, *being read*) before it is in the room, and says
+`RemoteMessageArrived`; the pump relays it to the others who reach the channel;
+`engine/collab.rs::on_remote_message` asks the classifier with the message brief, and on
+*safe* releases it into `conversation::dispatch_released` — every session it wakes working *for* that person,
 `Judge.on_behalf_of` putting every tool beyond reading to the owner. *Harmful* keeps it held with
-the reason; the owner releases it from the Inbox. A relay change is a `sync.*` setting: the
+the reason; the owner releases it from the Inbox, and until then no agent's read of the room
+carries it. At a start the node's pump opens the pool with no relay, the guest sessions and their
+router, then the host's pump, and only then connects — every reader listens before a relay streams
+what it kept — and the engine reads what was left *being read*. A relay change is a `sync.*` setting: the
 engine says `settings_changed`, the pump re-reads and `Relays::set_relays` follows without a
 restart.
 

@@ -101,7 +101,13 @@ Attachments ride as `imeta` descriptors; the bytes move on demand over the direc
 
 ## Control messages
 
-A `1061` rumor carries one JSON object tagged `type`, read only from the seal's verified sender
+A `1061` rumor carries one JSON object tagged `type`, read only from the seal's verified sender.
+**A word stands by its time**: the rumor's own `created_at` (NIP-59 tweaks the seal's and the
+wrap's stamps, never the rumor's) is when it was said, and each side keeps the newest of each
+kind — a guest the membership (`waiting` < `refused` < `welcome` < `removed` within one second),
+the role, the rooms and the directory; a host each member's newest `join` or `leave` and newest
+`profile`. An older word handed back by a relay changes nothing, and one stamped more than a day
+ahead is dropped. No word was added for this — an older node reads the same messages. The words
 (`bisa-collab/control.rs`; [14 — Collaboration](../architecture/14-collaboration.md)):
 
 | A member says | Fields |

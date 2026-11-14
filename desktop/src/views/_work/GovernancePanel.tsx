@@ -23,7 +23,7 @@ import {
 } from "../../ui";
 import { pendingRows, phase, readWords } from "../_settings/loadModel.mjs";
 import { SaveFooter } from "../_settings/SaveFooter";
-import { matrixRows, roleLabel } from "../_settings/peopleModel.mjs";
+import { matrixNote, matrixRows, roleLabel } from "../_settings/peopleModel.mjs";
 import { GATES, governanceBody } from "./governanceModel.mjs";
 import { attempt, useAsync } from "./useAsync";
 import { t as tr } from "../../i18n/l10n.mjs";
@@ -46,7 +46,10 @@ function RoleMatrix() {
   const read = useAsync((s) => api.roles(s), []);
   if (phase(read) === "failed") return <ErrorNote error={read.error ?? tr("work-governance-panel-roles-read-refused")} retry={read.reload} />;
   if (phase(read) === "pending") return <Pending what={tr("work-governance-panel-roles-2")} rows={pendingRows(tr("work-governance-panel-roles-2"))} />;
-  const { roles, rows } = matrixRows(read.data);
+  const table = matrixRows(read.data);
+  const { roles, rows } = table;
+  // What a hosted role holds and no client offers yet: said under the table, never implied by a tick.
+  const note = matrixNote(table);
   return (
     <Card>
       <p className="mb-2 text-2xs text-text-dim">{tr("work-governance-panel-what-each-role-may-do")}</p>
@@ -78,6 +81,7 @@ function RoleMatrix() {
           </tbody>
         </table>
       </div>
+      {note && <p className="mt-2 text-2xs text-text-dim">{note}</p>}
     </Card>
   );
 }

@@ -32,9 +32,15 @@ code filled in.
 | Role | Reaches |
 |---|---|
 | **Guest** | only the channels you put them on, and direct messages. No agents. |
-| **Member** | every standing channel, direct messages, your agents by mention, gates when governance names members |
-| **Admin** | everything a member has, and making channels and inviting, promoting and removing people |
+| **Member** | every standing channel, direct messages, your agents by mention |
+| **Admin** | everything a member has |
 | **Owner** | you |
+
+The roles hold more than a person on another node can act on today. A member's role lets them
+decide gates when governance names members, and an admin's lets them make channels and invite,
+promote and remove people: your node admits those, and nothing on *their* node — no screen, no
+command — offers them yet. Until it does they are yours to do; Settings › Workspace › Governance
+shows the matrix with the same note.
 
 Change a role from Settings › Workspace › People (or `bisa workspace role <pubkey> member`); the
 person hears

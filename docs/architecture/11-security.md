@@ -96,12 +96,19 @@ one is refused the same way, by the same rule (`unresolved_placeholder`), before
 
 4. **What leaves the machine for a person on another node** ([14 — Collaboration](14-collaboration.md))
    — `messaging::post_as_person` redacts a post before it is signed when its channel reaches a
-   hosted member (`collab::scope_leaves_the_machine`), and an invitation's label passes the same
-   redactor; on a guest's node, `GuestSession::post` runs the built-in rules before signing.
-5. **A message from outside, before an agent hears it** — `collab::on_remote_message` holds it and
+   hosted member (`collab::scope_leaves_the_machine`) — the words (`words_for`) and the context
+   chips they carry (`chips_for`: a selection, a diff, a terminal's tail, an annotation, a capture's
+   note) — and an invitation's label passes the same redactor; on a guest's node, `GuestSession::post` runs the built-in rules before signing.
+5. **A message from outside, before an agent hears or reads it** — the store holds it as it lands
+   (`ingest`: the row before the message is in its room), and `collab::on_remote_message`
    asks the classifier with the message brief (`MESSAGE_BRIEF`: prompt injection, a secret asked
    for, social engineering, a link to run); *safe* releases it into dispatch, anything else keeps it
-   held with the reason (`MessageHeld`) until the owner releases it. `security.collaboration.classify`.
+   held with the reason (`MessageHeld`) until the owner releases it. While it is held — and for good
+   once refused, or dropped with a removed author — it is left out of everything an agent is given
+   of the room (`conversation::heard_tail`); the owner's word stands over a verdict that lands after
+   it; a row left *being read* at a stop is read at the next start. `security.collaboration.classify`.
+   The tool-ask path of the agent it wakes is item 6, and what is open in it is listed in
+   [14 § What is open](14-collaboration.md#what-is-open).
 6. **An agent woken by an outsider** — `Judge.on_behalf_of` carries the person and their role into
    `decide_tool`: under `security.collaboration.agent_tools = ask` a fallthrough or a classify on
    any tool beyond the read tier becomes *ask*, and the fallthrough ceiling clamps to read; the

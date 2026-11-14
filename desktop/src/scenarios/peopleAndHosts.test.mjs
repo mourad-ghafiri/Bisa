@@ -16,6 +16,7 @@ import { ownerRow, profileDraft, profileKey, profileSeed, sameProfile } from "..
 import { inviteRole } from "../views/_settings/peopleModel.mjs";
 import { canonicalRelayUrl, checkStanding, healthFor, relayEntry } from "../views/_settings/relayHealthModel.mjs";
 import { hostedNameOf, hostedPage, isMember, isUnsent, membershipAction, stateWords } from "../shell/hostedModel.mjs";
+import { t } from "../i18n/l10n.mjs";
 
 const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 
@@ -79,6 +80,20 @@ test("the invite dialog opens on the workspace's default role", () => {
   assert.equal(inviteRole("owner"), "guest", "nobody is invited as an owner");
 });
 
+test("a role is said in a whole sentence, in the catalogue's own words", () => {
+  for (const [role, words] of [["admin", "an admin"], ["member", "a member"], ["guest", "a guest"], ["owner", "the owner"]]) {
+    assert.equal(t("settings-people-panel-words", { role }), `you are ${words}`);
+    assert.equal(t("screens-hosted-words", { role, host: "Acme" }), `you are ${words} at Acme`);
+    assert.equal(t("settings-people-panel-make", { p: "Bob", to: role }), `Make Bob ${words}?`);
+    assert.equal(t("settings-people-panel-now", { p: "Bob", to: role }), `Bob is now ${words}.`);
+  }
+  assert.equal(t("settings-people-panel-welcomed-channels-sidebar-under-hosted", { answer: "Acme", role: "admin" }), "Welcomed by Acme as an admin. Its channels are in the sidebar under “Hosted by Acme”.");
+  assert.equal(t("settings-people-panel-leave-named", { host: "Acme" }), "Leave Acme");
+  assert.equal(t("settings-people-panel-forget-named", { host: "Acme" }), "Forget Acme…");
+  // No sentence is assembled by lowercasing a label any more.
+  for (const file of ["../views/_settings/PeoplePanel.tsx", "../views/Hosted.tsx"]) assert.doesNotMatch(src(file), /roleLabel\([^)]*\)\.toLowerCase\(\)|inviteOffer\([^)]*\)\.toLowerCase\(\)/, file);
+});
+
 test("the panels ask the models and the node's own doors", () => {
   const identity = src("../views/_settings/IdentityPanel.tsx");
   assert.match(identity, /profileSeed\(f, me\)/, "the form is re-seeded by the model's rule");
@@ -93,6 +108,9 @@ test("the panels ask the models and the node's own doors", () => {
     assert.match(people, new RegExp(`once\\([^)]*\\(\\) =>\\s*attempt\\(\\(\\) => api\\.${door}\\(`), `${door} is asked once a row`);
   }
   assert.match(people, /setRole\(defaultRole\)/);
+  assert.match(people, /aria-label=\{tr\("settings-people-panel-leave-named", \{ host: hostName\(h\) \}\)\}/, "a row of Leave buttons names its workspace to a screen reader");
+  assert.match(people, /aria-label=\{tr\("settings-people-panel-forget-named", \{ host: hostName\(h\) \}\)\}/);
+  assert.match(src("../views/_work/GovernancePanel.tsx"), /matrixNote\(table\)/, "the matrix says what is not offered yet");
   assert.match(people, /if \(t === "people_changed"\) held\.reload\(\)/, "the held list follows the people");
 
   const relays = src("../views/_settings/RelaysPanel.tsx");
