@@ -16,7 +16,7 @@ import { useWorkspace } from "../../shell/useWorkspaceData";
 import type { AttachmentRef, WorkspaceInfo } from "../../types";
 import { Card, CopyText, Field, Labelled, PHOTO_PROFILES, PhotoField, Section, TextInput, useToast } from "../../ui";
 import { attempt } from "../_work/useAsync";
-import { ownerRow, profileDraft, profileWords } from "./identityModel.mjs";
+import { ownerRow, profileDraft, profileKey, profileSeed, profileWords, sameProfile } from "./identityModel.mjs";
 import { SaveFooter } from "./SaveFooter";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
@@ -25,21 +25,22 @@ export function IdentityPanel({ ws }: { ws: WorkspaceInfo }) {
   const toast = useToast();
   const workspace = useWorkspace();
   const me = ownerRow(ws);
-  const [label, setLabel] = useState("");
-  const [photo, setPhoto] = useState<AttachmentRef | null>(null);
+  const [form, setForm] = useState(() => ({ seeded: profileDraft(me), draft: profileDraft(me) }));
   const [busy, setBusy] = useState(false);
-  // The draft follows the row: a save elsewhere, or a reload, re-seeds it.
+  // The form follows the row's value, and only while untouched (`profileSeed`):
+  // the row is a new object on every workspace reload, and a form that
+  // followed the object wiped a name mid-word whenever a run started.
+  const rowKey = profileKey(me);
   useEffect(() => {
-    const d = profileDraft(me);
-    setLabel(d.label);
-    setPhoto(d.photo);
-  }, [me]);
-  const dirty = profileDraft(me).label !== label.trim() || (profileDraft(me).photo?.sha256 ?? null) !== (photo?.sha256 ?? null);
-  const discard = () => {
-    const d = profileDraft(me);
-    setLabel(d.label);
-    setPhoto(d.photo);
-  };
+    setForm((f) => profileSeed(f, me));
+    // `me` is read at the moment its value moved; the key is what moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowKey]);
+  const { label, photo } = form.draft;
+  const setLabel = (next: string) => setForm((f) => ({ ...f, draft: { ...f.draft, label: next } }));
+  const setPhoto = (next: AttachmentRef | null) => setForm((f) => ({ ...f, draft: { ...f.draft, photo: next } }));
+  const dirty = !sameProfile(form.draft, form.seeded);
+  const discard = () => setForm((f) => ({ ...f, draft: f.seeded }));
 
   const save = async () => {
     setBusy(true);

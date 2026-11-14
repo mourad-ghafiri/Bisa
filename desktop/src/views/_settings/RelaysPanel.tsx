@@ -8,9 +8,11 @@
  * Relays are transport, never authority: they see ciphertext and a
  * recipient. The list is the `sync.relays` setting at the machine scope —
  * four public relays by default, read from the registry so this panel never
- * restates them — written through the settings route like every other
- * setting, so a running node hears it and connects at once. Every word is
- * `relayHealthModel.mjs`'s.
+ * restates them — and a relay is added and removed on the list as it stands
+ * (`POST` / `DELETE /sync/relays`, the node's one writer of it): written
+ * back whole from this panel's copy, a relay a join had adopted a moment
+ * before was undone. A running node hears it and connects at once. Every
+ * word is `relayHealthModel.mjs`'s.
  */
 
 import { useMemo, useState } from "react";
@@ -22,7 +24,7 @@ import type { RelayCheck, SyncReport } from "../../types";
 import { Button, Card, Chip, ConfirmDialog, CopyText, Dot, EmptyState, ErrorNote, Field, ICON, Pending, RelativeTime, Section, Switch, TextInput, useToast } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows, phase } from "./loadModel.mjs";
-import { checkAbout, checkAllWords, checkWords, defaultRelays, isDefaultList, relayEntry, relayProblem, relayTone, relayWords, syncSummary, wireMoved } from "./relayHealthModel.mjs";
+import { checkAbout, checkAllWords, checkStanding, checkWords, defaultRelays, healthFor, isDefaultList, relayEntry, relayProblem, relayTone, relayWords, syncSummary, wireMoved } from "./relayHealthModel.mjs";
 import { RegistryPanel } from "./RegistryPanel";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
@@ -47,8 +49,8 @@ export function RelaysPanel() {
   const [url, setUrl] = useState("");
   const [check, setCheck] = useState<RelayCheck | null>(null);
   const [checking, setChecking] = useState(false);
-  /** The last answer per configured relay — *Check* on a row, or *Check all*. */
-  const [rowChecks, setRowChecks] = useState<Record<string, RelayCheck>>({});
+  /** The last answer per configured relay — *Check* on a row, or *Check all* — with when it came and how the relay stood then: it is dropped once the relay's state moves (`checkStanding`). */
+  const [rowChecks, setRowChecks] = useState<Record<string, { check: RelayCheck; connected: boolean; at: number }>>({});
   const [checkingRows, setCheckingRows] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,11 +71,12 @@ export function RelaysPanel() {
   const addUrl = entry.ok ? entry.url : null;
   const report: SyncReport | null = sync.data ?? null;
   const summary = syncSummary(report);
-  const healthOf = (u: string) => report?.relays.find((r) => r.url === u) ?? null;
+  const healthOf = (u: string) => healthFor(report, u);
 
-  const write = async (next: string[], done: string) => {
+  /** One change to the list, made by the node on the list as it stands. */
+  const change = async (edit: () => Promise<unknown>, done: string) => {
     setBusy(true);
-    await attempt(() => api.setSettings("machine", { [RELAYS_KEY]: next }), toast.error, () => {
+    await attempt(edit, toast.error, () => {
       toast.ok(done);
       setUrl("");
       setCheck(null);
@@ -93,7 +96,9 @@ export function RelaysPanel() {
   /** One relay tried once, on a throwaway connection — on or off. */
   const checkRow = async (u: string) => {
     setCheckingRows((s) => new Set(s).add(u));
-    await attempt(() => api.checkRelay(u), toast.error, (r) => setRowChecks((m) => ({ ...m, [u]: r })));
+    await attempt(() => api.checkRelay(u), toast.error, (r) =>
+      setRowChecks((m) => ({ ...m, [u]: { check: r, connected: !!healthOf(u)?.connected, at: Date.now() / 1000 } })),
+    );
     setCheckingRows((s) => {
       const next = new Set(s);
       next.delete(u);
@@ -114,7 +119,8 @@ export function RelaysPanel() {
   };
 
   const checked = checkWords(checkAbout(check, addUrl));
-  const allChecked = checkAllWords(relays.map((u) => rowChecks[u]).filter((c): c is RelayCheck => !!c));
+  const standing = (u: string) => checkStanding(rowChecks[u], healthOf(u));
+  const allChecked = checkAllWords(relays.map((u) => standing(u)?.check).filter((c): c is RelayCheck => !!c));
 
   return (
     <div className="flex flex-col gap-6">
@@ -138,7 +144,7 @@ export function RelaysPanel() {
           relays.length > 0 ? (
             <div className="flex items-center gap-1">
               {!isDefaultList(relays, defaults) && defaults.length > 0 && (
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void write(defaults, t("settings-relays-panel-default-relays-back"))}>{t("settings-relays-panel-reset-defaults")}</Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void change(() => api.resetRelays(), t("settings-relays-panel-default-relays-back"))}>{t("settings-relays-panel-reset-defaults")}</Button>
               )}
               <Button size="sm" disabled={checkingRows.size > 0} onClick={() => void checkAll()}>
                 {checkingRows.size > 0 ? t("settings-mcp-panel-checking-2") : t("settings-mcp-panel-check-all")}
@@ -155,14 +161,24 @@ export function RelaysPanel() {
             {relays.map((r) => {
               const h = healthOf(r);
               const tone = relayTone(h);
-              const last = checkWords(rowChecks[r] ?? null);
+              const kept = standing(r);
+              const last = checkWords(kept?.check ?? null);
               const state = !report ? t("settings-relays-panel-read-yet") : `${tone.word}${relayWords(h) ? ` · ${relayWords(h)}` : ""}`;
               return (
                 <li key={r} className="flex min-h-row-lg items-center gap-2 px-3 py-1.5">
                   <Dot tone={last ? (last.tone === "ok" ? "ok" : "danger") : tone.tone === "danger" ? "danger" : tone.tone === "warn" ? "warn" : tone.tone === "ok" ? "ok" : "neutral"} title={last ? last.text : tone.word} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-mono text-2xs">{r}</span>
-                    <span className={`block truncate text-2xs ${last ? (last.tone === "ok" ? "text-ok" : "text-danger") : "text-text-dim"}`}>{last ? `${last.text} · ${state}` : state}</span>
+                    <span className={`block truncate text-2xs ${last ? (last.tone === "ok" ? "text-ok" : "text-danger") : "text-text-dim"}`}>
+                      {last && kept ? (
+                        // A check is a moment: said with its age, and gone once the relay's state moves.
+                        <>
+                          {last.text} · <RelativeTime at={kept.at} /> · {state}
+                        </>
+                      ) : (
+                        state
+                      )}
+                    </span>
                     {/* Why it is not connected — whole, never truncated: the one line a person acts on. */}
                     {relayProblem(h) && <span className="block text-2xs text-danger">{relayProblem(h)}</span>}
                   </span>
@@ -194,7 +210,7 @@ export function RelaysPanel() {
               <Button disabled={!entry.ok || checking} onClick={() => void tryIt()}>
                 {checking ? t("settings-mcp-panel-checking-2") : t("settings-mcp-panel-check")}
               </Button>
-              <Button variant="primary" disabled={!addUrl || busy} onClick={() => addUrl && void write([...relays, addUrl], t("settings-relays-panel-relay-added"))}>{t("settings-relays-panel-add")}</Button>
+              <Button variant="primary" disabled={!addUrl || busy} onClick={() => addUrl && void change(() => api.addRelay(addUrl), t("settings-relays-panel-relay-added"))}>{t("settings-relays-panel-add")}</Button>
             </div>
           </div>
         </Card>
@@ -252,7 +268,7 @@ export function RelaysPanel() {
         onConfirm={() => {
           if (!removing) return;
           const target = removing;
-          void write(relays.filter((r) => r !== target), t("settings-relays-panel-relay-removed"));
+          void change(() => api.removeRelay(target), t("settings-relays-panel-relay-removed"));
         }}
       />
     </div>

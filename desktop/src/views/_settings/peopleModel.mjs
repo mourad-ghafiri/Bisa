@@ -205,3 +205,13 @@ export function heldRows(held, people, now) {
 export function refuseHeldWords(row) {
   return t("settings-people-held-refuse-words", { person: row.person, scope: row.scope });
 }
+
+/**
+ * The role the *Invite someone* dialog opens on: the workspace's
+ * `collab.default_role` when it is one a person on another node may hold,
+ * else guest — the node's own fallback.
+ * @param {unknown} setting the resolved value of `collab.default_role`
+ */
+export function inviteRole(setting) {
+  return HOSTED_ROLES.includes(setting) ? setting : "guest";
+}

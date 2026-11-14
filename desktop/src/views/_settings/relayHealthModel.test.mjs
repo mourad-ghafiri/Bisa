@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { OFF_LINE, checkAbout, checkAllWords, checkWords, defaultRelays, isDefaultList, isRelayUrl, relayEntry, relayProblem, relayTone, relayWords, syncSummary, wireMoved } from "./relayHealthModel.mjs";
+import { OFF_LINE, canonicalRelayUrl, checkAbout, checkAllWords, checkStanding, checkWords, defaultRelays, healthFor, isDefaultList, isRelayUrl, relayEntry, relayProblem, relayTone, relayWords, sameRelay, syncSummary, wireMoved } from "./relayHealthModel.mjs";
 
 const relay = (over = {}) => ({
   url: "wss://relay.example",
@@ -114,4 +114,37 @@ test("the up-time and the bytes moved scale with their size", () => {
   assert.equal(relayWords(relay({ connected_at: now - 2 * 3600, bytes_sent: 0, bytes_received: 0 }), now), "42 ms · 75% of 4 attempts · up 2 h");
   assert.equal(relayWords(relay({ connected_at: now - 3 * 86400, latency_ms: null, attempts: 0, bytes_sent: 3 * 1024 * 1024, bytes_received: 0 }), now), "up 3 d · 3.0 MB moved");
   assert.equal(relayWords(relay({ connected_at: now - 5, latency_ms: null, attempts: 0, bytes_sent: 10, bytes_received: 0 }), now), "up 5 s · 10 B moved");
+});
+
+test("a relay is one relay whatever its spelling — the core's cases, held equal here", () => {
+  // `bisa-core/src/collab_settings.rs` (`canonical_relay_url`'s tests): the same spellings, the same answer.
+  const one = canonicalRelayUrl("wss://relay.example");
+  assert.equal(one, "wss://relay.example");
+  for (const spelling of ["wss://Relay.Example", "WSS://relay.example/", "wss://relay.example:443", "  wss://relay.example  "]) {
+    assert.equal(canonicalRelayUrl(spelling), one, spelling);
+  }
+  assert.notEqual(canonicalRelayUrl("wss://relay.example:8443"), one, "another port is another relay");
+  assert.notEqual(canonicalRelayUrl("wss://relay.example/inbox"), one, "another path is another relay");
+  assert.equal(canonicalRelayUrl("wss://relay.example/inbox/"), "wss://relay.example/inbox");
+  assert.equal(canonicalRelayUrl("ws://localhost:80/"), "ws://localhost");
+  assert.equal(canonicalRelayUrl("https://relay.example"), null);
+  assert.equal(canonicalRelayUrl(null), null);
+  assert.ok(sameRelay("wss://Relay.Example:443/", "wss://relay.example"));
+  assert.ok(!sameRelay("wss://a.example", "wss://b.example"));
+  assert.ok(sameRelay(" nope ", "nope"), "what is no relay URL is itself, letter for letter");
+  assert.ok(!sameRelay("nope", "Nope"));
+
+  assert.equal(relayEntry("wss://Relay.Example:443/", ["wss://relay.example"]).reason, "Already configured.");
+  const report = { relays: [{ url: "wss://relay.example", connected: true }] };
+  assert.equal(healthFor(report, "WSS://Relay.Example/")?.connected, true, "typed in capitals, the row meets its health");
+  assert.equal(healthFor(report, "wss://other.example"), null);
+  assert.equal(healthFor(null, "wss://relay.example"), null);
+});
+
+test("a check's word stands only while the relay's state has not moved since", () => {
+  const kept = { ok: true, url: "wss://r.example", connected: false, at: 10 };
+  assert.equal(checkStanding(kept, { connected: false }), kept);
+  assert.equal(checkStanding(kept, null), kept, "not read yet is not connected");
+  assert.equal(checkStanding(kept, { connected: true }), null, "it connected since: the old word is dropped");
+  assert.equal(checkStanding(null, { connected: true }), null);
 });

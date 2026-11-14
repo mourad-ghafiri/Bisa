@@ -2579,7 +2579,7 @@ pub struct HostedChannelRow {
     pub latest_at: Option<u64>,
 }
 
-/// `POST /sync/relays/check`.
+/// `POST /sync/relays/check` and `POST /sync/relays`: one relay, by its address.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RelayUrlBody {

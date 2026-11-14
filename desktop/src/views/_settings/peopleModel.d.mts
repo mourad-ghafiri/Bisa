@@ -11,6 +11,8 @@ export declare function personName(person: { label?: string | null; pubkey: stri
 export declare function personWords(person: { role: string; client?: string | null; invited_by?: string | null; channels?: string[] }): string;
 export declare function roleChangeWords(from: string, to: string): string | null;
 export declare const REMOVE_WORDS: string;
+/** The role the invite dialog opens on: the workspace's default when it is a hosted role, else guest. */
+export declare function inviteRole(setting: unknown): MemberRole;
 export declare function inviteState(invite: Pick<Invite, "state"> | null | undefined): { word: string; tone: "accent" | "warn" | "ok" | "quiet"; open: boolean };
 export declare function orderInvites(invites: readonly Invite[] | null | undefined): Invite[];
 export declare function expiryWords(hours: number | null | undefined): string;

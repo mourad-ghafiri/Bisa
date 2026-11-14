@@ -81,11 +81,24 @@ async function loadHosted(signal?: AbortSignal): Promise<HostedLoad> {
           return [];
         }
       };
-      const [channels, dms] = await Promise.all([
+      // The host's people, read with its rooms and again whenever its side
+      // moves (`hosted_changed`): a thread that read them once drew a
+      // renamed person by their old name until the screen was left. A read
+      // that does not answer is `null` — names read as keys, and the thread
+      // says the people were not read.
+      const people = api
+        .hostedMembers(key, signal)
+        .then((r) => r.members)
+        .catch((e: unknown) => {
+          if (signal?.aborted) throw e;
+          return null;
+        });
+      const [channels, dms, directory] = await Promise.all([
         read("channels", api.hostedChannels(key, signal).then((r) => r.channels)),
         read("dms", api.hostedDms(key, signal).then((r) => r.dms)),
+        people,
       ]);
-      return { host, channels, dms };
+      return { host, channels, dms, directory };
     }),
   );
   return { sections, failed };

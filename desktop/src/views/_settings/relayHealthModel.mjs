@@ -114,8 +114,63 @@ export function relayEntry(raw, relays) {
   const url = String(raw ?? "").trim();
   if (!url) return { ok: false, reason: "" };
   if (!isRelayUrl(url)) return { ok: false, reason: t("settings-relay-health-relay-ws-wss-url") };
-  if ((relays ?? []).includes(url)) return { ok: false, reason: t("settings-relay-health-already-configured") };
+  if ((relays ?? []).some((r) => sameRelay(r, url))) return { ok: false, reason: t("settings-relay-health-already-configured") };
   return { ok: true, reason: "", url };
+}
+
+/**
+ * A relay's address as the pool compares it — the core's rule
+ * (`collab_settings::canonical_relay_url`), held equal here: scheme and
+ * host lowercased, a default port and trailing slashes dropped. `null` for
+ * what is no relay URL. The spelling a person typed is what is kept and
+ * shown; this is only how two spellings are known for one relay.
+ * @param {string | null | undefined} url
+ * @returns {string | null}
+ */
+export function canonicalRelayUrl(url) {
+  const raw = String(url ?? "").trim();
+  if (!isRelayUrl(raw)) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  const port = parsed.port ? `:${parsed.port}` : "";
+  return `${parsed.protocol}//${parsed.hostname}${port}${parsed.pathname.replace(/\/+$/, "")}${parsed.search}`;
+}
+
+/** Whether two addresses are one relay; two that are no relay URL are the same only letter for letter. */
+export function sameRelay(a, b) {
+  const [ca, cb] = [canonicalRelayUrl(a), canonicalRelayUrl(b)];
+  return ca !== null && cb !== null ? ca === cb : String(a ?? "").trim() === String(b ?? "").trim();
+}
+
+/**
+ * The pool's health row for a configured relay, whatever its spelling:
+ * typed in capitals, a relay connected and its row read *not read yet*.
+ * @template {{url: string}} H
+ * @param {{relays?: readonly H[]} | null | undefined} report
+ * @param {string} url
+ * @returns {H | null}
+ */
+export function healthFor(report, url) {
+  return (report?.relays ?? []).find((r) => sameRelay(r.url, url)) ?? null;
+}
+
+/**
+ * A row's last check, while it still says something: an answer is about the
+ * relay as it stood when it was tried, so once the relay's own state has
+ * moved since — it connected, it dropped — the green or red word is dropped
+ * rather than left standing over a state it no longer describes.
+ * @template {{connected: boolean}} K
+ * @param {K | null | undefined} kept the check, with whether the relay was connected when it answered
+ * @param {{connected?: boolean} | null | undefined} health the relay as the pool reads it now
+ * @returns {K | null}
+ */
+export function checkStanding(kept, health) {
+  if (!kept) return null;
+  return kept.connected === !!health?.connected ? kept : null;
 }
 
 /**

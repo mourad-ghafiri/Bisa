@@ -5,6 +5,8 @@ import {
   hostedMentionables,
   hostedNameOf,
   hostedPage,
+  isUnsent,
+  membershipAction,
   hostedPhotoOf,
   hostedScreen,
   hostedRead,
@@ -148,4 +150,25 @@ test("a host's message re-reads the hosted thread it landed in", async () => {
   assert.equal(scopeKey("general", null), "general");
   assert.equal(scopeKey("general", host), `${host}/general`);
   assert.notEqual(scopeKey("general", host), scopeKey("general", undefined));
+});
+
+test("a word no relay took yet is marked on its row, and a sent one carries nothing", () => {
+  const base = { scope: "general", author: "aa", at: 5, text: "hi", retracted: false };
+  const page = hostedPage([
+    { ...base, id: "m1", unsent: true },
+    { ...base, id: "m2" },
+    { ...base, id: "m3", unsent: false },
+  ]);
+  assert.deepEqual(page.messages.map(isUnsent), [true, false, false]);
+  assert.ok(!("unsent" in page.messages[1]), "absent when it left, as the node sends it");
+  assert.equal(isUnsent(null), false);
+  assert.equal(isUnsent({ unsent: "yes" }), false, "only the node's own word");
+});
+
+test("a membership that stands is left, and one that is over is forgotten", () => {
+  const as = (state) => membershipAction({ state: { state } });
+  assert.equal(as("member"), "leave");
+  assert.equal(as("requested"), "leave", "a request is withdrawn by leaving");
+  for (const over of ["left", "removed", "refused"]) assert.equal(as(over), "forget", over);
+  assert.equal(membershipAction(null), "forget");
 });

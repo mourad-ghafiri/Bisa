@@ -11098,7 +11098,7 @@ export interface HostedChannelRow {
   [k: string]: unknown;
 }
 /**
- * `POST /sync/relays/check`.
+ * `POST /sync/relays/check` and `POST /sync/relays`: one relay, by its address.
  */
 export interface RelayUrlBody {
   url: string;

@@ -157,7 +157,31 @@ function messageRow(m) {
     retracted: !!m.retracted,
     attachments: (m.attachments ?? []).map((a) => ({ ...a, present: false })),
     artifacts: (m.artifacts ?? []).map((a) => ({ ...a, present: false })),
+    // Kept in this person's copy, and no relay has taken it yet (14-collaboration).
+    ...(m.unsent ? { unsent: true } : {}),
   };
+}
+
+/**
+ * Whether a row of a thread is this person's own word that has not left
+ * the machine yet: kept, and sent on its own when a relay answers.
+ * @param {{unsent?: boolean} | null | undefined} row
+ */
+export function isUnsent(row) {
+  return row?.unsent === true;
+}
+
+/**
+ * What is done with a membership from Settings › People: one that stands or
+ * waits on the host is **left**; one that is over — left, removed from,
+ * refused — has nothing to leave and can be **forgotten**, its copy kept
+ * aside.
+ * @param {{state?: {state?: string}} | null | undefined} hosted
+ * @returns {"leave" | "forget"}
+ */
+export function membershipAction(hosted) {
+  const s = hosted?.state?.state;
+  return s === "member" || s === "requested" ? "leave" : "forget";
 }
 
 /**

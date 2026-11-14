@@ -170,6 +170,22 @@ notes (`docs/contributing/release.md`).
   with the wire off; `role` and `remove` refused a key typed in capitals that the node takes; the
   held list and a new invitation printed a unix time where a date belongs; a held message's reason
   and *the classifier is off* are the catalogue's words.
+- **A name being typed in Settings › Identity is no longer wiped.** The form was seeded again by
+  every reload of the workspace — a run starting was enough. It now follows the profile's value, and
+  only while untouched.
+- **A host's people stay current.** A hosted thread read the host's directory once: a person renamed
+  there kept the old name until the screen was left, and a hosted direct row in the sidebar was named
+  by keys always. The directory is read with the hosted sections and again when the host's side moves.
+- **The invitation just made stays until *Done*.** Escape or a click outside closed the one dialog
+  that ever shows the code; they now ask first.
+- **People, smaller.** *Admit*, *Refuse*, *Withdraw* and *Let through* ask the node once however fast
+  they are pressed; the held list follows a removal; a membership that is over offers *Forget…*
+  where *Leave* stood; *Invite someone* opens on the workspace's default role; a message kept for a
+  relay reads *Not sent yet*.
+- **Relays & sync, smaller.** Adding, removing and resetting go through the node's one writer of the
+  list (the panel wrote it back whole from its own copy); *Already configured* and a row's health
+  know a relay whatever its spelling; a check's word is said with its age and dropped once the
+  relay's state has moved.
 
 ## [0.8.0] - 2026-11-13
 

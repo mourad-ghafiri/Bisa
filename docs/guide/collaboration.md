@@ -23,7 +23,7 @@ bisa workspace hosts         # Bob: "Hosted by Alice", guest
 ```
 
 In the desktop: **Settings › Workspace › People › Invite someone** makes the link, the code and a QR
-to scan;
+to scan — shown once, and kept open until you press *Done*: Escape or a click outside asks first;
 **Join a workspace** takes what you were sent — or an invitation link opens the app there with the
 code filled in.
 
@@ -114,8 +114,10 @@ name and face reach your node the same way, and a host's face comes with the dir
 small square (the desktop scales it to 96 px, under 16 KiB) so it rides the same channel as the
 words; the bytes are asked for once and kept on your machine.
 
-A message you send while no relay answers is not lost: it stays in the thread, kept on your
-machine, and is sent on its own when a relay answers — in the order you wrote them.
+A message you send while no relay answers is not lost: it stays in the thread, marked *Not sent
+yet*, kept on your machine, and is sent on its own when a relay answers — in the order you wrote
+them. A person renamed on the host, or a face changed there, changes in your open thread and in the
+sidebar's direct rows.
 
 Leave from Settings › Workspace › People › *Workspaces you are in*, or `bisa workspace leave
 <host>`. The host is told — and told again when it next speaks to you, if it did not hear the
@@ -123,6 +125,7 @@ first time; what you received stays on your machine, marked as left. With the wi
 from the terminal contacts no relay: it is marked here and said when the host next speaks.
 
 Once a membership is over — you left, were removed, or were refused — you can **forget** it:
+its row in Settings › Workspace › People offers **Forget…** in place of *Leave*, and
 `bisa workspace forget <host>` takes the workspace off your list and moves what you held of it,
 whole, to `hosts-forgotten/<host>.<time>/` in your data folder, where nothing reads it. A
 membership that still stands is left first. The desktop

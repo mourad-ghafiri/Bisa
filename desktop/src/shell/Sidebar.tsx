@@ -232,7 +232,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
               {isMember(section.host) &&
                 section.dms.map(({ channel, unread_count }) => {
                   const others = audiencePrincipals(channel).filter((p) => p !== ws.me);
-                  const label = others.length ? others.map((p) => hostedNameOf([], p)).join(", ") : t("shell-omnibox-just");
+                  const label = others.length ? others.map((p) => hostedNameOf(section.directory, p)).join(", ") : t("shell-omnibox-just");
                   return (
                     <SidebarRow
                       key={channel.id}

@@ -26286,7 +26286,7 @@
       "required": [
         "url"
       ],
-      "description": "`POST /sync/relays/check`."
+      "description": "`POST /sync/relays/check` and `POST /sync/relays`: one relay, by its address."
     },
     "SyncReport": {
       "type": "object",

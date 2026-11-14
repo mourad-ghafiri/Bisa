@@ -17,7 +17,7 @@ import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { useSearchValue } from "../../router";
 import { useWorkspace } from "../../shell/useWorkspaceData";
-import { hostName, stateWords } from "../../shell/hostedModel.mjs";
+import { hostName, membershipAction, stateWords } from "../../shell/hostedModel.mjs";
 import type { Hosted, Invite, MemberRole, PersonRow } from "../../types";
 import {
   Avatar,
@@ -55,6 +55,7 @@ import {
   personName,
   personWords,
   refuseHeldWords,
+  inviteRole,
   roleChangeWords,
   roleLabel,
   admitKey,
@@ -96,6 +97,9 @@ function Person({ p, onRole, onRemove }: { p: PersonRow; onRole: (r: MemberRole)
 /** The invitation just made: the link, the code, the QR — and nothing else ever shows the secret again. */
 function InviteMade({ link, code, invite, onClose }: { link: string; code: string; invite: Invite; onClose: () => void }) {
   const [qr, setQr] = useState<string | null>(null);
+  // *Done* is the way out. Escape, a click outside and the ✕ ask first: the
+  // secret is in this dialog and nowhere else, and one stray key lost it.
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     let gone = false;
     void QRCode.toDataURL(link, { margin: 1, width: 192 })
@@ -110,7 +114,7 @@ function InviteMade({ link, code, invite, onClose }: { link: string; code: strin
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={() => setLeaving(true)}
       title={tr("settings-people-panel-invitation-made")}
       description={tr("settings-people-panel-share-one-these-out-band-secret", { invite: inviteOffer(invite) })}
       footer={
@@ -132,6 +136,15 @@ function InviteMade({ link, code, invite, onClose }: { link: string; code: strin
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={leaving}
+        onClose={() => setLeaving(false)}
+        onConfirm={onClose}
+        title={tr("settings-people-panel-close-invitation-title")}
+        body={tr("settings-people-panel-close-invitation-body")}
+        confirmLabel={tr("settings-people-panel-close-invitation-confirm")}
+        cancelLabel={tr("settings-people-panel-close-invitation-keep")}
+      />
     </Dialog>
   );
 }
@@ -143,15 +156,23 @@ function InviteDialog({ open, onClose, onMade }: { open: boolean; onClose: () =>
   const [channels, setChannels] = useState<string[]>([]);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
-  const ttl = useAsync(async (s) => (await api.settingsResolved(null, s)).settings.find((r) => r.key === "collab.invite_ttl_hours")?.value, []);
+  const collab = useAsync(async (s) => {
+    const all = (await api.settingsResolved(null, s)).settings;
+    const of = (key: string) => all.find((r) => r.key === key)?.value;
+    return { ttl: of("collab.invite_ttl_hours"), role: of("collab.default_role") };
+  }, []);
+  const ttl = { data: collab.data?.ttl };
+  // The role an invitation is made at when none is named is the workspace's
+  // (`collab.default_role`): the dialog opens on it rather than on a word of its own.
+  const defaultRole = inviteRole(collab.data?.role);
   const standing = ws.channels.map((c) => c.channel).filter((c) => c.id !== "general");
   useEffect(() => {
     if (open) {
-      setRole("guest");
+      setRole(defaultRole);
       setChannels([]);
       setLabel("");
     }
-  }, [open]);
+  }, [open, defaultRole]);
   const make = async () => {
     setBusy(true);
     await attempt(
@@ -280,6 +301,19 @@ export function PeoplePanel() {
   const [removing, setRemoving] = useState<PersonRow | null>(null);
   const [changing, setChanging] = useState<{ p: PersonRow; to: MemberRole } | null>(null);
   const [leaving, setLeaving] = useState<Hosted | null>(null);
+  const [forgetting, setForgetting] = useState<Hosted | null>(null);
+  // One answer a row: *Admit*, *Refuse*, *Withdraw* and *Let through* each
+  // ask the node once, however fast the button is pressed twice.
+  const inFlight = useRef(new Set<string>());
+  const [busyRows, setBusyRows] = useState<ReadonlySet<string>>(new Set());
+  const once = async (row: string, ask: () => Promise<unknown>) => {
+    if (inFlight.current.has(row)) return;
+    inFlight.current.add(row);
+    setBusyRows(new Set(inFlight.current));
+    await ask();
+    inFlight.current.delete(row);
+    setBusyRows(new Set(inFlight.current));
+  };
   const [addKey, setAddKey] = useState("");
   const [addRole, setAddRole] = useState<MemberRole>("guest");
   const [addLabel, setAddLabel] = useState("");
@@ -291,6 +325,8 @@ export function PeoplePanel() {
     if (t === "people_changed" || t === "invite_changed") {
       people.reload();
       invites.reload();
+      // What was held of somebody removed went with them.
+      if (t === "people_changed") held.reload();
     }
     if (t === "hosted_changed") hosts.reload();
     if (t === "message_held" || t === "message_released" || t === "message_refused") held.reload();
@@ -334,8 +370,8 @@ export function PeoplePanel() {
                   <span className="min-w-0 flex-1 truncate text-xs">
                     {tr("settings-people-panel-asks-to-join-as", { who: label ?? `${by.slice(0, 8)}…`, role: inviteOffer(i).toLowerCase() })}
                   </span>
-                  <Button size="sm" variant="primary" onClick={() => void attempt(() => api.admitInvite(i.id), toast.error, reloadAll)}>{tr("settings-people-panel-admit")}</Button>
-                  <Button size="sm" onClick={() => void attempt(() => api.refuseInvite(i.id), toast.error, reloadAll)}>{tr("settings-people-panel-refuse")}</Button>
+                  <Button size="sm" variant="primary" disabled={busyRows.has(i.id)} onClick={() => void once(i.id, () => attempt(() => api.admitInvite(i.id), toast.error, reloadAll))}>{tr("settings-people-panel-admit")}</Button>
+                  <Button size="sm" disabled={busyRows.has(i.id)} onClick={() => void once(i.id, () => attempt(() => api.refuseInvite(i.id), toast.error, reloadAll))}>{tr("settings-people-panel-refuse")}</Button>
                 </li>
               );
             })}
@@ -362,17 +398,20 @@ export function PeoplePanel() {
                 <Button
                   size="sm"
                   variant="primary"
+                  disabled={busyRows.has(row.id)}
                   disabledReason={row.releasable ? undefined : tr("settings-people-panel-release-reason")}
                   onClick={() =>
-                    void attempt(() => api.releaseMessage(row.id), toast.error, () => {
-                      toast.ok(tr("settings-people-panel-let-through-done"));
-                      held.reload();
-                    })
+                    void once(row.id, () =>
+                      attempt(() => api.releaseMessage(row.id), toast.error, () => {
+                        toast.ok(tr("settings-people-panel-let-through-done"));
+                        held.reload();
+                      }),
+                    )
                   }
                 >
                   {tr("settings-people-panel-let-through")}
                 </Button>
-                <Button size="sm" variant="danger" onClick={() => setRefusing(row)}>{tr("settings-people-panel-refuse")}</Button>
+                <Button size="sm" variant="danger" disabled={busyRows.has(row.id)} onClick={() => setRefusing(row)}>{tr("settings-people-panel-refuse")}</Button>
               </li>
             ))}
           </ul>
@@ -445,7 +484,7 @@ export function PeoplePanel() {
                     {i.label ? ` · ${i.label}` : ""}
                   </span>
                   {i.state.state === "pending" && (
-                    <Button size="sm" variant="ghost" onClick={() => void attempt(() => api.revokeInvite(i.id), toast.error, reloadAll)}>{tr("settings-people-panel-withdraw")}</Button>
+                    <Button size="sm" variant="ghost" disabled={busyRows.has(i.id)} onClick={() => void once(i.id, () => attempt(() => api.revokeInvite(i.id), toast.error, reloadAll))}>{tr("settings-people-panel-withdraw")}</Button>
                   )}
                 </li>
               );
@@ -512,7 +551,12 @@ export function PeoplePanel() {
                     <span className="block truncate text-2xs text-text-dim">{state ?? tr("settings-people-panel-words", { role: roleLabel(h.role).toLowerCase() })}</span>
                   </span>
                   <CopyText value={h.host.pubkey} label={`${h.host.pubkey.slice(0, 10)}…`} />
-                  <Button size="sm" variant="danger" onClick={() => setLeaving(h)}>{tr("settings-people-panel-leave")}</Button>
+                  {membershipAction(h) === "leave" ? (
+                    <Button size="sm" variant="danger" onClick={() => setLeaving(h)}>{tr("settings-people-panel-leave")}</Button>
+                  ) : (
+                    // Over already — left, removed, refused: there is nothing to leave, only a row to take away.
+                    <Button size="sm" onClick={() => setForgetting(h)}>{tr("settings-people-panel-forget")}</Button>
+                  )}
                 </li>
               );
             })}
@@ -564,9 +608,27 @@ export function PeoplePanel() {
         onConfirm={() => {
           if (!refusing) return;
           const target = refusing.id;
-          void attempt(() => api.refuseMessage(target), toast.error, () => {
-            toast.ok(tr("settings-people-panel-refused-done"));
-            held.reload();
+          void once(target, () =>
+            attempt(() => api.refuseMessage(target), toast.error, () => {
+              toast.ok(tr("settings-people-panel-refused-done"));
+              held.reload();
+            }),
+          );
+        }}
+      />
+      <ConfirmDialog
+        open={forgetting !== null}
+        onClose={() => setForgetting(null)}
+        title={forgetting ? tr("settings-people-panel-forget-title", { host: hostName(forgetting) }) : ""}
+        confirmLabel={tr("settings-people-panel-forget-confirm")}
+        body={tr("settings-people-panel-forget-body")}
+        onConfirm={() => {
+          if (!forgetting) return;
+          const target = forgetting.host.pubkey;
+          void attempt(() => api.forgetHost(target), toast.error, () => {
+            toast.ok(tr("settings-people-panel-forgotten"));
+            hosts.reload();
+            ws.refresh();
           });
         }}
       />

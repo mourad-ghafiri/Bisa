@@ -1102,6 +1102,8 @@ export const api = {
   hosts: (s?: AbortSignal) => get<{ hosts: Hosted[] }>("/hosts", s),
   joinHost: (body: JoinHostBody, s?: AbortSignal) => post<{ host: Hosted }>("/hosts/join", body, s),
   leaveHost: (host: string, s?: AbortSignal) => del<{ left: string }>(`/hosts/${host}`, undefined, s),
+  /// Forget a membership that is over: its copy is moved aside, whole.
+  forgetHost: (host: string, s?: AbortSignal) => post<{ forgotten: string; kept: string }>(`/hosts/${host}/forget`, {}, s),
   hostedChannels: (host: string, s?: AbortSignal) => get<{ channels: HostedChannelRow[] }>(`/hosts/${host}/channels`, s),
   hostedDms: (host: string, s?: AbortSignal) => get<{ dms: HostedChannelRow[] }>(`/hosts/${host}/dms`, s),
   hostedMembers: (host: string, s?: AbortSignal) => get<{ members: Directory[] }>(`/hosts/${host}/members`, s),
@@ -1115,6 +1117,11 @@ export const api = {
   /// The wire as it stands: whether a pump runs, every relay's health, the counts.
   sync: (s?: AbortSignal) => get<SyncReport>("/sync", s),
   checkRelay: (url: string, s?: AbortSignal) => post<RelayCheck>("/sync/relays/check", { url }, s),
+  /// One relay added to, or taken off, the list as it stands — the node's
+  /// one writer of it, so a change made at the same moment elsewhere stands.
+  addRelay: (url: string, s?: AbortSignal) => post<{ added: boolean; relays: string[] }>("/sync/relays", { url }, s),
+  removeRelay: (url: string, s?: AbortSignal) => del<{ removed: boolean; relays: string[] }>(`/sync/relays?url=${encodeURIComponent(url)}`, undefined, s),
+  resetRelays: (s?: AbortSignal) => post<{ reset: boolean; relays: string[] }>("/sync/relays/reset", {}, s),
   reconnectRelays: (s?: AbortSignal) => post<{ ok: boolean }>("/sync/relays/reconnect", {}, s),
 
   // --- goals ------------------------------------------------------------

@@ -14,7 +14,6 @@
  */
 
 import { useMemo } from "react";
-import { api } from "../api";
 import { navigate } from "../router";
 import { settingsPath, settingsSearch } from "./_settings/settingsLink.mjs";
 import { useWorkspace } from "../shell/useWorkspaceData";
@@ -23,7 +22,6 @@ import { roleLabel } from "./_settings/peopleModel.mjs";
 import { Avatar, Button, Chip, EmptyState, ICON, Skeleton, SkeletonRows } from "../ui";
 import { audiencePrincipals } from "../types";
 import { Conversation, ConversationHeader } from "./_studio/Conversation";
-import { useAsync } from "./_work/useAsync";
 import { t } from "../i18n/l10n.mjs";
 
 export default function Hosted({ host, id, kind }: { host: string; id: string; kind: "channel" | "dm" }) {
@@ -31,8 +29,11 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
   const section = ws.hosted.find((s) => s.host.host.pubkey === host) ?? null;
   const rows = kind === "dm" ? (section?.dms ?? []) : (section?.channels ?? []);
   const channel = rows.find((r) => r.channel.id === id)?.channel ?? null;
-  const members = useAsync(async (s) => (await api.hostedMembers(host, s)).members, [host]);
-  const directory = useMemo(() => members.data ?? [], [members.data]);
+  // The host's people as the shell holds them: read with the section and
+  // again when the host's side moves, so a name or a face that changes there
+  // changes in the open thread.
+  const people = section?.directory ?? null;
+  const directory = useMemo(() => people ?? [], [people]);
   const hosted = useMemo(() => ({ host, directory }), [host, directory]);
 
   const screen = hostedScreen({ ready: ws.ready, section, channel });
@@ -107,8 +108,8 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
               </Chip>
               <Chip title={t("screens-hosted-text-mentions-replies-reach-host-files")}>{t("screens-hosted-text-only")}</Chip>
               {/* The host's people did not answer: names read as keys, and the header says why. */}
-              {members.error && !members.data && (
-                <Chip tone="warn" title={members.error}>
+              {people === null && (
+                <Chip tone="warn">
                   {t("screens-hosted-people-not-read")}
                 </Chip>
               )}

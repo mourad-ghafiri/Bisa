@@ -13,6 +13,12 @@ export declare const OFF_LINE: string;
 export declare function syncSummary(report: SyncReport | null | undefined): { running: boolean; enabled: boolean; line: string; tone: Tone };
 export declare function checkAllWords(checks: readonly Pick<RelayCheck, "url" | "ok">[] | null | undefined): { tone: Tone; text: string } | null;
 export declare function defaultRelays(defs: readonly { key: string; default?: unknown }[] | null | undefined): string[];
+export declare function canonicalRelayUrl(url: string | null | undefined): string | null;
+export declare function sameRelay(a: string | null | undefined, b: string | null | undefined): boolean;
+/** The pool's health row for a configured relay, whatever its spelling. */
+export declare function healthFor<H extends { url: string }>(report: { relays?: readonly H[] } | null | undefined, url: string): H | null;
+/** A row's last check, while the relay's state has not moved since. */
+export declare function checkStanding<K extends { connected: boolean }>(kept: K | null | undefined, health: { connected?: boolean } | null | undefined): K | null;
 export declare function isDefaultList(relays: readonly string[] | null | undefined, defaults: readonly string[] | null | undefined): boolean;
 /** Whether an engine fact moved the wire — the relays, or a `sync.*` setting — so its readers read again. */
 export declare function wireMoved(payload: { type?: string; keys?: readonly string[] } | null | undefined): boolean;

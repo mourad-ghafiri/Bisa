@@ -50,6 +50,7 @@ studio-chat-loading = Loading…
 studio-chat-message-copied = Message copied.
 studio-chat-new = New
 studio-chat-no-messages-yet = No messages yet
+studio-chat-not-sent-yet = Not sent yet. It goes on its own when a relay answers.
 studio-chat-react = React { $e }
 studio-chat-replied = { $name } replied
 studio-chat-replying-to = replying to { $name }: { $words }

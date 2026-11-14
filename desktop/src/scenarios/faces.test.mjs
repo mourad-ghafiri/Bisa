@@ -72,10 +72,11 @@ test("a member's face travels: the directory names it by hash, the bytes come on
   }
   assert.ok(!control.includes("photo: Option<Face>"), "a join carries no face: a stranger's join decodes nothing");
   const host = src("../../../crates/bisa-net/src/host.rs");
-  assert.ok(host.includes("Control::Profile { label, photo, face } =>") && host.includes("PeopleChange::ProfileChanged => send_directory(inner, None).await"), "the host keeps a profile and tells everyone");
+  // A profile kept moves the directory, and what each person is told of it is the pump's one rule (`reconcile`): whoever's copy differs is sent it whole.
+  assert.ok(host.includes("Control::Profile { label, photo, face } =>") && host.includes("let word = Control::MembersChanged {") && host.includes("if *digest != said.directory {"), "the host keeps a profile and tells everyone whose directory differs");
   assert.ok(host.includes("photo: m.photo,"), "the directory carries every row's face — the owner's too");
   const guest = src("../../../crates/bisa-guest/src/session.rs");
-  assert.ok(guest.includes("replies.push(self.profile_control());") && guest.includes("faces_wanted(members)") && guest.includes("Control::Face { face } => match face.decode()"), "a guest says who it is after the welcome and asks for the faces it lacks");
+  assert.ok(guest.includes("replies.insert(0, self.profile_control());") && guest.includes("faces_wanted(members)") && guest.includes("Control::Face { face } => match face.decode()"), "a guest says who it is on becoming a member and asks for the faces it lacks");
   assert.ok(src("../../../crates/bisa-guest/src/faces.rs").includes("pub trait FaceStore"), "the guest keeps faces through a port");
   const pump = src("../../../crates/bisa-cli/src/net.rs");
   assert.ok(pump.includes("impl FaceStore for WorkspaceFaces") && pump.includes("pump.guests.announce_profile().await"), "the node's pump is the port, and carries the owner's profile out");

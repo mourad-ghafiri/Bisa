@@ -153,7 +153,7 @@ import type { FrameChip } from "../_workbench/contextChips.mjs";
 import { fitsBudget } from "../_workbench/contextChips.mjs";
 import type { ContextRef } from "../../types";
 import { useParticipants } from "./participants";
-import { hostedMentionables, hostedNameOf, hostedPhotoOf } from "../../shell/hostedModel.mjs";
+import { hostedMentionables, hostedNameOf, hostedPhotoOf, isUnsent } from "../../shell/hostedModel.mjs";
 import {
   describe as describeFile,
   glyphFor,
@@ -509,6 +509,13 @@ function Row({
               {/* A post the platform authored — the Workflow Agent's note, the reply-cut note — is said here in this language from its `said` message; every other post is its content (17, `contentOf`). */}
               <Markdown text={contentOf(message)} className="prose-i" />
             </div>
+            {/* Kept on this machine and not gone yet (a hosted thread, no relay answering): said quietly under the words — nothing to act on, it goes on its own. */}
+            {isUnsent(message) && (
+              <p className="mt-0.5 flex items-center gap-1 text-2xs text-text-dim">
+                <ICON.waiting size={11} aria-hidden className="shrink-0" />
+                {tr("studio-chat-not-sent-yet")}
+              </p>
+            )}
             {/*
               What the author made to be looked at (ide/12), first: a card
               per artifact, live where it can be. Then the files, between

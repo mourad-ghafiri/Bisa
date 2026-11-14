@@ -11,7 +11,13 @@ export interface HostedSection {
   host: Hosted;
   channels: HostedEntry[];
   dms: HostedEntry[];
+  /** The host's people as it last said them — read with the section, and again when the host's side moves; `null` when the read did not answer. */
+  directory: Directory[] | null;
 }
+/** Whether a row of a thread is this person's own word no relay has taken yet. */
+export declare function isUnsent(row: unknown): boolean;
+/** What is done with a membership: left while it stands or waits, forgotten once it is over. */
+export declare function membershipAction(hosted: Hosted | null | undefined): "leave" | "forget";
 export declare function channelDefOf(channel: Channel): ChannelDef;
 export declare function hostName(hosted: Hosted | null | undefined): string;
 export declare function sectionTitle(hosted: Hosted | null | undefined): string;
