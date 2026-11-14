@@ -96,6 +96,26 @@ export const METHODS = Object.freeze({
 
 export const METHOD_NAMES = Object.freeze(Object.keys(METHODS));
 
+/** Longest a relayed key's name or code may be. */
+const MAX_KEY_CHARS = 32;
+
+/**
+ * The app's commands a page may pass a chord on for — the palette, and the
+ * layer's own switch. A page says keys; it does not press them: nothing here
+ * closes a tab, quits the app or starts work.
+ */
+export const RELAYED_COMMANDS = Object.freeze(["omnibox", "toggle_addons"]);
+
+/**
+ * Whether a key a page passed on reaches the app: `Escape` — the keyboard
+ * handed back — or a chord the app's keymap binds to one of the commands above.
+ * @param {string | null | undefined} command what the keymap makes of the key
+ * @param {string} key
+ */
+export function relays(command, key) {
+  return key === "Escape" || (typeof command === "string" && RELAYED_COMMANDS.includes(command));
+}
+
 /** The topics the app pushes to an addon that listens. */
 export const EVENTS = Object.freeze(["theme", "system.load", "workspace.summary", "visibility", "media", "scene"]);
 
@@ -193,13 +213,20 @@ function byteLength(s) {
 /**
  * What arrived on the door, read only as far as its shape allows.
  * @param {unknown} data
- * @returns {{kind: "hello"} | {kind: "call", id: string, method: string, params: Record<string, unknown>} | {kind: "bad", id: string | null, code: string} | null}
+ * @returns {{kind: "hello"} | {kind: "press"} | {kind: "key", key: {key: string, code: string, metaKey: boolean, ctrlKey: boolean, shiftKey: boolean, altKey: boolean}} | {kind: "call", id: string, method: string, params: Record<string, unknown>} | {kind: "bad", id: string | null, code: string} | null}
  */
 export function parseAddonMessage(data) {
   if (!data || typeof data !== "object") return null;
   const m = /** @type {Record<string, unknown>} */ (data);
   if (m.v !== PROTOCOL_VERSION || typeof m.kind !== "string") return null;
   if (m.kind === "bisa:hello") return { kind: "hello" };
+  if (m.kind === "bisa:press") return { kind: "press" };
+  if (m.kind === "bisa:key") {
+    // A key the page did not use, as facts: a short word and four yes-or-noes, read only as far as its shape allows.
+    if (typeof m.key !== "string" || m.key.length === 0 || m.key.length > MAX_KEY_CHARS) return null;
+    const code = typeof m.code === "string" && m.code.length <= MAX_KEY_CHARS ? m.code : "";
+    return { kind: "key", key: { key: m.key, code, metaKey: m.meta === true, ctrlKey: m.ctrl === true, shiftKey: m.shift === true, altKey: m.alt === true } };
+  }
   if (m.kind !== "bisa:call") return null;
   const id = typeof m.id === "string" && m.id.length > 0 && m.id.length <= MAX_ID_CHARS ? m.id : null;
   if (id === null) return { kind: "bad", id: null, code: "bad_params" };

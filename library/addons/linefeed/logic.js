@@ -171,7 +171,8 @@
     if (!game.alive || game.paused || !(dtMs > 0)) return game;
     var next = assign(game, { acc: game.acc + Math.min(dtMs, MAX_DT) });
     for (var n = 0; n < MAX_STEPS && next.alive && next.acc >= next.interval; n++) next = assign(step(next), { acc: next.acc - next.interval });
-    return next;
+    // What a frame too long to play out left over is let go: a step owed is a double step later.
+    return next.acc >= next.interval ? assign(next, { acc: next.interval - 1 }) : next;
   }
 
   // --- what the screen shows ---------------------------------------------------------

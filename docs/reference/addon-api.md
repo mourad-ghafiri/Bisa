@@ -65,7 +65,7 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 
 | Topic | Payload | When |
 |---|---|---|
-| `theme` | `{scheme}` | the theme moved between light and dark |
+| `theme` | `{scheme}` | the app's theme changed — its scheme, or its accent, density or type, so the scheme said may be the one already held. Sent to every addon that listens; no permission |
 | `system.load` | `{cpu_percent, load, mem_used, mem_total, swap_used, swap_total, uptime_secs, gpu?, disk?}` — `disk` is `{used, total, mount, workspace_bytes}` or `null` | each sample, while subscribed |
 | `workspace.summary` | `{waiting, review, working}` | the counts moved, when `workspace_summary` is granted |
 | `visibility` | `{visible}` | the window came on screen or left it **while its page is mounted**: off macOS, under a browser tab the layer cannot cut around (on macOS a tab is cut around the window, which stays visible). Put away, the layer off and the switch off unmount the page, and *Show* is a fresh page — keep what you must in your store; a scene is always on screen while mounted |
@@ -86,6 +86,20 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 | `quota` | the addon's storage is full |
 | `unavailable` | the platform did not answer in ten seconds (thirty for `network.fetch`; `url.open` waits for the person, with no clock) — or never said it was ready: the library says hello again at growing waits (250 ms to 4 s) and, past the last with no answer, fails every call waiting and every call made until a ready arrives; `ready()` itself keeps waiting |
 | `refused` | the node or the person said no — a host outside the grant, a link not opened |
+
+## What the library says by itself
+
+Two things the library tells the app without being asked, so a window is neither stuck behind
+another nor a trap for the keyboard. Neither is a method, and a page does nothing for them.
+
+- **A press.** A pointer pressed anywhere in the page is said (`bisa:press`, nothing else in it):
+  the window comes in front.
+- **A key the page did not use.** A chord with `⌘` or `Ctrl`, or `Esc`, that reaches the window
+  with no `preventDefault()` is passed on as the key's facts (`bisa:key`). The app judges it by
+  its own keymap and acts on three things only: the palette, the addons layer's switch, and `Esc`,
+  which hands the keyboard back. A page that uses a chord itself calls `preventDefault()` and keeps
+  it; what a page types is never passed. A page cannot press a key in the app by saying one — the
+  app listens only to the frame that has the keyboard, and to that short list.
 
 ## What never has a method
 

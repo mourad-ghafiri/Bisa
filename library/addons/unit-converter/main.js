@@ -10,6 +10,8 @@
   var pref = { kind: "length", from: "m", to: "ft" };
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function fill(select, names, chosen) {
     select.textContent = "";
     names.forEach(function (n) { var o = document.createElement("option"); o.value = n; o.textContent = n; if (n === chosen) o.selected = true; select.appendChild(o); });
@@ -24,6 +26,8 @@
     if (pref.kind === "temperature") result = fromKelvin(toKelvin(v, pref.from), pref.to);
     else result = (v * k.units[pref.from]) / k.units[pref.to];
     to.textContent = String(Number(result.toPrecision(8)));
+    // The whole figure is there for a pointer where the window cuts it.
+    to.title = to.textContent;
   }
   function setKind(name, keep) {
     pref.kind = name;
@@ -52,6 +56,8 @@
     convert();
     remember();
   });
+  // Filled before the app answers: the menus were empty, and the first paint jumped, until it did.
+  setKind(pref.kind, true);
 
   bisa.ready().then(function (hello) {
     scheme(hello.theme.scheme);

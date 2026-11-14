@@ -1,14 +1,24 @@
-:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.12); }
-:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.14); }
+/* --- chrome --- */
+/* What every built-in shares, word for word — a test holds the eighteen copies equal, so a change
+   is made in one and copied to the rest: the ink, the dim, the accent, the key and the line in
+   both schemes; the base type; the fence that makes `hidden` hide; the focus ring. An addon's own
+   tokens and rules come after, and say otherwise only where its surface asks (a paper's ink, a
+   sparkline's line, a pad's larger type). */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
 /* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-html, body { margin: 0; height: 100%; font: 12px system-ui, sans-serif; color: var(--ink); background: transparent; }
+/* --- end chrome --- */
+:root { color-scheme: light dark; }
 .conv { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
 .pair { display: flex; gap: 6px; align-items: center; }
 input, select { font: inherit; color: var(--ink); background: var(--key); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; min-width: 0; }
 input { flex: 1; }
-select { flex: 1; }
+/* Beside a value a menu shares the row; the menu of kinds stands alone and keeps its own height — in a column it grew to fill the window. */
+.pair select { flex: 1; }
+#kind { flex: none; }
 .between { display: flex; justify-content: center; }
 .swap { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); font: inherit; font-size: 14px; line-height: 1; padding: 2px 10px; cursor: pointer; }
 .swap:hover { color: var(--accent); border-color: var(--line); background: var(--key); }

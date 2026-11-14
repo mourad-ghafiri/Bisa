@@ -13,6 +13,8 @@
   var barfill = document.getElementById("barfill");
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function gib(bytes) { return (bytes / 1073741824).toFixed(1); }
   function points(values) {
     if (values.length < 2) return "";
@@ -41,12 +43,15 @@
     var pct = total > 0 ? Math.max(0, Math.min(100, (used / total) * 100)) : 0;
     history.push(pct);
     if (history.length > MAX) history.shift();
-    value.textContent = gib(used) + " / " + gib(total);
+    // A whole total is said whole — 32, not 32.0 — so the figure fits beside its label.
+    value.textContent = gib(used) + " / " + gib(total).replace(/\.0$/, "");
     unit.textContent = "GiB";
+    value.parentNode.title = value.textContent + " GiB";
     barfill.style.width = pct.toFixed(0) + "%";
     bar.setAttribute("aria-valuenow", pct.toFixed(0));
     var swap = Number(load.swap_used) || 0;
     note.textContent = pct.toFixed(0) + "% in use" + (swap > 0 ? " · swap " + gib(swap) + " GiB" : "");
+    note.title = note.textContent;
     draw();
   }
   bisa.ready().then(function (hello) {

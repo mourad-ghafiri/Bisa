@@ -345,6 +345,28 @@
   };
 
   global.addEventListener("message", onMessage);
+
+  // A press in the page is said to the app, with nothing else: the window
+  // comes forward. The app hears no press inside a frame, and when the
+  // keyboard was already in another window's page it hears no blur either.
+  global.addEventListener(
+    "pointerdown",
+    function () {
+      if (hello) post({ v: VERSION, kind: "bisa:press" });
+    },
+    true
+  );
+
+  // A window that has the keyboard must be no trap: a chord, or an Escape,
+  // that the page did not use is passed to the app as facts, and the app
+  // decides whether it means anything (the palette, the layer's switch, the
+  // keyboard handed back). Heard at the window, last, so a page that took the
+  // key — `preventDefault()` — keeps it; what the page types is never passed.
+  global.addEventListener("keydown", function (e) {
+    if (!hello || e.defaultPrevented) return;
+    if (e.key !== "Escape" && !e.metaKey && !e.ctrlKey) return;
+    post({ v: VERSION, kind: "bisa:key", key: e.key, code: e.code, meta: !!e.metaKey, ctrl: !!e.ctrlKey, shift: !!e.shiftKey, alt: !!e.altKey });
+  });
   global.bisa = bisa;
   sayHello(0);
 })(typeof window !== "undefined" ? window : this);

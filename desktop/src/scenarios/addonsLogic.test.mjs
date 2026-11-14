@@ -1,8 +1,9 @@
 /**
- * The pure half of seven built-ins — tic-tac-toe's rules and machine, the
- * sticky note's sanitiser, the media player's sources and pictures, Bug
- * hunt's insects, tools and marks, and the three terminal games' rules
- * (Tetrominal's well, Linefeed's worm, Linerun's file) — each a
+ * The pure half of nine built-ins — tic-tac-toe's rules and machine, the
+ * sticky note's sanitiser and the start of its pad, the media player's
+ * sources, pictures and keys, Bug hunt's insects, tools and marks, the three
+ * terminal games' rules (Tetrominal's well, Linefeed's worm, Linerun's
+ * file), the weather's readings and the calculator's keys — each a
  * `logic.js` the page loads before its `main.js`, run here alone in a `vm`
  * (the `addonSdk.test.mjs` recipe): the machine never loses, easy plays a
  * legal cell, a note keeps its formatting and nothing else, and a pasted
@@ -128,6 +129,28 @@ test("the plain text reads as the note does, the papers are six, and the cap is 
   assert.equal(N.byteLength("a😀"), 5);
 });
 
+
+test("a pad that could not be read is never written over, and one whose index is lost is rebuilt from its notes", () => {
+  const keys = ["note.b2", "notes", "note.a1", "note.", "other", "note." + "x".repeat(40)];
+  // Read, and there: the index as stored — and a note the index forgot comes back at the end.
+  const stored = JSON.stringify({ order: ["a1"], current: "a1", colors: { a1: "mint", gone: "rose" } });
+  assert.deepEqual(plain(N.startPad({ read: true, raw: stored, keys })), { index: { order: ["a1", "b2"], current: "a1", colors: { a1: "mint" } }, mayWrite: true, found: 1 });
+  assert.deepEqual(plain(N.startPad({ read: true, raw: stored, keys: ["note.a1", "notes"] })), { index: { order: ["a1"], current: "a1", colors: { a1: "mint" } }, mayWrite: true, found: 0 });
+  // Read, and nothing there: a fresh pad — unless notes are, and then they are the pad.
+  assert.deepEqual(plain(N.startPad({ read: true, raw: null, keys: [] })), { index: { order: [], current: null, colors: {} }, mayWrite: true, found: 0 });
+  assert.deepEqual(plain(N.startPad({ read: true, raw: null, keys })), { index: { order: ["a1", "b2"], current: "a1", colors: {} }, mayWrite: true, found: 2 });
+  // Read, and not an index — cut short, another shape: rebuilt from the notes, never an empty pad written over them.
+  for (const junk of ["{\"order\":", "[1,2]", "null", JSON.stringify({ order: "a1" })]) {
+    assert.deepEqual(plain(N.startPad({ read: true, raw: junk, keys })).index.order, ["a1", "b2"], junk);
+  }
+  // Not read at all — the store did not answer: nothing is known, so nothing may be written.
+  assert.deepEqual(plain(N.startPad({ read: false, raw: null, keys: null })), { index: { order: [], current: null, colors: {} }, mayWrite: false, found: 0 });
+  // The index's own reading: ids that are no ids go, a current that is not in the order falls to the first, a colour that is none goes.
+  assert.deepEqual(plain(N.readIndex(JSON.stringify({ order: ["a1", 7, "", "b2"], current: "zz", colors: { a1: "neon", b2: "sky" } }))), { order: ["a1", "b2"], current: "a1", colors: { b2: "sky" } });
+  assert.equal(N.readIndex("junk"), null);
+  assert.equal(N.readIndex(undefined), null);
+});
+
 // --- media player ------------------------------------------------------------
 
 const M = logicOf("media-player").MediaPlayer;
@@ -245,6 +268,27 @@ test("the YouTube box is the stage less an inset, or nothing under the player's 
     assert.ok(words.length > 12 && /[.]$/.test(words), `${code}: ${words}`);
   }
   assert.notEqual(M.errorWords(3), M.errorWords(4));
+});
+
+
+test("a focused control keeps the keys that are its own: the player's shortcuts never press a button or move a slider for it", () => {
+  const button = { tag: "BUTTON", type: "button" }, slider = { tag: "INPUT", type: "range" }, field = { tag: "INPUT", type: "text" };
+  // Nothing focused: every key is the player's.
+  for (const key of [" ", "ArrowLeft", "ArrowUp", "m", "Enter"]) assert.equal(M.ownsKey(null, key), false, key);
+  // A button, a link, a menu: Space and Enter press it.
+  for (const control of [button, { tag: "A", type: "" }, { tag: "SELECT", type: "select-one" }]) {
+    assert.equal(M.ownsKey(control, " "), true);
+    assert.equal(M.ownsKey(control, "Enter"), true);
+    assert.equal(M.ownsKey(control, "m"), false, "a letter is still the player's");
+  }
+  assert.equal(M.ownsKey({ tag: "SELECT", type: "select-one" }, "ArrowDown"), true, "a menu walks its own options");
+  assert.equal(M.ownsKey(button, "ArrowLeft"), false);
+  // A slider: the arrows move it — the volume slider is not a seek bar, nor the seek bar a volume.
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]) assert.equal(M.ownsKey(slider, key), true, key);
+  assert.equal(M.ownsKey(slider, " "), false);
+  // A field takes everything typed into it.
+  for (const key of [" ", "m", "l", "ArrowLeft"]) assert.equal(M.ownsKey(field, key), true, key);
+  assert.equal(M.ownsKey({ tag: "TEXTAREA", type: "textarea" }, "m"), true);
 });
 
 // --- bug hunt ------------------------------------------------------------------
@@ -940,6 +984,17 @@ test("linefeed: the store is read as far as its shape allows, and the tables are
   assert.equal(Lf.ROWS, 16);
 });
 
+
+test("the worm never saves up steps: a frame too long to be played out leaves less than one step owed", () => {
+  // Two steps a frame at most; what a slow frame left over used to stay owed, and came back as
+  // double steps for as long as the debt lasted once the frames were quick again.
+  let g = worm(3);
+  for (let i = 0; i < 6 && g.alive; i++) {
+    g = Lf.tick(g, Lf.MAX_DT);
+    assert.ok(g.acc < g.interval, `after frame ${i}: ${g.acc} owed against a step of ${g.interval}`);
+  }
+});
+
 // --- linerun ---------------------------------------------------------------------
 
 const Rn = logicOf("linerun").Linerun;
@@ -1202,4 +1257,102 @@ test("bug hunt's fun pass: the marks switch keeps what an insect left, a blow sc
   const struck = H.strike("swatter", { x: 400, y: 250, bounds: glass }, [{ ...bug("fly", "fly"), golden: true }], 1);
   assert.deepEqual(plain(struck.hits), [1]);
   assert.equal(struck.marks[0].color, H.GOLDEN.splat, "a golden hit's splat is gold");
+});
+
+// --- weather ---------------------------------------------------------------------
+
+const W = logicOf("weather").Weather;
+
+test("a reading is a reading only when it is one: numbers that are numbers, or nothing is shown as fresh", () => {
+  const good = { current: { temperature_2m: 21.4, relative_humidity_2m: 55, weather_code: 2, wind_speed_10m: 9.6 }, current_units: { temperature_2m: "°C", wind_speed_10m: "km/h" } };
+  assert.deepEqual(plain(W.readingOf(good)), { icon: "⛅", text: "Partly cloudy", temperature: "21°C", meta: "wind 10 km/h · humidity 55%" });
+  // Units the service did not say fall back to its defaults.
+  assert.equal(W.readingOf({ current: good.current }).temperature, "21°C");
+  // Not a reading: shown as *NaN°C, read at 10:05* before.
+  for (const bad of [null, {}, { current: {} }, { current: { ...good.current, temperature_2m: "warm" } }, { current: { ...good.current, temperature_2m: null } }, { current: { ...good.current, weather_code: undefined } }, "text", []]) {
+    assert.equal(W.readingOf(bad), null, JSON.stringify(bad));
+  }
+  // Wind and humidity that did not come are left out, never said as NaN.
+  assert.equal(W.readingOf({ current: { temperature_2m: -3.5, weather_code: 71 } }).meta, "");
+  assert.equal(W.readingOf({ current: { temperature_2m: -3.5, weather_code: 71 } }).temperature, "-3°C");
+  assert.deepEqual(plain(W.describe(95)), { icon: "⛈", text: "Thunderstorm" });
+  assert.equal(W.describe(1234).text, "Conditions unknown", "a code the table does not hold is said in words, not as a number");
+});
+
+test("a place is found by name, kept only when it is one, and asked for by its coordinates", () => {
+  assert.deepEqual(plain(W.placeOf({ results: [{ name: "Lisbon", country_code: "PT", latitude: 38.72, longitude: -9.13 }] }, "lisboa")), { name: "Lisbon, PT", lat: 38.72, lon: -9.13, query: "lisboa" });
+  assert.equal(W.placeOf({ results: [{ name: "Nowhere" }] }, "x"), null, "a place with no coordinates is no place");
+  assert.equal(W.placeOf({ results: [] }, "x"), null);
+  assert.equal(W.placeOf(null, "x"), null);
+  assert.deepEqual(plain(W.spotOf({ name: "Lisbon, PT", lat: "38.72", lon: -9.13 })), { name: "Lisbon, PT", lat: 38.72, lon: -9.13, query: "" });
+  for (const bad of [null, {}, { name: "", lat: 1, lon: 1 }, { name: "x", lat: "north", lon: 1 }, { name: "x", lat: 91, lon: 0 }, { name: "x", lat: 0, lon: 181 }]) assert.equal(W.spotOf(bad), null, JSON.stringify(bad));
+  assert.match(W.forecastUrl({ lat: 38.72, lon: -9.13 }), /^https:\/\/api\.open-meteo\.com\/v1\/forecast\?.*latitude=38\.72&longitude=-9\.13$/);
+  assert.match(W.geocodeUrl("São Paulo"), /^https:\/\/geocoding-api\.open-meteo\.com\/v1\/search\?.*name=S%C3%A3o%20Paulo$/);
+});
+
+test("the weather is read when it is due, the newest answer wins, and a failure is said in plain words with the reading's age kept", () => {
+  const MIN = 60 * 1000;
+  // Shown again a moment after a reading: nothing is asked — a tab passing over the window is not a reason to ask the service.
+  assert.equal(W.due(null, 0), true, "never read: due");
+  assert.equal(W.due(1000, 1000 + 4 * MIN), false);
+  assert.equal(W.due(1000, 1000 + W.REFRESH_MS), true);
+  assert.equal(W.due(5000, 1000), true, "a clock set back: read again rather than wait for it to catch up");
+  // Two answers in flight: only the one asked for last is shown.
+  let asks = W.asking(0);
+  const first = asks.ticket;
+  asks = W.asking(asks.ticket);
+  assert.equal(W.lands(first, asks.ticket), false, "the older answer is let go");
+  assert.equal(W.lands(asks.ticket, asks.ticket), true);
+  // What went wrong, as a person reads it — never a parser's sentence or a status number alone.
+  assert.equal(W.failureWords({ code: "refused", message: "host not allowed" }), "The weather service could not be reached.");
+  assert.equal(W.failureWords({ code: "unavailable" }), "The weather service did not answer.");
+  assert.equal(W.failureWords({ status: 429 }), "The weather service is busy — it will be tried again.");
+  assert.equal(W.failureWords({ status: 503 }), "The weather service is having trouble.");
+  assert.equal(W.failureWords(new SyntaxErrorLike()), "The weather service answered something that could not be read.");
+  assert.equal(W.failureWords({ noPlace: "Atlantis" }), "No place called Atlantis was found.");
+  assert.equal(W.staleWords("10:05"), "Could not refresh — last read at 10:05.");
+});
+function SyntaxErrorLike() { this.name = "SyntaxError"; this.message = "Unexpected token < in JSON"; }
+
+// --- calculator ------------------------------------------------------------------
+
+const C = logicOf("calculator").Calculator;
+const typed = (keys, from = C.fresh()) => keys.reduce((state, k) => C.press(state, k), from);
+
+test("the calculator applies what is typed left to right, repeats the last operation, and keeps an entry whole", () => {
+  assert.equal(typed(["2", "+", "3", "×", "4", "="]).entry, "20", "left to right, as typed");
+  assert.equal(typed(["2", "+", "3", "=", "="]).entry, "8", "= again repeats the last operation");
+  assert.equal(typed(["7", "÷", "0", "="]).entry, "Error");
+  assert.equal(typed(["7", "÷", "0", "=", "5"]).entry, "5", "a digit after an error starts again");
+  assert.equal(typed(["9", "+", "−", "4", "="]).entry, "5", "an operator after an operator changes it");
+  assert.equal(typed(["1", ".", ".", "5"]).entry, "1.5");
+  assert.equal(typed(["1", "2", "←", "←", "←"]).entry, "0");
+  assert.equal(typed(["5", "±"]).entry, "-5");
+  assert.equal(typed(["5", "±", "±"]).entry, "5");
+  assert.equal(typed(["0", "±"]).entry, "0");
+  // A sign cannot be put on an error.
+  assert.equal(typed(["7", "÷", "0", "=", "±"]).entry, "Error");
+  // Per cent is a result: what is typed next is a new number, not more digits of it.
+  assert.equal(typed(["5", "0", "%"]).entry, "0.5");
+  assert.equal(typed(["5", "0", "%", "3"]).entry, "3", "it read 0.53");
+  // An entry stops at fifteen digits: past that the display cut the digits just typed.
+  const long = typed("1234567890123456789".split(""));
+  assert.equal(long.entry, "123456789012345");
+  assert.equal(typed(["0", ".", ...("1234567890123456789".split(""))]).entry, "0.12345678901234");
+  // The line above the display says what is pending.
+  assert.equal(C.pendingWords(typed(["2", "+"])), "2 +");
+  assert.equal(C.pendingWords(typed(["2", "+", "3", "="])), "+ 3 again");
+  assert.equal(C.pendingWords(C.fresh()), "");
+  // A state is never changed in place: the page draws only what it is handed.
+  const start = C.fresh();
+  C.press(start, "7");
+  assert.equal(start.entry, "0");
+  // The keyboard's keys, and which of them a focused key keeps for itself.
+  assert.equal(C.keyFor("Enter"), "=");
+  assert.equal(C.keyFor("*"), "×");
+  assert.equal(C.keyFor("Backspace"), "←");
+  assert.equal(C.keyFor("7"), "7");
+  assert.equal(C.keyFor("a"), null);
+  assert.equal(C.fmt(1e15), "1e+15", "no tail of zeroes on a round number");
+  assert.equal(C.fmt(1 / 3), "0.333333333333");
 });

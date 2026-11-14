@@ -57,7 +57,7 @@
     var n = document.createElement("b");
     n.textContent = String(state.working);
     waitEl.appendChild(n);
-    waitEl.appendChild(document.createTextNode(state.working === 1 ? "running" : "running"));
+    waitEl.appendChild(document.createTextNode("running"));
     waitEl.title = H.waitWords(state.working);
     waitEl.setAttribute("aria-label", H.waitWords(state.working));
     waitEl.dataset.running = state.working > 0 ? "true" : "false";
@@ -72,11 +72,10 @@
     paceValue.textContent = state.difficulty.charAt(0).toUpperCase() + state.difficulty.slice(1);
     muteIcon.setAttribute("href", state.muted ? "#t-muted" : "#t-sound");
     muteBtn.setAttribute("aria-pressed", state.muted ? "true" : "false");
-    muteBtn.setAttribute("aria-label", state.muted ? "Unmute" : "Mute");
-    muteBtn.title = state.muted ? "Unmute" : "Mute";
+    // A switch keeps its name; `aria-pressed` says whether it is on.
+    muteBtn.title = state.muted ? "Muted — press to hear the hunt" : "Mute";
     var marksWords = state.marksOn ? "Glass marks: on — a miss cracks or scratches the glass" : "Glass marks: off — a miss leaves no crack";
     marksBtn.setAttribute("aria-pressed", state.marksOn ? "true" : "false");
-    marksBtn.setAttribute("aria-label", marksWords);
     marksBtn.title = marksWords + " (M)";
     renderHand();
   }
@@ -180,10 +179,24 @@
       osc.start(); vib.start();
       audio.whine = { osc: osc, vib: vib, gain: gain };
     }
-    if (audio.whine) {
-      var target = on ? 0.02 + 0.04 * Math.max(0, Math.min(1, nearness || 0)) : 0.0001;
-      audio.whine.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.05);
+    if (audio.whine && on) {
+      audio.whine.gain.gain.setTargetAtTime(0.02 + 0.04 * Math.max(0, Math.min(1, nearness || 0)), ctx.currentTime, 0.05);
     }
+    // It ends: faded, then its oscillators stopped and let go. Turned down and left running, two
+    // of them ran for as long as the page lived — at work, muted, hidden.
+    if (audio.whine && !on) {
+      var ending = audio.whine;
+      audio.whine = null;
+      ending.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.05);
+      ending.osc.stop(ctx.currentTime + 0.3);
+      ending.vib.stop(ctx.currentTime + 0.3);
+    }
+  }
+  /** A scene nobody sees rests its audio; seen again, it wakes. */
+  function restAudio(resting) {
+    if (!audio.ctx) return;
+    if (resting && audio.ctx.state === "running") audio.ctx.suspend().catch(function () {});
+    if (!resting && audio.ctx.state === "suspended") audio.ctx.resume().catch(function () {});
   }
   function setMuted(m) {
     state.muted = m;
@@ -951,7 +964,7 @@
   bisa.on("theme", function (p) { scheme(p.scheme); });
   bisa.on("visibility", function (p) {
     state.visible = !!p.visible;
-    if (state.visible) startLoop(); else { stopLoop(); whine(false, 0); }
+    if (state.visible) { restAudio(false); startLoop(); } else { stopLoop(); whine(false, 0); restAudio(true); }
   });
   bisa.on("workspace.summary", function (s) { setWorking(s && s.working); });
   bisa.on("scene", onScene);

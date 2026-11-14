@@ -14,6 +14,8 @@
   var barfill = document.getElementById("barfill");
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function points(values) {
     if (values.length < 2) return "";
     var step = 120 / (MAX - 1);
@@ -42,6 +44,11 @@
       saidNoReader = true;
       value.textContent = "—"; unit.textContent = "";
       note.textContent = "No GPU reader on this machine.";
+      // The reader went away: its last bar and its line go with it, or they stand as a reading nobody took.
+      history.length = 0;
+      barfill.style.width = "0%";
+      bar.setAttribute("aria-valuenow", "0");
+      draw();
       return;
     }
     saidNoReader = false;
@@ -56,6 +63,7 @@
     if (load.gpu.renderer_percent != null) parts.push("renderer " + Number(load.gpu.renderer_percent).toFixed(0) + "%");
     if (load.gpu.mem_used != null) parts.push(mib(Number(load.gpu.mem_used)));
     note.textContent = parts.join(" · ");
+    note.title = note.textContent;
     draw();
   }
   bisa.ready().then(function (hello) {

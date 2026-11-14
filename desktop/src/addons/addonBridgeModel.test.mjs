@@ -347,3 +347,26 @@ test("a scene has no window for a player: media is refused there, never answered
   assert.equal(handleCall(win, call("media.embed", { kind: "youtube", video: "dQw4w9WgXcQ", box }), ctx()).effect.type, "media_embed");
   assert.equal(handleCall(win, call("media.remove"), ctx()).effect.type, "media_remove");
 });
+
+test("a key the page did not use is relayed as facts, and only the chords an addon may pass on reach the app", async () => {
+  const { relays, RELAYED_COMMANDS } = await import("./addonBridgeModel.mjs");
+  const key = { v: 1, kind: "bisa:key", key: "k", code: "KeyK", meta: true, ctrl: false, shift: false, alt: false };
+  assert.deepEqual(parseAddonMessage(key), { kind: "key", key: { key: "k", code: "KeyK", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false } });
+  // Read only as far as its shape allows: a key is a short word, the rest are yes or no.
+  assert.deepEqual(parseAddonMessage({ ...key, meta: "yes", shift: 1, code: 7 }).key, { key: "k", code: "", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
+  assert.equal(parseAddonMessage({ ...key, key: "" }), null);
+  assert.equal(parseAddonMessage({ ...key, key: "x".repeat(33) }), null);
+  assert.equal(parseAddonMessage({ ...key, key: 7 }), null);
+  assert.equal(parseAddonMessage({ ...key, v: 2 }), null);
+  // A press in the page is said with nothing else: the window comes forward.
+  assert.deepEqual(parseAddonMessage({ v: 1, kind: "bisa:press", extra: "ignored" }), { kind: "press" });
+  // What reaches the app: Escape — the keyboard handed back — the palette, and the layer's own switch.
+  // A page may not close a tab, quit the app or start a goal by saying a key.
+  assert.deepEqual([...RELAYED_COMMANDS], ["omnibox", "toggle_addons"]);
+  assert.equal(relays(null, "Escape"), true);
+  assert.equal(relays("omnibox", "k"), true);
+  assert.equal(relays("toggle_addons", "x"), true);
+  assert.equal(relays("quit", "q"), false);
+  assert.equal(relays("close_tab", "w"), false);
+  assert.equal(relays(null, "k"), false, "a chord the app does not bind is nothing");
+});

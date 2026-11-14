@@ -3,13 +3,23 @@
    playhead, the level, the focus ring. The spectrogram's ramp ends in the
    accent's family (`logic.js`), so loud wears the same warm as the controls. */
 /* The stage keeps one accent in either scheme — the amber the ramp ends in — while the chrome's follows the scheme like every built-in's. */
-:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --field: rgba(255, 255, 255, 0.7); --stage: #15141a; --stage-ink: #ece9f3; --stage-dim: #9a95ad; --stage-line: rgba(236, 233, 243, 0.14); --stage-accent: #fbbf24; --track: rgba(28, 25, 23, 0.16); }
-:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --field: rgba(0, 0, 0, 0.24); --stage: #0e0d12; --track: rgba(245, 245, 244, 0.2); }
+/* --- chrome --- */
+/* What every built-in shares, word for word — a test holds the eighteen copies equal, so a change
+   is made in one and copied to the rest: the ink, the dim, the accent, the key and the line in
+   both schemes; the base type; the fence that makes `hidden` hide; the focus ring. An addon's own
+   tokens and rules come after, and say otherwise only where its surface asks (a paper's ink, a
+   sparkline's line, a pad's larger type). */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
 /* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* --- end chrome --- */
+:root { color-scheme: light dark; --field: rgba(255, 255, 255, 0.7); --stage: #15141a; --stage-ink: #ece9f3; --stage-dim: #9a95ad; --stage-line: rgba(236, 233, 243, 0.14); --stage-accent: #fbbf24; --track: rgba(28, 25, 23, 0.16); }
+:root[data-scheme="dark"] { --field: rgba(0, 0, 0, 0.24); --stage: #0e0d12; --track: rgba(245, 245, 244, 0.2); }
 ::selection { background: var(--accent); color: #fff; }
-html, body { margin: 0; height: 100%; font: 12px/1.4 system-ui, sans-serif; color: var(--ink); background: transparent; overflow: hidden; }
+html, body { line-height: 1.4; overflow: hidden; }
 button, input, select, output { font: inherit; color: inherit; }
 .player { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 6px; }
 

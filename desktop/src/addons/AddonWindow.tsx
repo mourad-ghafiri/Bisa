@@ -24,17 +24,20 @@ import { t } from "../i18n/l10n.mjs";
 import { prefersReducedMotion } from "../shell/motion";
 import type { SlotState } from "../shell/layerSlots";
 import type { Addon } from "../types";
-import { ErrorNote, ICON, cn, dockBox, useDockDrag, useDockViewport } from "../ui";
+import { ErrorNote, ICON, cn, dockBox, placementOf, useDockDrag, useDockViewport } from "../ui";
 import type { Placement } from "../ui";
 import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
 import { useAddonMediaHost } from "./addonMediaHost";
 import type { AddonEvent } from "./addonBridgeModel.mjs";
 import { barTitle, entryOf, frameKeyOf, manifestWindow, notStartedWords } from "./addonsModel.mjs";
-import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom, sameSize } from "./addonWindowModel.mjs";
+import { BAR_HEIGHT, clampSize, hiddenByLayer, keyStep, placementAfterResize, sizeBounds, sizeFrom, sameSize } from "./addonWindowModel.mjs";
 import { useBrowserClear, useBrowserCutsAround } from "../shell/browserClear";
 import type { Size } from "./addonWindowModel.mjs";
-import { moveAddon, resizeAddon, setAddonHidden, useAddons, windowOf } from "./addonsStore";
+import { moveAddon, raiseAddon, resizeAddon, setAddonHidden, useAddons, windowOf } from "./addonsStore";
+
+/** The layer's floor: `z-30`, under the panels (z-40). A window stands `level` above it (`stackOf`). */
+const LAYER_FLOOR = 30;
 
 export function AddonWindow({
   addon,
@@ -47,6 +50,7 @@ export function AddonWindow({
   load,
   onOpenUrl,
   onRestart,
+  level,
 }: {
   addon: Addon;
   /** Its place among every installed addon, for where it first opens — steady while others show or hide. */
@@ -57,6 +61,8 @@ export function AddonWindow({
   layerVisible: boolean;
   /** A drag or resize runs somewhere in the layer. */
   shielded: boolean;
+  /** How far above the layer's floor this window stands: the last one pressed is in front. */
+  level: number;
   onShield: (on: boolean) => void;
   summary: AddonSummary;
   load: AddonLoad | null;
@@ -130,6 +136,45 @@ export function AddonWindow({
     resizeAddon(addon.id, size, dock);
   }, [addon.id, size, dock, onShield]);
 
+  // The same two gestures from the keyboard: an arrow on the grip moves the
+  // window a step, an arrow on the corner sizes it a step (Shift for a long
+  // one) — clamped and written exactly as the pointer's are.
+  const onMoveKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = keyStep(e.key, e.shiftKey);
+      if (!step) return;
+      e.preventDefault();
+      const next = placementOf({ left: box.left + step.dx, top: box.top + step.dy }, viewport);
+      setDock(next);
+      moveAddon(addon.id, next, size);
+    },
+    [addon.id, box.left, box.top, viewport, size],
+  );
+  const onResizeKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = keyStep(e.key, e.shiftKey);
+      if (!step || !w.resizable) return;
+      e.preventDefault();
+      const next = sizeFrom(size, step.dx, step.dy, bounds);
+      if (sameSize(next, size)) return;
+      const nextDock = placementAfterResize(dock, size, next);
+      setSize(next);
+      setDock(nextDock);
+      resizeAddon(addon.id, next, nextDock);
+    },
+    [addon.id, w.resizable, size, dock, bounds],
+  );
+
+  // A press inside the page never reaches the app — but focus moving into the
+  // frame blurs the app's window, and then the frame is what has the keyboard.
+  useEffect(() => {
+    const onBlur = () => {
+      if (document.activeElement === frame.current) raiseAddon(addon.id);
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [addon.id]);
+
   // The shield counts gestures, so it moves on a drag's edges only — never
   // on mount, which would take a count another window's gesture holds — and
   // a window that leaves mid-drag gives its count back.
@@ -193,6 +238,7 @@ export function AddonWindow({
         onRestart();
       },
       onStartMissed: () => setStart("missed"),
+      onPress: () => raiseAddon(addon.id),
     }),
     [addon.id, bounds, dock, size, onOpenUrl, onRestart, media],
   );
@@ -207,10 +253,17 @@ export function AddonWindow({
   return createPortal(
     <div
       ref={shell}
-      role="dialog"
+      // A group on the page, not a dialog: a window never takes the page from the person.
+      role="group"
       aria-label={name}
+      // A pane like every floating one: on a glass family the surface carries alpha, and without
+      // the frost the app's own words read through the window. A see-through window asks for none.
+      data-pane={w.transparent ? undefined : ""}
+      onPointerDownCapture={() => raiseAddon(addon.id)}
+      // The keyboard coming to the window's own controls — Tab onto its grip — raises it too.
+      onFocusCapture={() => raiseAddon(addon.id)}
       // content, never translated: the addon's own name in its bar.
-      style={{ left: box.left, top: box.top, width: total.width, height: total.height, visibility: visible ? "visible" : "hidden" }}
+      style={{ left: box.left, top: box.top, width: total.width, height: total.height, visibility: visible ? "visible" : "hidden", zIndex: LAYER_FLOOR + level }}
       className={cn(
         "group fixed z-30 flex flex-col overflow-hidden rounded-control",
         w.transparent ? "bg-transparent" : "border border-border bg-surface shadow-lg",
@@ -225,6 +278,7 @@ export function AddonWindow({
           aria-label={t("addons-addon-window-move", { name })}
           title={t("addons-addon-window-move", { name })}
           onPointerDown={drag.onPointerDown}
+          onKeyDown={onMoveKey}
           className="absolute left-1/2 top-0 z-10 -translate-x-1/2 cursor-grab rounded-b-control bg-surface-2/80 px-2 py-px text-text-dim opacity-0 group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
         >
           <ICON.grip size={12} aria-hidden />
@@ -235,7 +289,16 @@ export function AddonWindow({
           onPointerDown={drag.onPointerDown}
           className="flex shrink-0 cursor-grab items-center gap-1 border-b border-hairline bg-surface-2 pl-1.5 pr-0.5 text-2xs text-text-dim active:cursor-grabbing"
         >
-          <ICON.grip size={12} aria-hidden className="shrink-0" />
+          {/* The grip is the bar's handle for the keyboard: arrows move the window; the pointer drags the whole bar. */}
+          <button
+            type="button"
+            aria-label={t("addons-addon-window-move", { name })}
+            title={t("addons-addon-window-move", { name })}
+            onKeyDown={onMoveKey}
+            className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center rounded-control focus-visible:text-text active:cursor-grabbing"
+          >
+            <ICON.grip size={12} aria-hidden />
+          </button>
           {/* content, never translated */}
           <span className="min-w-0 flex-1 truncate font-medium text-text">{name}</span>
           {w.closable && (
@@ -284,6 +347,7 @@ export function AddonWindow({
             onPointerMove={onResizeMove}
             onPointerUp={onResizeUp}
             onPointerCancel={onResizeUp}
+            onKeyDown={onResizeKey}
             className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize touch-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           >
             <span aria-hidden className="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-sm border-b border-r border-text-dim" />

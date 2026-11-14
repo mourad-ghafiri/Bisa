@@ -10,13 +10,17 @@
   var copy = document.getElementById("copy"), remove = document.getElementById("remove");
   var index = { order: [], current: null, colors: {} };
   var texts = {};
-  var timer = null, armed = null, canStore = false;
+  // `mayWrite`: the pad was read, so what is written is written over what is known. `unread`: the
+  // notes whose own text did not come — shown as they are, and never saved over.
+  var timer = null, armed = null, canStore = false, mayWrite = false, unread = {};
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function say(text) { status.textContent = text || ""; }
   function newId() { return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); }
   function colorOf(id) { return N.isColor(index.colors[id]) ? index.colors[id] : "yellow"; }
-  function keyOf(id) { return "note." + id; }
+  function keyOf(id) { return N.NOTE_KEY + id; }
 
   // The strip and the toolbar are drawn from the index; the page from the current note.
   function render() {
@@ -40,8 +44,15 @@
     flush();
     index.current = id;
     page.innerHTML = N.sanitize(texts[id] || "");
+    // A note whose text did not come is not an empty note: it is not written in until it is read.
+    page.setAttribute("contenteditable", unread[id] ? "false" : "true");
+    if (unread[id]) { say("this note could not be read — trying again"); readNote(id).then(function () { if (index.current === id && !unread[id]) { say(""); show(id); } }); }
     render();
     keepIndex();
+  }
+  /** One note's text from the store; a note that does not come is marked, never taken for empty. */
+  function readNote(id) {
+    return bisa.storage.get(keyOf(id)).then(function (n) { texts[id] = typeof n.value === "string" ? N.sanitize(n.value) : ""; delete unread[id]; }, function () { unread[id] = true; });
   }
   N.COLORS.forEach(function (c) {
     var s = document.createElement("button");
@@ -53,17 +64,18 @@
 
   // --- the store: one key per note, and the index -------------------------
   function keepIndex() {
-    if (!canStore) return;
+    if (!canStore || !mayWrite) return;
     bisa.storage.set("notes", JSON.stringify(index)).catch(function (e) { say(e.message); });
   }
   function save() {
     timer = null;
     var id = index.current;
-    if (!id) return;
+    if (!id || unread[id]) return;
     var html = N.sanitize(page.innerHTML);
     if (!N.fits(html)) { say("the note is full"); return; }
     texts[id] = html;
     if (!canStore) { say("not kept: storage not granted"); return; }
+    if (!mayWrite) { say("not kept: the pad could not be read — put it away and show it again"); return; }
     bisa.storage.set(keyOf(id), html).then(function () { say("kept"); }).catch(function (e) { say(e.code === "quota" ? "the pad is full — delete a note" : e.message); });
   }
   function flush() { if (timer) { clearTimeout(timer); save(); } }
@@ -75,6 +87,8 @@
     timer = setTimeout(save, 400);
   });
   page.addEventListener("blur", flush);
+  // The window going — put away, the app closing: what was typed in the last moment is kept.
+  window.addEventListener("pagehide", flush);
   function placeCaretAtEnd() {
     var range = document.createRange(), sel = window.getSelection();
     range.selectNodeContents(page); range.collapse(false);
@@ -134,7 +148,8 @@
     index.order.splice(at, 1);
     delete index.colors[id];
     delete texts[id];
-    if (canStore) bisa.storage.remove(keyOf(id)).catch(function () {});
+    delete unread[id];
+    if (canStore && mayWrite) bisa.storage.remove(keyOf(id)).catch(function () {});
     if (index.order.length === 0) create();
     else show(index.order[Math.min(at, index.order.length - 1)]);
     say("deleted");
@@ -146,29 +161,27 @@
   });
 
   // --- start: the index, then every note it names ------------------------
-  function readIndex(raw) {
-    try {
-      var i = JSON.parse(raw);
-      if (i && Array.isArray(i.order)) {
-        index.order = i.order.filter(function (id) { return typeof id === "string" && id.length > 0 && id.length <= 32; });
-        index.current = index.order.indexOf(i.current) !== -1 ? i.current : index.order[0] || null;
-        if (i.colors && typeof i.colors === "object") index.order.forEach(function (id) { if (N.isColor(i.colors[id])) index.colors[id] = i.colors[id]; });
-      }
-    } catch (_e) { /* a fresh pad */ }
-  }
   bisa.ready().then(function (hello) {
     scheme(hello.theme.scheme);
     bisa.on("theme", function (t) { scheme(t.scheme); });
     bisa.on("visibility", function (v) { if (!v.visible) flush(); });
     canStore = bisa.granted("storage");
     if (!canStore) { say("not kept: storage not granted"); create(); return; }
-    bisa.storage.get("notes").then(function (r) {
-      if (r && r.value) readIndex(r.value);
-      return Promise.all(index.order.map(function (id) {
-        return bisa.storage.get(keyOf(id)).then(function (n) { texts[id] = typeof n.value === "string" ? N.sanitize(n.value) : ""; }).catch(function () { texts[id] = ""; });
-      }));
-    }).catch(function () {}).then(function () {
-      if (index.order.length === 0) create(); else show(index.current);
+    // The index and the keys together: the rule of what they make is `startPad`'s. A store that
+    // did not answer is a pad nothing is written to — a fresh index written there replaced the
+    // stored one and left every note unreachable.
+    Promise.all([bisa.storage.get("notes"), bisa.storage.keys()]).then(function (r) {
+      return N.startPad({ read: true, raw: r[0] && r[0].value, keys: r[1] && r[1].keys });
+    }, function () {
+      return N.startPad({ read: false });
+    }).then(function (pad) {
+      index = pad.index;
+      mayWrite = pad.mayWrite;
+      return Promise.all(index.order.map(readNote)).then(function () {
+        if (index.order.length === 0) create(); else show(index.current);
+        if (!mayWrite) say("the pad could not be read — put it away and show it again");
+        else if (pad.found > 0) say(pad.found === 1 ? "a note was found again" : pad.found + " notes were found again");
+      });
     });
   });
 })();

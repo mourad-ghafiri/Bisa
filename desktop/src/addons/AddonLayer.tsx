@@ -30,7 +30,7 @@ import { AddonScene } from "./AddonScene";
 import { AddonWindow } from "./AddonWindow";
 import type { AddonLoad, AddonSummary } from "./addonBridge";
 import { workSummary } from "../shell/workSummaryModel.mjs";
-import { isScene, slotOf, stoppedWords, visibleAddons } from "./addonsModel.mjs";
+import { isScene, slotOf, stoppedWords, visibleAddons, stackOf } from "./addonsModel.mjs";
 import { setAddonHidden, useAddons } from "./addonsStore";
 
 /** A closed addon draws nothing. */
@@ -58,7 +58,7 @@ function AddonBoundary({ addon, children }: { addon: Addon; children: ReactNode 
 }
 
 export function AddonLayer() {
-  const { addons, hidden, layerShown, switchedOn } = useAddons();
+  const { addons, hidden, layerShown, switchedOn, order } = useAddons();
   const center = useLayerSlot("center");
   const aux = useLayerSlot("aux");
   const slots = useMemo(() => [center, aux], [center, aux]);
@@ -142,6 +142,7 @@ export function AddonLayer() {
   // every window keeps standing above it (portal order is paint order).
   const scenes = shown.filter(isScene);
   const windows = shown.filter((addon) => !isScene(addon));
+  const windowIds = windows.map((addon) => addon.id);
   return (
     <>
       {scenes.map((addon) => (
@@ -154,6 +155,7 @@ export function AddonLayer() {
           <AddonWindow
             addon={addon}
             slot={slotOf(addons, addon.id)}
+            level={stackOf(order, windowIds, addon.id)}
             slots={slots}
             layerVisible
             shielded={shields > 0}

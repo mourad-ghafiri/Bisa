@@ -10,6 +10,15 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Addon windows come forward, answer the keyboard, and are no trap for it.** Pressing a window —
+  its bar or anything inside it — brings it in front of the others. With its grip focused the
+  arrow keys move it, with its corner focused they resize it (`Shift` for a longer step). From
+  inside an addon, `⌘K` opens the palette, `⌘⇧X` hides the layer and `Esc` hands the keyboard back
+  — a chord the page did not use is passed to the app, which acts on those three and nothing else.
+  The palette gains *Show / Hide addons*, *Put … away* / *Show …* for each running addon, and
+  *Addons in Settings*. On a glass theme an addon window is now a frosted pane, where the app's
+  text used to read through it.
+
 - **A membership that is over can be forgotten**: left, removed from or refused, a workspace is
   taken off your list — Settings › People › *Forget…*, `bisa workspace forget <host>`,
   `POST /hosts/{host}/forget` — and what you held of it is moved whole to
@@ -51,6 +60,35 @@ notes (`docs/contributing/release.md`).
   the strip was lost (focus moving into the addon's frame was read as the pointer leaving), the
   scene kept the pointer after a hunt ended until the pointer crossed the strip again, and under a
   dark theme a see-through addon could paint an opaque white ground over the app.
+
+- **The built-in addons share one chrome.** The ink, the dim, the accent, the key and the line in
+  both schemes, the base type, the focus ring and the `hidden` fence are one block every built-in
+  opens with, held equal by a test — where each used to restate them, with small differences
+  (three line weights, three base sizes). Every built-in now paints its first frame in the
+  machine's scheme (thirteen flashed light in a dark app until the app answered); no text is set
+  under 11 px; the load read-outs keep their note line in view and Memory's figure fits; the unit
+  converter's first menu no longer grows to fill the window; tic-tac-toe's tally and the weather's
+  note take a second line instead of being cut; a switch keeps one name (*Mute*, *Glass marks*)
+  and says whether it is on.
+
+- **The built-in addons, one by one.** *Sticky note*: a pad whose store did not answer at start
+  wrote a fresh index over the stored one and left every note unreachable — it now writes nothing
+  until it has read, rebuilds a lost index from the notes themselves (bringing back notes that old
+  fault orphaned), never saves over a note it could not read, keeps the last keystrokes when its
+  window goes, and its toolbar fits the pad (the last paper sat past the edge). *Tetrominal,
+  Linefeed, Linerun*: `?` pauses the run instead of leaving it running under the help; a paused or
+  finished game asks for no frames; `Shift` no longer holds a piece (it is half of `?`); a focused
+  button keeps `Enter` and `Space`. *Media player*: `Space` and the arrows no longer play, seek or
+  change the volume in place of the button or slider that has the keyboard; a YouTube player the
+  window was too small for appears when it grows; a source let go leaves the audio graph.
+  *Weather*: the newest answer wins, a malformed answer is never drawn as *NaN°C, read at…*,
+  showing the window again does not refetch, a failed refresh keeps the reading's age, and a
+  failure is said in plain words. *Calculator*: `Enter` on a focused key presses it; an entry
+  stops at fifteen digits; a digit after `%` starts a new number. *Clock*: the digital face with
+  seconds fits its window. *Stopwatch*: no lap of a stopped watch. *Disk, GPU, Memory, CPU*: no
+  `NaN`, no stale bar, long values cut with a tooltip. *Bug hunt*: its whine no longer runs
+  silently for as long as the page lives. Across them, a value that ticks is no longer announced
+  to a screen reader every second.
 
 - **Addons: answers that stay true.** A link an addon asked to open timed out in the addon after
   ten seconds while the person was still reading the address — and opened anyway; the question

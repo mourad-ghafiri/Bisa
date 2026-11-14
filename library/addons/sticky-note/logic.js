@@ -61,5 +61,57 @@
   function fits(html) { return byteLength(html) <= MAX_HTML_BYTES; }
   function isColor(c) { return COLORS.indexOf(c) !== -1; }
 
-  root.StickyNote = { COLORS: COLORS, MAX_HTML_BYTES: MAX_HTML_BYTES, sanitize: sanitize, plainText: plainText, fits: fits, byteLength: byteLength, isColor: isColor };
+  // --- the pad: an index of notes, each under its own key -------------------
+  /** The key a note is kept under, and the longest id one may have. */
+  var NOTE_KEY = "note.";
+  var MAX_ID_CHARS = 32;
+  function isId(id) { return typeof id === "string" && id.length > 0 && id.length <= MAX_ID_CHARS; }
+  function emptyIndex() { return { order: [], current: null, colors: {} }; }
+
+  /** The stored index as read — or `null` when it is no index at all (absent, cut short, another shape). */
+  function readIndex(raw) {
+    var i;
+    try { i = JSON.parse(raw); } catch (_e) { return null; }
+    if (!i || typeof i !== "object" || !Array.isArray(i.order)) return null;
+    var index = emptyIndex();
+    index.order = i.order.filter(isId);
+    index.current = index.order.indexOf(i.current) !== -1 ? i.current : index.order[0] || null;
+    if (i.colors && typeof i.colors === "object") index.order.forEach(function (id) { if (isColor(i.colors[id])) index.colors[id] = i.colors[id]; });
+    return index;
+  }
+  /** The ids of the notes the store holds, from its keys, in a steady order. */
+  function noteIds(keys) {
+    var out = [];
+    (Array.isArray(keys) ? keys : []).forEach(function (k) {
+      if (typeof k !== "string" || k.indexOf(NOTE_KEY) !== 0) return;
+      var id = k.slice(NOTE_KEY.length);
+      if (isId(id) && out.indexOf(id) === -1) out.push(id);
+    });
+    return out.sort();
+  }
+  /**
+   * How the pad starts, from what the store answered — the one rule that
+   * keeps a person's notes:
+   *
+   * - **not read** (the store did not answer): nothing is known, so nothing
+   *   may be written. Writing a fresh index here replaced the stored one and
+   *   left every note it named unreachable.
+   * - **read**: the index as stored; one that is absent or is no index is
+   *   rebuilt from the notes themselves. A note the index does not name —
+   *   left behind by that old overwrite — comes back at the end (`found`).
+   */
+  function startPad(answer) {
+    if (!answer || !answer.read) return { index: emptyIndex(), mayWrite: false, found: 0 };
+    var index = readIndex(answer.raw) || emptyIndex();
+    var found = 0;
+    noteIds(answer.keys).forEach(function (id) {
+      if (index.order.indexOf(id) !== -1) return;
+      index.order.push(id);
+      found += 1;
+    });
+    if (index.current === null) index.current = index.order[0] || null;
+    return { index: index, mayWrite: true, found: found };
+  }
+
+  root.StickyNote = { NOTE_KEY: NOTE_KEY, readIndex: readIndex, noteIds: noteIds, startPad: startPad, COLORS: COLORS, MAX_HTML_BYTES: MAX_HTML_BYTES, sanitize: sanitize, plainText: plainText, fits: fits, byteLength: byteLength, isColor: isColor };
 })(this);

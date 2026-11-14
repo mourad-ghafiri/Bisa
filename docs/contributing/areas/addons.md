@@ -35,7 +35,7 @@ and the library an addon loads lives in `addons/sdk/`.
 - No token, path, program, secret, message body or file has a method ([18 § The door: the bridge](../../architecture/18-addons.md#the-door-the-bridge)).
 - The network leaves only through the engine's broker: `https`, never this machine, the manifest's declared hosts, the person's lists, `GET` only — every refusal read before a socket opens.
 - A folder is judged whole before a byte is copied; nothing is granted to it by default; a grant is exactly what the manifest declared, and one it never declared is refused by word ([18 § What a person decides, and where](../../architecture/18-addons.md#what-a-person-decides-and-where)).
-- A built-in's `id` is its slug and it wears the platform's version; nothing remote, no `fetch`, `localStorage` or `eval`; its stylesheet fences `[hidden]`, and its pure rules sit in a `logic.js` a Node test runs alone ([Add a built-in addon](../recipes.md#27-add-a-built-in-addon), [guide § Writing an addon](../../guide/addons.md#writing-an-addon)).
+- A built-in's `id` is its slug and it wears the platform's version; nothing remote, no `fetch`, `localStorage` or `eval`; its stylesheet fences `[hidden]`, and a rule worth a test sits in a `logic.js` a Node test runs alone (nine built-ins have one; the read-outs that only draw what the app hands them have none); a value that moves by itself is never a live region; a control that has the keyboard keeps its own keys; every built-in's stylesheet opens with the shared chrome block, word for word ([recipe 27](../recipes.md#27-add-a-built-in-addon)) ([Add a built-in addon](../recipes.md#27-add-a-built-in-addon), [guide § Writing an addon](../../guide/addons.md#writing-an-addon)).
 
 ## Testing a change
 

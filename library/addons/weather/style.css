@@ -1,9 +1,19 @@
-:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --line: rgba(28, 25, 23, 0.15); --field: rgba(28, 25, 23, 0.06); }
-:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --line: rgba(245, 245, 244, 0.18); --field: rgba(245, 245, 244, 0.08); }
+/* --- chrome --- */
+/* What every built-in shares, word for word — a test holds the eighteen copies equal, so a change
+   is made in one and copied to the rest: the ink, the dim, the accent, the key and the line in
+   both schemes; the base type; the fence that makes `hidden` hide; the focus ring. An addon's own
+   tokens and rules come after, and say otherwise only where its surface asks (a paper's ink, a
+   sparkline's line, a pad's larger type). */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
 /* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-html, body { margin: 0; height: 100%; font: 12px/1.35 system-ui, sans-serif; color: var(--ink); background: transparent; }
+/* --- end chrome --- */
+:root { color-scheme: light dark; --field: rgba(28, 25, 23, 0.06); }
+:root[data-scheme="dark"] { --field: rgba(245, 245, 244, 0.08); }
+html, body { line-height: 1.35; }
 .weather { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
 .where { display: flex; gap: 6px; }
 .where input { flex: 1; min-width: 0; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); color: var(--ink); font: inherit; }
@@ -13,9 +23,10 @@ html, body { margin: 0; height: 100%; font: 12px/1.35 system-ui, sans-serif; col
 .place { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; padding: 2px 6px; margin-left: -6px; cursor: pointer; }
 .place:hover { border-color: var(--line); background: var(--field); }
 .place span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chev { color: var(--dim); font-size: 10px; }
+.chev { color: var(--dim); font-size: 11px; }
 .main { display: flex; align-items: center; gap: 8px; }
 .icon { font-size: 28px; line-height: 1; }
 .temp { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .desc, .meta, .note { margin: 0; color: var(--dim); }
-.note { font-size: 11px; margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A sentence, not a label: two lines before it is cut. */
+.note { font-size: 11px; margin-top: auto; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

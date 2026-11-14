@@ -6,6 +6,8 @@
   var running = false, startedAt = 0, elapsed = 0, lastLap = 0, count = 0, frame = null, visible = true, armed = null;
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function fmt(ms) {
     var t = Math.floor(ms / 100), tenths = t % 10, s = Math.floor(t / 10) % 60, m = Math.floor(t / 600);
     return m + ":" + (s < 10 ? "0" : "") + s + "." + tenths;
@@ -18,7 +20,7 @@
   }
   function render() {
     toggle.textContent = running ? "Stop" : "Start";
-    lap.disabled = !running && total() === 0;
+    lap.disabled = !running;
     if (!frame) draw();
   }
   function cell(cls, text) { var s = document.createElement("span"); s.className = cls; s.textContent = text; return s; }
@@ -58,10 +60,10 @@
     reset.classList.add("armed");
     armed = setTimeout(disarm, 2000);
   });
+  render();
   bisa.ready().then(function (hello) {
     scheme(hello.theme.scheme);
     bisa.on("theme", function (t) { scheme(t.scheme); });
     bisa.on("visibility", function (v) { visible = !!v.visible; if (visible && !frame) draw(); });
-    render();
   });
 })();

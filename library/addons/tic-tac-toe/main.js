@@ -18,6 +18,8 @@
     board.appendChild(b); buttons.push(b);
   }
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function vsMachine() { return settings.mode === "machine"; }
   function machineMark() { return "O"; }
   function machinesTurn() { return vsMachine() && !over && turn === machineMark(); }
@@ -30,6 +32,7 @@
   function render() {
     buttons.forEach(function (b, i) {
       b.textContent = cells[i] || "";
+      b.setAttribute("aria-label", "Square " + (i + 1) + ", " + (cells[i] || "empty"));
       b.classList.toggle("o", cells[i] === "O");
       b.disabled = over || !!cells[i] || machinesTurn();
     });
@@ -39,6 +42,7 @@
     tallyEl.textContent = vsMachine()
       ? "you " + t.you + " · machine " + t.machine + " · draws " + t.draws
       : "X " + t.X + " · O " + t.O + " · draws " + t.draws;
+    tallyEl.title = tallyEl.textContent;
     levelSet.hidden = !vsMachine();
   }
   function keep() {

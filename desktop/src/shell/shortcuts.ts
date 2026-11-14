@@ -28,6 +28,8 @@ import { toggleProjectRail } from "../views/_workbench/projectRailStore";
 import { openPanelView, showRightPanel, toggleRightPanel, useRightPanel } from "../views/_workbench/rightPanelStore";
 import { isExplorerCommand, openExplorerSearch, sendExplorerCommand } from "../ui/explorerStore";
 import { provideChords } from "../ui/keymapHints";
+import { provideKeyRelay } from "../ui/keyRelay";
+import { relays } from "../addons/addonBridgeModel.mjs";
 import { selectionChip } from "../views/_workbench/contextChips.mjs";
 import { activeEditor } from "../views/_workbench/editorRegistry";
 import { looseTargetRoot } from "../views/_workbench/dropModel.mjs";
@@ -204,6 +206,17 @@ let keymap: Keymap = resolveKeymap("default", null, isMac);
 const keymapListeners = new Set<() => void>();
 // The kit's menus show chords from here without importing the shell.
 provideChords((id) => chordFor(keymap, id));
+
+// A key an addon's page passed on (18 — Addons): judged by this keymap and the
+// bridge's short list (`relays`). What passes is pressed again where the app
+// hears it — the frame gives the keyboard up first, so the app's own handler
+// runs as for any key, and `Esc` simply hands the keyboard back.
+provideKeyRelay((frame, key) => {
+  const command = key.key === "Escape" ? null : commandForEvent(keymap, key, [], isMac);
+  if (!relays(command, key.key)) return;
+  frame.blur();
+  document.body.dispatchEvent(new KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true }));
+});
 
 export function currentKeymap(): Keymap {
   return keymap;

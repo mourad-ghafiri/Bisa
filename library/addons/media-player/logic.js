@@ -177,6 +177,28 @@
   }
 
   /** A volume step in 0..100. */
+  /**
+   * Whether a key belongs to the control that has the keyboard, and so is
+   * not one of the player's shortcuts: Space and Enter press a button, a
+   * link or a menu; the arrows move a slider and walk a menu; a field takes
+   * everything typed into it. `control` is the focused control's tag and
+   * type, or nothing.
+   */
+  function ownsKey(control, key) {
+    if (!control) return false;
+    var tag = String(control.tag || "").toUpperCase(), type = String(control.type || "").toLowerCase();
+    var arrow = key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
+    var press = key === " " || key === "Enter";
+    if (tag === "TEXTAREA") return true;
+    if (tag === "INPUT") {
+      if (type === "range") return arrow;
+      if (type === "checkbox" || type === "radio" || type === "button" || type === "submit") return press;
+      return true;
+    }
+    if (tag === "SELECT") return press || arrow;
+    if (tag === "BUTTON" || tag === "A") return press;
+    return false;
+  }
   function volumeStep(value, delta) {
     return Math.max(0, Math.min(100, Math.round((value || 0) + delta)));
   }
@@ -228,6 +250,7 @@
     youtubeBox: youtubeBox,
     seekBy: seekBy,
     volumeStep: volumeStep,
+    ownsKey: ownsKey,
     nextSpeed: nextSpeed,
     speedWords: speedWords,
     errorWords: errorWords,

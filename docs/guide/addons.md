@@ -19,7 +19,8 @@ imported — with its switch, one switch per permission it declares, and *Remove
 
 **Import an addon** brings in one of your own, or somebody else's: the folder picker, then the
 platform reads the folder and names every problem before a byte is copied (a missing page, a file
-a bundle may not carry, a permission spelled wrong, a host that is this machine). A clean folder
+a bundle may not carry, a host that is this machine — a manifest that will not parse at all, a
+permission or a key spelled wrong among them, is refused as one sentence naming where). A clean folder
 opens the same review — this time **nothing is granted** until you tick it, and *Turn it on at
 once* is yours to choose.
 
@@ -27,7 +28,11 @@ Every running addon floats over the app at the pet's height: under the notes pan
 dialog. Drag it by its bar (or by the grip that appears on hover when it has no bar); resize it from
 the bottom-right corner when its developer allowed that; close it with its ✕ when they allowed
 that — a closed window is *put away*, not off. Where a window stands is this machine's memory, like
-the pet's.
+the pet's. A window you press — its bar, or anything inside it — comes in front of the others. From
+the keyboard: with its grip focused the arrow keys move it, with its corner focused they resize it
+(`Shift` for a longer step). While you are typing inside an addon, `⌘K` still opens the palette,
+`⌘⇧X` still hides the layer, and `Esc` hands the keyboard back to the app. The palette has the
+layer's switch, *Put … away* / *Show …* for each running addon, and *Addons in Settings*.
 
 **The footer's Addons popover** — the addon glyph at the right of the footer, tinted while any
 window shows, its tooltip *2 of 5 addons showing* — is the short way to everything above without
@@ -60,7 +65,8 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   mode; *New game* starts over.
 - **Tetrominal**, **Linefeed** and **Linerun** — three terminal games, each a session: the prompt
   types `bisa play …`, a click on the screen and then the keys (arrows or `hjkl`; `p` pauses, `r`
-  starts over, `m` mutes, `?` lists them), a status row that speaks like a shell, and the
+  starts over, `m` mutes, `?` lists them — and pauses the run while the list is up), a status row
+  that speaks like a shell, and the
   workspace's line — how many sessions run and, in the accent, how many need you — so you know when
   to leave. The best is kept in each addon's own store; the window resizes and the screen's type
   grows with it.
@@ -82,26 +88,34 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   `+` for another, the count beside them; six papers (yellow, rose, mint, sky, lilac, stone) from the
   swatches; bold, italic, underline, bulleted and numbered lists and *clear formatting* from the
   toolbar that appears on hover (`⌘B`, `⌘I`, `⌘U` too); *Copy* puts the note's text on the clipboard;
-  *Delete* asks once. A note holds about 12 000 characters and says *the note is full* at the cap;
-  pasted text arrives as text. Each note is one key in the addon's store.
-- **Weather** — a city you type, from Open-Meteo through the platform's broker, refreshed every
-  fifteen minutes while shown; the place's name is a button that opens the form again.
+  *Delete* asks once. A note holds 12 000 bytes of text and formatting — about 12 000 Latin letters,
+  half that in a script whose letters take two bytes — and says *the note is full* at the cap;
+  pasted text arrives as text. Each note is one key in the addon's store, under an index of them:
+  a pad whose store did not answer is shown and never written to, and one whose index is lost is
+  rebuilt from its notes, so a note is not lost to a bad start.
+- **Weather** — a city you type, from Open-Meteo through the platform's broker, read again when the
+  reading is fifteen minutes old while shown (showing the window again does not ask sooner); the
+  place's name is a button that opens the form again. A refresh that fails keeps the reading and
+  says when it was read.
 - **Pomodoro** — focus and break, a ring that empties as the phase runs, a notice at each turn where
   you allowed one (and while *Addons* is on under Settings › Capabilities › System ›
   Notifications); the lengths
   behind a gear.
 - **Stopwatch** — start, lap, reset; every lap numbered with its split and its total; *Reset* asks
   once when laps would go.
-- **CPU, GPU, Memory, Disk** — one figure with its unit, a sparkline of the last minute with its
-  last point marked, a bar; GPU says once when the machine has no reader.
+- **CPU, GPU, Memory, Disk** — one figure with its unit, a sparkline of the last sixty samples
+  with its last point marked (Disk has none: a volume does not move by the second), a bar; GPU says
+  once when the machine has no reader.
 - **Needs you** — how many things wait on you, are under review, or are running; the first two are
   doors to the Inbox and the Goals.
 - **Calculator** — four functions applied left to right as typed, `←` takes the last digit back,
-  `=` again repeats the last operation; the keyboard works.
+  `=` again repeats the last operation; an entry holds fifteen digits; the keyboard works, and
+  `Enter` on a focused key presses that key.
 - **Bug hunt** — not a window but a see-through scene over the whole app: spiders, cockroaches,
   beetles, ants, flies, mosquitoes and crickets walk, dart, fly and hop over whatever you are doing
   while it keeps working — the more things are running, the more that crawl. A strip at the right
-  holds the tools: pick a whip, a flyswatter, a slipper, a newspaper or a spray and the scene takes
+  (the left, or the bottom, where a browser tab covers the right)
+  holds the tools (`1`–`6` pick one while hunting): pick a whip, a flyswatter, a slipper, a newspaper or a spray and the scene takes
   the pointer (*Hunt*); the tool is in your hand — it follows the pointer and strikes where you
   click; the whip's tip *is* the pointer, its lash lies back along the way you came and the hand
   rides at the far end, so a click cracks the tip on the spot — a hit splats, a blow frightens the
@@ -239,8 +253,9 @@ diagnostic log (Settings › Node › Logging) records every refusal the bridge 
 refused*, with the addon, the method and the code. Edit, `bisa addon
 remove acme.weather-pro`, import again — an installed bundle is a copy, never a link to your folder.
 
-**Theme.** The `theme` permission is only for hearing changes; `hello.theme.scheme` comes with
-every ready. Follow it with a `[data-scheme="dark"]` block, and keep `prefers-reduced-motion` in
+**Theme.** No permission is needed to follow the theme: `hello.theme.scheme` comes with every
+ready and the `theme` event comes to every addon that listens. The `theme` permission is for the
+one method that asks, `theme.get`. Follow it with a `[data-scheme="dark"]` block, and keep `prefers-reduced-motion` in
 mind — a clock's second hand stops sweeping under it. A page whose window is `transparent` should
 not declare `color-scheme: light dark`: the platform's frame is `color-scheme: light` — the scheme
 of a page that declares none — and a page that disagrees is given an opaque backdrop.

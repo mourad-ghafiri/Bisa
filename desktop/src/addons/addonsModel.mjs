@@ -319,3 +319,61 @@ export function entryOf(manifest) {
 export function barTitle(addon, title) {
   return title && title.trim() !== "" ? title : addon.manifest.name;
 }
+
+/** How many levels stand between the layer's floor and the panels above it. */
+const STACK_LEVELS = 10;
+
+/**
+ * The order windows were brought forward in, after `id` was: `id` last — in
+ * front. Already in front, the same list comes back and nothing is redrawn.
+ * @param {readonly string[]} order @param {string} id
+ */
+export function raised(order, id) {
+  if (order.length > 0 && order[order.length - 1] === id) return order;
+  return [...order.filter((o) => o !== id), id];
+}
+
+/**
+ * How far above the layer's floor a window stands: a window never brought
+ * forward is under every one that was, in the list's own order; the last one
+ * brought forward is on top. A window is raised by its **level**, never by
+ * moving its node — a frame moved in the document loads again. Ten levels
+ * stand under the panels: past ten windows, the ones longest untouched share
+ * the floor.
+ * @param {readonly string[]} order the order windows were brought forward in
+ * @param {readonly string[]} shown the windows showing, in the list's order
+ * @param {string} id
+ */
+export function stackOf(order, shown, id) {
+  const never = shown.filter((s) => !order.includes(s));
+  const stack = [...never, ...order.filter((o) => shown.includes(o))];
+  const at = stack.indexOf(id);
+  if (at === -1) return 0;
+  return Math.max(0, at - Math.max(0, stack.length - STACK_LEVELS));
+}
+
+/**
+ * The palette's rows for the addons: the layer's switch, each running
+ * window's *Put away* or *Show*, and the door to their settings. With the
+ * layer hidden a window's own row would do nothing a person could see, and
+ * with the machine's switch off nothing draws at all — the settings are where
+ * both are changed.
+ * @param {{addons: readonly {id: string, active: boolean, manifest: {name: string}}[], hidden: readonly string[], layerShown: boolean, switchedOn: boolean}} facts
+ * @returns {{id: string, label: string, addon?: string}[]}
+ */
+export function addonCommands({ addons, hidden, layerShown, switchedOn }) {
+  const rows = [];
+  if (switchedOn && addons.length > 0) {
+    rows.push({ id: "layer", label: layerShown ? t("addons-addons-model-hide-addons") : t("addons-addons-model-show-addons") });
+    if (layerShown) {
+      for (const a of addons) {
+        if (!a.active) continue;
+        // content, never translated: the addon's own name.
+        const name = a.manifest.name;
+        rows.push(hidden.includes(a.id) ? { id: `show:${a.id}`, label: t("shell-addons-overlay-show-window", { name }), addon: a.id } : { id: `away:${a.id}`, label: t("shell-addons-overlay-put-away", { name }), addon: a.id });
+      }
+    }
+  }
+  rows.push({ id: "settings", label: t("addons-addons-model-settings") });
+  return rows;
+}

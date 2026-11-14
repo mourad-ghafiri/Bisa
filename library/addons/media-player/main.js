@@ -24,7 +24,8 @@
   var objectUrl = null;        // the blob: URL of a dropped file, revoked on the next
   var audio = { ctx: null, analyser: null, data: null, connected: null };
   var queue = [];
-  var canStore = false, youtubeAllowed = false, embedded = false, boxTimer = null;
+  // `pendingVideo`: a player the window was too small to show — owed, and embedded once it fits.
+  var canStore = false, youtubeAllowed = false, embedded = false, boxTimer = null, pendingVideo = null;
   var visible = true, drawing = null, lastFrame = 0;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var speed = P.SPEEDS[0], muted = false, seeking = false, dragDepth = 0;
@@ -82,7 +83,6 @@
   function renderVolume() {
     muteIcon.setAttribute("href", muted || Number(volume.value) === 0 ? "#i-muted" : "#i-sound");
     mute.setAttribute("aria-pressed", muted ? "true" : "false");
-    mute.setAttribute("aria-label", muted ? "Unmute" : "Mute");
     if (media) { media.muted = muted; media.volume = Number(volume.value) / 100; }
   }
   function toggle() {
@@ -134,6 +134,7 @@
       var source = ctx.createMediaElementSource(el);
       source.connect(audio.analyser);
       audio.connected = el;
+      audio.source = source;
     } catch (e) {
       current.spectrum = false;
     }
@@ -224,6 +225,12 @@
   // --- one element per source --------------------------------------------
   function dropElement() {
     if (!media) return;
+    // Out of the audio graph with it: a source left connected holds its element for as long as the page lives.
+    if (audio.source) {
+      try { audio.source.disconnect(); } catch (e) { /* already gone */ }
+      audio.source = null;
+      audio.connected = null;
+    }
     media.pause();
     media.removeAttribute("src");
     try { media.load(); } catch (e) { /* an element with no source */ }
@@ -283,6 +290,8 @@
 
   // --- the sources --------------------------------------------------------
   function leaveYouTube() {
+    // A player still owed is no longer wanted once another source is asked for.
+    pendingVideo = null;
     if (!embedded) return;
     embedded = false;
     bisa.media.remove().catch(function () {});
@@ -353,19 +362,26 @@
     setMode("youtube");
     say("");
     setTitle("YouTube");
+    remember(P.entryOf(source));
     var box = stageBox();
-    if (!box) { say(P.errorWords("too-small"), true); return; }
+    // Too small to show a player: it is owed, and the window growing brings it (`placeYouTube`).
+    if (!box) { pendingVideo = source.video; say(P.errorWords("too-small"), true); return; }
+    embedYouTube(source.video, box);
+  }
+  function embedYouTube(video, box) {
+    pendingVideo = null;
     embedded = true;
-    bisa.media.embed({ kind: "youtube", video: source.video, box: box }).catch(function (e) {
+    say("");
+    bisa.media.embed({ kind: "youtube", video: video, box: box }).catch(function (e) {
       embedded = false;
       say(e && e.message ? e.message : P.errorWords("unavailable"), true);
     });
-    remember(P.entryOf(source));
   }
   function placeYouTube() {
-    if (!embedded) return;
+    if (!embedded && !pendingVideo) return;
     var box = stageBox();
     if (!box) { say(P.errorWords("too-small"), true); return; }
+    if (pendingVideo) { embedYouTube(pendingVideo, box); return; }
     say("");
     bisa.media.box({ box: box }).catch(function () {});
   }
@@ -421,10 +437,17 @@
   });
 
   // --- keys ---------------------------------------------------------------------
+  /** The control a key was pressed on, as its tag and type — or nothing. */
+  function controlOf(target) {
+    var c = target && target.closest ? target.closest("button, a, input, select, textarea") : null;
+    return c ? { tag: c.tagName, type: c.type } : null;
+  }
   document.addEventListener("keydown", function (e) {
     var inField = e.target === link || e.target === recent;
     if (e.key === "/" && !inField) { e.preventDefault(); link.focus(); return; }
     if (inField || e.metaKey || e.ctrlKey || e.altKey) return;
+    // A focused control keeps its own keys: Space presses the button it is on, the arrows move the slider they are on.
+    if (P.ownsKey(controlOf(e.target), e.key)) return;
     if (app.dataset.mode === "youtube" || app.dataset.mode === "idle") return;
     switch (e.key) {
       case " ": e.preventDefault(); toggle(); break;
@@ -442,7 +465,7 @@
   var fit = window.ResizeObserver ? new ResizeObserver(function () {
     app.classList.toggle("mini", app.clientWidth < 340);
     if (app.dataset.mode === "audio") sizeCanvases();
-    if (embedded) {
+    if (embedded || pendingVideo) {
       if (boxTimer) clearTimeout(boxTimer);
       boxTimer = setTimeout(placeYouTube, 80);
     }

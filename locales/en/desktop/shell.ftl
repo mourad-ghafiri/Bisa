@@ -438,6 +438,7 @@ shell-omnibox-attach-editor-s-selection = Attach: the editor's selection
 shell-omnibox-attach-work-item = Attach: this work item
 shell-omnibox-backlog-todo-doing-done-archived = Backlog · Todo · Doing · Done · Archived
 shell-omnibox-board-kanban-workstreams-cards-columns-due = board kanban workstreams cards columns due mode
+shell-omnibox-addons-keywords = addons widgets windows overlay layer show hide put away
 shell-omnibox-browser-show-hide-browser-pane = Browser — show or hide the Browser pane
 shell-omnibox-browser-web-page-tab-pane-screenshot = browser web page tab pane screenshot
 shell-omnibox-channels-messages-goals-agents-teams-projects = Channels, messages, goals, agents, teams, projects…

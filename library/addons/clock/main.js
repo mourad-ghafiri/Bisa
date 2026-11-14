@@ -49,6 +49,8 @@
   }
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function two(n) { return (n < 10 ? "0" : "") + n; }
   function dateWords(now) { return now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); }
   function smooth() { return prefs.style === "analog" && prefs.seconds && !reduced; }
@@ -72,6 +74,7 @@
   function render() {
     var now = new Date();
     app.dataset.style = prefs.style;
+    app.dataset.seconds = prefs.seconds ? "true" : "false";
     if (prefs.style === "analog") renderAnalog(now); else renderDigital(now);
     if (now.getSeconds() !== lastSecond) {
       lastSecond = now.getSeconds();

@@ -35,6 +35,11 @@ export function notStartedWords(name: string): string;
 export function sceneNotStartedWords(name: string): string;
 export function stoppedWords(name: string): string;
 export function huntStatus(name: string, mode: string): string;
+export function raised(order: readonly string[], id: string): readonly string[];
+/** How far above the layer's floor a window stands. */
+export function stackOf(order: readonly string[], shown: readonly string[], id: string): number;
+/** The palette's rows for the addons. */
+export function addonCommands(facts: { addons: readonly { id: string; active: boolean; manifest: { name: string } }[]; hidden: readonly string[]; layerShown: boolean; switchedOn: boolean }): { id: string; label: string; addon?: string }[];
 export function slotOf(addons: readonly Addon[], id: string): number;
 export function barTitle(addon: Pick<Addon, "manifest">, title: string | null): string;
 export interface ManifestWindow {

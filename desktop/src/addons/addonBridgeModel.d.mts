@@ -72,6 +72,8 @@ export function cut(s: unknown, max: number): string;
 
 export type ParsedMessage =
   | { kind: "hello" }
+  | { kind: "press" }
+  | { kind: "key"; key: RelayedKey }
   | { kind: "call"; id: string; method: string; params: Record<string, unknown> }
   | { kind: "bad"; id: string | null; code: RefusalCode };
 export function parseAddonMessage(data: unknown): ParsedMessage | null;
@@ -168,3 +170,15 @@ export function handleCall(session: AddonSession, call: { id: string; method: st
 export function fetchResult(r: { status: number; content_type?: string | null; body_text: string; truncated: boolean }): { status: number; contentType: string | null; body: string; truncated: boolean };
 /** The code a reply refuses with, or null for one that answers — what the bridge logs. */
 export declare function refusedCode(reply: unknown): string | null;
+
+/** A key a page passed on, as an event's own facts. */
+export interface RelayedKey {
+  key: string;
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+export const RELAYED_COMMANDS: readonly string[];
+export function relays(command: string | null | undefined, key: string): boolean;

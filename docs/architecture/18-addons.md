@@ -108,6 +108,21 @@ tab — only its solid regions; the page keeps its creatures off the tabs' boxes
 menus stand above it as above every window; a drag elsewhere in the layer shields it; put away or
 with the layer off it unmounts like any window, and keeps what it must in its store.
 
+**In front, and by keyboard.** A window is raised by its **level** over the layer's floor
+(`stackOf`: `z-index` 30 to 39, under the panels at 40; the last one pressed on top; past ten
+windows the longest untouched share the floor) — never by moving its node, since a frame moved in
+the document loads again. Three signals raise one: a press on its chrome, focus coming to its own
+controls, and a press inside its page, which the library says itself (`bisa:press`) because the
+app hears nothing inside a frame — and, when the keyboard was already in another window's page,
+not even a blur. The grip and the corner take arrow keys (`keyStep`: 8 px, 32 with Shift), clamped
+and written as the pointer's gestures are. A window with a ground is a frosted pane (`data-pane`)
+like every floating one — on a glass family its surface carries alpha. **A window with the
+keyboard is no trap**: the library passes on a chord or an `Esc` the page did not use (`bisa:key`);
+the bridge hands it to the shell's judge only from the frame that is the active element
+(`ui/keyRelay.ts`, provided by `shell/shortcuts.ts`), which acts on `Esc` and on a chord its keymap
+binds to `RELAYED_COMMANDS` — the palette and the layer's switch — by giving the keyboard back
+and pressing the key where the app hears it. A page says keys; it cannot close a tab or quit.
+
 **Answers that take their time.** A reply the bridge cannot give at once — the node's fetch, a
 person's yes to a link, the clipboard's own word — is given only to the **conversation** that
 asked: a new frame and a new hello each start one (`talk` in `addonBridge.ts`), so a page that

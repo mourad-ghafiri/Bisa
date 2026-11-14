@@ -55,11 +55,14 @@
     }
     return { put: put, text: text, clear: clear, flush: flush, cols: cols, rows: rows };
   }
-  /** Keys to action names: the map's keys only, never with a modifier, the browser kept from them. */
+  /** Whether a key's target is a control with a press of its own. */
+  function onControl(target) { return !!(target && target.closest && target.closest("button, a, input, select, textarea")); }
+  /** Keys to action names: the map's keys only, never with a modifier, the browser kept from them — and Enter and Space left to a focused control, whose press they are. */
   function Keys(map, onAction) {
     function onKey(e) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (!Object.prototype.hasOwnProperty.call(map, e.key)) return;
+      if ((e.key === "Enter" || e.key === " ") && onControl(e.target)) return;
       e.preventDefault();
       onAction(map[e.key], e);
     }
@@ -221,7 +224,7 @@
   var KEYS = {
     ArrowLeft: "left", h: "left", a: "left", ArrowRight: "right", l: "right", d: "right",
     ArrowUp: "rotateCw", k: "rotateCw", w: "rotateCw", x: "rotateCw", z: "rotateCcw",
-    ArrowDown: "softDrop", j: "softDrop", s: "softDrop", " ": "hardDrop", c: "hold", Shift: "hold",
+    ArrowDown: "softDrop", j: "softDrop", s: "softDrop", " ": "hardDrop", c: "hold",
     p: "pause", Escape: "escape", r: "restart", m: "mute", "?": "help", Enter: "start",
   };
   var reduced = reducedMotion();
@@ -295,7 +298,10 @@
       else if (game.pieces > was.pieces) bell.blip("tick");
     }
     render();
+    syncClock();
   }
+  // Paused, over, hidden or at the prompt, nothing moves: the loop asks for no frame until something does.
+  function syncClock() { if (phase === "play" && visible && !game.paused) clock.start(); else clock.stop(); }
   var clock = Clock(function (dt) {
     if (phase !== "play" || !visible) return;
     setGame(T.tick(game, dt));
@@ -315,7 +321,12 @@
     toast(m ? "muted" : "sound on");
   }
   function onAction(name) {
-    if (name === "help") { help.toggle(); return; }
+    // Help covers the game and takes its keys: a run under it is paused, never left running blind.
+    if (name === "help") {
+      if (!help.shown() && phase === "play" && !game.paused) setGame(T.apply(game, "pause"));
+      help.toggle();
+      return;
+    }
     if (name === "escape") {
       if (help.shown()) help.hide();
       else if (phase === "play") setGame(T.apply(game, game.paused ? "resume" : "pause"));

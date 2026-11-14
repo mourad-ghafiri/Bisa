@@ -1,14 +1,14 @@
 // Current conditions for a city, from Open-Meteo through the platform's broker
-// — the only hosts the manifest names — refreshed every fifteen minutes while shown.
+// — the only hosts the manifest names — read again every fifteen minutes while
+// shown. The rules live in `logic.js`.
 (function () {
   "use strict";
-  var GEOCODE = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=";
-  var FORECAST = "https://api.open-meteo.com/v1/forecast?current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&latitude=";
-  var REFRESH_MS = 15 * 60 * 1000;
+  var W = window.Weather;
   var form = document.getElementById("where");
   var cityInput = document.getElementById("city");
   var now = document.getElementById("now");
   var place = document.getElementById("placeName");
+  var change = document.getElementById("change");
   var back = document.getElementById("back");
   var icon = document.getElementById("icon");
   var temp = document.getElementById("temp");
@@ -18,87 +18,91 @@
   var spot = null;
   var timer = null;
   var visible = true;
+  // `readAt`: when the reading on screen was read, and the words for it. `ticket`: the ask whose answer is shown.
+  var readAt = null, readAtWords = "", ticket = 0;
 
-  // WMO weather interpretation codes, as Open-Meteo documents them.
-  var CODES = [
-    [[0], "☀️", "Clear sky"], [[1], "🌤", "Mainly clear"], [[2], "⛅", "Partly cloudy"], [[3], "☁️", "Overcast"],
-    [[45, 48], "🌫", "Fog"], [[51, 53, 55], "🌦", "Drizzle"], [[56, 57], "🌧", "Freezing drizzle"],
-    [[61, 63, 65], "🌧", "Rain"], [[66, 67], "🌧", "Freezing rain"], [[71, 73, 75], "🌨", "Snow"], [[77], "🌨", "Snow grains"],
-    [[80, 81, 82], "🌦", "Rain showers"], [[85, 86], "🌨", "Snow showers"], [[95], "⛈", "Thunderstorm"], [[96, 99], "⛈", "Thunderstorm with hail"],
-  ];
-  function describe(code) {
-    for (var i = 0; i < CODES.length; i++) if (CODES[i][0].indexOf(code) !== -1) return { icon: CODES[i][1], text: CODES[i][2] };
-    return { icon: "🌡", text: "Code " + code };
-  }
   function scheme(s) { document.documentElement.dataset.scheme = s; }
-  function say(text) { note.textContent = text || ""; }
-  // A stored spot is a place with a name and finite coordinates — anything else is no spot.
-  function spotOf(v) {
-    if (!v || typeof v !== "object" || typeof v.name !== "string" || v.name === "") return null;
-    var lat = Number(v.lat), lon = Number(v.lon);
-    if (!isFinite(lat) || !isFinite(lon)) return null;
-    return { name: v.name, lat: lat, lon: lon, query: typeof v.query === "string" ? v.query : "" };
-  }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  // The whole sentence is there for a pointer where the window is too narrow for it.
+  function say(text) { note.textContent = text || ""; note.title = text || ""; }
   function fetchJson(url) {
     return bisa.network.fetch({ url: url, accept: "application/json" }).then(function (r) {
-      if (r.status !== 200) throw new Error("the service answered " + r.status);
+      if (r.status !== 200) throw { status: r.status };
       return JSON.parse(r.body);
     });
   }
-  function show(current, units) {
-    var d = describe(Number(current.weather_code));
-    icon.textContent = d.icon;
-    temp.textContent = Math.round(Number(current.temperature_2m)) + (units.temperature_2m || "°C");
-    desc.textContent = d.text;
-    meta.textContent = "wind " + Math.round(Number(current.wind_speed_10m)) + " " + (units.wind_speed_10m || "km/h") + " · humidity " + Number(current.relative_humidity_2m) + "%";
+  function show(reading) {
+    icon.textContent = reading.icon;
+    temp.textContent = reading.temperature;
+    desc.textContent = reading.text;
+    meta.textContent = reading.meta;
+    readAt = Date.now();
+    readAtWords = new Date(readAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
     showNow();
-    say("read at " + new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+    say("read at " + readAtWords);
   }
+  /** A read that failed: said in plain words — and over a reading that stands, with that reading's age. */
+  function failed(e) { say(readAt !== null ? W.staleWords(readAtWords) : W.failureWords(e)); }
   // One thing at a time: the reading, or the form — the form with a way back
   // while a place is known.
   function showNow() { now.hidden = false; form.hidden = true; }
   function showForm() { now.hidden = true; form.hidden = false; back.hidden = !spot; cityInput.value = spot ? spot.query || "" : ""; cityInput.focus(); cityInput.select(); }
-  function refresh() {
+  function backToReading() { if (!spot) return; showNow(); change.focus(); }
+  /** Read the weather for the place — when it is due, or when asked outright. */
+  function refresh(force) {
     if (!spot || !visible) return;
-    say("reading…");
-    fetchJson(FORECAST + spot.lat + "&longitude=" + spot.lon).then(function (j) {
-      show(j.current || {}, j.current_units || {});
-    }).catch(function (e) { say(e.message); });
+    if (!force && !W.due(readAt, Date.now())) return;
+    var mine = (ticket = W.asking(ticket).ticket);
+    if (readAt === null) say("reading…");
+    fetchJson(W.forecastUrl(spot)).then(function (j) {
+      // An answer to an ask a newer one replaced — another place, a later read — is let go.
+      if (!W.lands(mine, ticket)) return;
+      var reading = W.readingOf(j);
+      if (!reading) throw { notReading: true };
+      show(reading);
+    }).catch(function (e) { if (W.lands(mine, ticket)) failed(e); });
   }
   function schedule() {
     if (timer) clearInterval(timer);
-    timer = visible ? setInterval(refresh, REFRESH_MS) : null;
+    timer = visible ? setInterval(function () { refresh(false); }, 60 * 1000) : null;
   }
   function locate(city) {
+    var mine = (ticket = W.asking(ticket).ticket);
     say("finding " + city + "…");
-    return fetchJson(GEOCODE + encodeURIComponent(city)).then(function (j) {
-      var r = j.results && j.results[0];
-      if (!r) throw new Error("no place called " + city);
-      spot = { name: r.name + (r.country_code ? ", " + r.country_code : ""), lat: r.latitude, lon: r.longitude, query: city };
+    return fetchJson(W.geocodeUrl(city)).then(function (j) {
+      if (!W.lands(mine, ticket)) return;
+      var found = W.placeOf(j, city);
+      if (!found) throw { noPlace: city };
+      spot = found;
+      // Another place: its weather has never been read.
+      readAt = null;
       place.textContent = spot.name;
+      place.title = spot.name;
       if (bisa.granted("storage")) bisa.storage.set("spot", JSON.stringify(spot)).catch(function () {});
-      refresh();
+      refresh(true);
       schedule();
-    }).catch(function (e) { say(e.message); });
+    }).catch(function (e) { if (W.lands(mine, ticket)) say(W.failureWords(e)); });
   }
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var city = cityInput.value.trim();
     if (city) locate(city);
   });
-  document.getElementById("change").addEventListener("click", showForm);
-  back.addEventListener("click", function () { if (spot) showNow(); });
-  form.addEventListener("keydown", function (e) { if (e.key === "Escape" && spot) { e.preventDefault(); showNow(); } });
+  change.addEventListener("click", showForm);
+  back.addEventListener("click", backToReading);
+  form.addEventListener("keydown", function (e) { if (e.key === "Escape" && spot) { e.preventDefault(); backToReading(); } });
 
   bisa.ready().then(function (hello) {
     scheme(hello.theme.scheme);
     bisa.on("theme", function (t) { scheme(t.scheme); });
-    bisa.on("visibility", function (v) { visible = !!v.visible; schedule(); if (visible) refresh(); });
+    // Shown again: read only when the reading is due — a tab passing over the window is no reason to ask the service.
+    bisa.on("visibility", function (v) { visible = !!v.visible; schedule(); if (visible) refresh(false); });
     if (!bisa.granted("network")) { say("Grant the network permission in Settings › Addons to read the weather."); return; }
     var start = bisa.granted("storage") ? bisa.storage.get("spot") : Promise.resolve({ value: null });
     start.then(function (r) {
-      if (r && r.value) { try { spot = spotOf(JSON.parse(r.value)); } catch (_e) { spot = null; } }
-      if (spot) { place.textContent = spot.name; refresh(); schedule(); } else say("Type a city.");
+      if (r && r.value) { try { spot = W.spotOf(JSON.parse(r.value)); } catch (_e) { spot = null; } }
+      if (spot) { place.textContent = spot.name; place.title = spot.name; refresh(true); schedule(); } else say("Type a city.");
     }).catch(function () { say("Type a city."); });
   });
 })();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntStatus, staleWindowIds, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, addonCommands, huntStatus, raised, stackOf, staleWindowIds, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
@@ -206,4 +206,44 @@ test("a window's remembered place is forgotten once its addon is no longer insta
   assert.deepEqual(staleWindowIds(keys, "bisa.addons.window.", [{ id: "clock" }]), ["gone"]);
   assert.deepEqual(staleWindowIds(keys, "bisa.addons.window.", [{ id: "clock" }, { id: "gone" }]), []);
   assert.deepEqual(staleWindowIds([], "bisa.addons.window.", []), []);
+});
+
+test("a window pressed or focused comes forward, and the stack fits under the panels however many windows there are", () => {
+  assert.deepEqual(raised([], "clock"), ["clock"]);
+  assert.deepEqual(raised(["clock", "cpu"], "clock"), ["cpu", "clock"]);
+  const top = ["cpu", "clock"];
+  assert.equal(raised(top, "clock"), top, "already in front: the same list, nothing redrawn");
+  // A level is how far above the layer's floor a window stands: never raised is the floor, in the list's own order.
+  const shown = ["calculator", "clock", "cpu"];
+  assert.equal(stackOf([], shown, "calculator"), 0);
+  assert.equal(stackOf([], shown, "cpu"), 2);
+  assert.equal(stackOf(["cpu", "calculator"], shown, "clock"), 0, "never raised stays under the ones that were");
+  assert.equal(stackOf(["cpu", "calculator"], shown, "cpu"), 1);
+  assert.equal(stackOf(["cpu", "calculator"], shown, "calculator"), 2);
+  assert.equal(stackOf(["gone", "cpu"], shown, "cpu"), 2, "an addon no longer shown takes no level");
+  assert.equal(stackOf([], shown, "nowhere"), 0);
+  // Ten levels stand between the layer's floor and the panels: past ten windows the oldest share the floor.
+  const many = Array.from({ length: 14 }, (_, i) => `a${i}`);
+  assert.equal(stackOf(many, many, "a13"), 9);
+  assert.equal(stackOf(many, many, "a5"), 1);
+  assert.equal(stackOf(many, many, "a4"), 0);
+  assert.equal(stackOf(many, many, "a0"), 0);
+});
+
+test("the palette's rows for the addons: the layer, each running window, and the door to their settings", () => {
+  const list = [addon("clock"), addon("cpu"), { ...addon("calculator"), active: false, enabled: false }];
+  const rows = addonCommands({ addons: list, hidden: ["cpu"], layerShown: true, switchedOn: true });
+  assert.deepEqual(rows.map((r) => [r.id, r.label]), [
+    ["layer", "Hide addons"],
+    ["away:clock", "Put clock away"],
+    ["show:cpu", "Show cpu"],
+    ["settings", "Addons in Settings"],
+  ]);
+  assert.equal(rows[1].addon, "clock");
+  // The layer hidden: its row brings it back, and a window's own row would do nothing a person could see.
+  assert.deepEqual(addonCommands({ addons: list, hidden: [], layerShown: false, switchedOn: true }).map((r) => r.id), ["layer", "settings"]);
+  assert.equal(addonCommands({ addons: list, hidden: [], layerShown: false, switchedOn: true })[0].label, "Show addons");
+  // The machine's switch off, or nothing installed: only the door to the settings, where both are changed.
+  assert.deepEqual(addonCommands({ addons: list, hidden: [], layerShown: true, switchedOn: false }).map((r) => r.id), ["settings"]);
+  assert.deepEqual(addonCommands({ addons: [], hidden: [], layerShown: true, switchedOn: true }).map((r) => r.id), ["settings"]);
 });

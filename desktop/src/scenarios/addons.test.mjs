@@ -309,3 +309,141 @@ test("the host keeps its answers true: a switch outlives the reads it raced, a r
   assert.match(win, /if \(sameSize\(next, size\)\) return;/, "a resize to the size it has writes nothing and redraws nobody");
   assert.match(src("../views/_settings/AddonsPanel.tsx"), /await api\.setSetting[\s\S]{0,200}void refreshAddons\(\);/, "the machine's switch re-reads the list itself, bus or no bus");
 });
+
+test("a window comes forward, moves and resizes by keyboard, and passes the app's chords on", () => {
+  const win = src("../addons/AddonWindow.tsx");
+  // Forward by level, never by moving its node: a frame moved in the document loads again.
+  assert.match(win, /zIndex: LAYER_FLOOR \+ level/, "the stack is a level over the layer's floor");
+  assert.ok(win.includes("onPointerDownCapture={() => raiseAddon(addon.id)}"), "a press anywhere on the window raises it");
+  assert.match(win, /if \(document\.activeElement === frame\.current\) raiseAddon\(addon\.id\);/, "and so does a press inside its page, which the app hears as its own blur");
+  assert.ok(win.includes("onPress: () => raiseAddon(addon.id),") && src("../addons/addonBridge.ts").includes('if (parsed.kind === "press")'), "and a press its page says itself — the one signal when another window's page had the keyboard");
+  assert.equal(win.split("onKeyDown={onMoveKey}").length - 1, 2, "the grip of a bare window and the grip in a bar both move by arrows");
+  assert.ok(win.includes("onKeyDown={onResizeKey}"), "the corner resizes by arrows");
+  assert.ok(win.includes('data-pane={w.transparent ? undefined : ""}'), "a window with a ground is a frosted pane on a glass family; a see-through one is not");
+  assert.ok(win.includes('role="group"') && !win.includes('role="dialog"'), "a window is a group on the page, not a dialog that claims the page");
+  const layer = src("../addons/AddonLayer.tsx");
+  assert.match(layer, /level=\{stackOf\(order, windowIds, addon\.id\)\}/, "the layer hands each window its level");
+  // The relay: the bridge passes a key to the door the shell provides, only from the frame that has the keyboard.
+  const bridge = src("../addons/addonBridge.ts");
+  assert.match(bridge, /if \(parsed\.kind === "key"\) \{\s*if \(session\.current\.ready && document\.activeElement === frame\) relayKey\(frame, parsed\.key\);/);
+  const shortcuts = src("../shell/shortcuts.ts");
+  assert.ok(shortcuts.includes("provideKeyRelay(") && shortcuts.includes("relays(command, key.key)"), "the shell judges the key by its own keymap and the bridge's short list");
+  assert.ok(!src("../ui/keyRelay.ts").includes("../shell"), "the kit holds the door and knows nothing of the shell");
+  // The palette offers the layer, each running window and the settings.
+  const omnibox = src("../shell/Omnibox.tsx");
+  assert.ok(omnibox.includes("addonCommands({ addons, hidden, layerShown, switchedOn })"), "the rows are the model's");
+});
+
+test("the terminal games: help pauses, a game at rest asks for no frames, a key map holds no modifier, and a focused button keeps its keys", () => {
+  for (const game of ["tetrominal", "linefeed", "linerun"]) {
+    const main = readFileSync(new URL(`library/addons/${game}/main.js`, root), "utf8");
+    // Opening help mid-run used to leave the game running under the card, every game key swallowed: a crash within seconds.
+    assert.match(main, /if \(name === "help"\) \{\s*if \(!help\.shown\(\) && phase === "play" && !game\.paused\) setGame\([A-Z]\.apply\(game, "pause"\)\);\s*help\.toggle\(\);/, `${game}: help pauses a run`);
+    // Paused, over, or at the prompt: nothing moves, so no frame is asked for.
+    assert.ok(main.includes('function syncClock() { if (phase === "play" && visible && !game.paused) clock.start(); else clock.stop(); }'), `${game}: the loop follows the game`);
+    assert.match(main, /render\(\);\s*syncClock\(\);\s*\}/, `${game}: every change of the game settles the loop`);
+    const keys = main.slice(at(main, "var KEYS = {"), main.indexOf("};", at(main, "var KEYS = {")));
+    for (const modifier of ["Shift", "Control", "Alt", "Meta"]) assert.ok(!new RegExp(`\\b${modifier}\\b`).test(keys), `${game}: ${modifier} is half of another key — ? is Shift and /`);
+    // The kit: Enter and Space on a focused control are that control's.
+    assert.ok(main.includes('if ((e.key === "Enter" || e.key === " ") && onControl(e.target)) return;'), `${game}: a focused button keeps Enter and Space`);
+  }
+});
+
+test("the media player: its shortcuts ask the rule, a player too small to show is tried again, and a source let go is let go", () => {
+  const main = readFileSync(new URL("library/addons/media-player/main.js", root), "utf8");
+  assert.ok(main.includes("if (P.ownsKey(controlOf(e.target), e.key)) return;"), "a focused control keeps its own keys");
+  assert.ok(main.includes("pendingVideo = source.video;") && main.includes("if (embedded || pendingVideo) {"), "a window grown large enough gets the player it was owed");
+  assert.match(main, /audio\.source\.disconnect\(\);/, "an element dropped leaves the audio graph");
+  const page = readFileSync(new URL("library/addons/media-player/index.html", root), "utf8");
+  for (const id of ["now", "total"]) assert.match(page, new RegExp(`<output id="${id}"[^>]*aria-live="off"`), `${id} ticks every second and is not announced`);
+});
+
+test("what ticks is never announced: a value that moves by itself is not a live region", () => {
+  const page = (slug) => readFileSync(new URL(`library/addons/${slug}/index.html`, root), "utf8");
+  // A live region is for what a person asked about or must be told — a turn, a result, a failure. A clock, a countdown,
+  // a load read-out and a running count change on their own, and announced they talk over everything else.
+  for (const slug of ["cpu", "gpu", "memory", "disk"]) assert.doesNotMatch(page(slug), /<main[^>]*aria-live/, `${slug}: the whole widget was a live region, said every five seconds`);
+  assert.doesNotMatch(page("clock"), /id="reading"[^>]*aria-live/, "the clock's reading is there to be read, not said every second");
+  assert.match(page("pomodoro"), /<output id="time"[^>]*aria-live="off"/, "the countdown is not said every second");
+  assert.match(page("pomodoro"), /id="phase"[^>]*aria-live="polite"/, "the turn of a phase is");
+  assert.doesNotMatch(page("bug-hunt"), /id="wait"[^>]*aria-live/, "the running count is redrawn on every blow");
+  assert.match(page("stopwatch"), /<output id="time"[^>]*aria-live="off"/);
+});
+
+test("the small widgets say what is so: a lap needs a running watch, a square says its mark, a door that cannot open says why", () => {
+  const main = (slug) => readFileSync(new URL(`library/addons/${slug}/main.js`, root), "utf8");
+  assert.ok(main("stopwatch").includes("lap.disabled = !running;"), "a lap of a stopped watch was a lap of nothing");
+  assert.match(main("stopwatch"), /\n  render\(\);\n  bisa\.ready\(\)/, "drawn before the app answers, so no control waits on it");
+  assert.ok(main("tic-tac-toe").includes('b.setAttribute("aria-label", "Square " + (i + 1) + ", " + (cells[i] || "empty"));'), "a square's name carries its mark — the name alone hid X and O from a screen reader");
+  assert.ok(main("needs-you").includes("Grant “open one of the app's screens” in Settings › Addons to go there."), "a door without its grant says what to grant");
+  assert.match(main("unit-converter"), /\n  setKind\(pref\.kind, true\);\n\n  bisa\.ready\(\)/, "the menus are filled before the app answers");
+  assert.ok(main("disk").includes("typeof d.workspace_bytes === \"number\""), "a size that did not come is left out, never said as NaN");
+  assert.ok(main("gpu").includes('barfill.style.width = "0%";') && main("gpu").includes("history.length = 0;"), "a reader that went away takes its last bar and line with it");
+  for (const slug of ["cpu", "gpu", "memory", "disk"]) assert.match(readFileSync(new URL(`library/addons/${slug}/style.css`, root), "utf8"), /\.value \{[^}]*text-overflow: ellipsis/, `${slug}: a long value is cut with its dots, never pushed out of the window`);
+});
+
+test("Bug hunt makes no sound nobody hears: the whine's oscillators end when it does, and a hidden scene's audio rests", () => {
+  const main = readFileSync(new URL("library/addons/bug-hunt/main.js", root), "utf8");
+  // The whine was started once and only turned down: two oscillators ran for as long as the page lived — at work, muted, hidden.
+  assert.match(main, /ending\.osc\.stop\(/, "the whine's oscillators are stopped when it ends");
+  assert.ok(main.includes("audio.whine = null;"), "and made again when the next mosquito comes");
+  assert.match(main, /audio\.ctx\.suspend\(\)/, "a scene nobody sees rests its audio");
+  assert.match(main, /audio\.ctx\.resume\(\)/, "and wakes it when seen again");
+  assert.ok(!main.includes('state.working === 1 ? "running" : "running"'), "one word needs no choice");
+});
+
+test("the sticky note's toolbar is one row that fits the pad, and a paper's dot is not sized as a tool", () => {
+  const css = readFileSync(new URL("library/addons/sticky-note/style.css", root), "utf8");
+  // Six tools and six papers on one row at the pad's default 220: the last paper used to sit past the edge,
+  // because a swatch — a button in the toolbar — took the tools' minimum width.
+  assert.match(css, /\.tools \.swatch \{[^}]*min-width: 0; width: 12px; height: 12px;/);
+  assert.match(css, /\.tools \{[^}]*overflow-x: auto;/, "narrower than that, the row scrolls sideways rather than take the note's lines");
+  assert.doesNotMatch(css, /\.tools \{[^}]*flex-wrap: wrap/);
+  const manifest = JSON.parse(readFileSync(new URL("library/addons/sticky-note/addon.json", root), "utf8"));
+  // 6 tools × 18 + 5 gaps × 1, the spacer's 4, 6 papers × 12 + 5 gaps × 3 and its 4 of padding, the row's 12 of padding.
+  assert.ok(6 * 18 + 5 + 4 + 6 * 12 + 15 + 4 + 12 <= manifest.window.width, "the row's own arithmetic fits the default width");
+});
+
+test("no built-in sets text a person must read under eleven pixels", () => {
+  const dir = new URL("library/addons/", root);
+  for (const slug of readdirSync(dir).filter((n) => !n.startsWith("."))) {
+    const css = readFileSync(new URL(`${slug}/style.css`, dir), "utf8");
+    const small = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1])).filter((px) => px < 11);
+    assert.deepEqual(small, [], `${slug}: ${small.join(", ")}px`);
+  }
+});
+
+test("the eighteen built-ins share one chrome, word for word, and say otherwise only after it", () => {
+  const dir = new URL("library/addons/", root);
+  const slugs = readdirSync(dir).filter((n) => !n.startsWith(".")).sort();
+  const chromeOf = (css) => css.slice(at(css, "/* --- chrome --- */"), at(css, "/* --- end chrome --- */"));
+  const first = chromeOf(readFileSync(new URL(`${slugs[0]}/style.css`, dir), "utf8"));
+  for (const token of ["--ink: #1c1917", "--dim: #78716c", "--accent: #b45309", "--key:", "--line:", '[data-scheme="dark"]', "--ink: #f5f5f4", "font: 12px system-ui, sans-serif", "[hidden] { display: none !important; }", ":focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }"]) {
+    assert.ok(first.includes(token), `the chrome holds ${token}`);
+  }
+  for (const slug of slugs) {
+    const css = readFileSync(new URL(`${slug}/style.css`, dir), "utf8");
+    assert.equal(chromeOf(css), first, `${slug}: its chrome is the others', word for word — change one, copy it to the rest`);
+    const own = css.slice(at(css, "/* --- end chrome --- */"));
+    // What the chrome says is said once: an addon restates a shared token only to say something else.
+    assert.ok(!own.includes("[hidden] { display: none !important; }"), `${slug}: the fence is the chrome's`);
+    assert.ok(!own.includes(":focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }"), `${slug}: the ring is the chrome's`);
+    assert.ok(!/^:root(\[data-scheme="dark"\])? \{[^}]*--(accent: #(b45309|fbbf24)|ink: #(1c1917|f5f5f4))/m.test(own), `${slug}: the shared ink and accent are not said twice on the root`);
+    assert.ok(!/html, body \{[^}]*margin: 0/.test(own), `${slug}: the page's reset is the chrome's`);
+  }
+});
+
+test("every built-in paints its first frame in the machine's scheme, and a switch keeps one name", () => {
+  const dir = new URL("library/addons/", root);
+  for (const slug of readdirSync(dir).filter((n) => !n.startsWith("."))) {
+    const main = readFileSync(new URL(`${slug}/main.js`, dir), "utf8");
+    // Thirteen of them drew light until the app answered: a flash in a dark app.
+    assert.ok(main.includes('matchMedia("(prefers-color-scheme: dark)")'), `${slug}: a scheme before the app says its own`);
+  }
+  // A switch says what it is, and `aria-pressed` says whether it is on: a name that flips with the state
+  // reads as *Unmute, pressed*.
+  const hunt = readFileSync(new URL("bug-hunt/main.js", dir), "utf8");
+  assert.ok(!hunt.includes('"Unmute"') && !/setAttribute\("aria-label", marksWords\)/.test(hunt), "Bug hunt's mute and marks keep their names");
+  const media = readFileSync(new URL("media-player/main.js", dir), "utf8");
+  assert.ok(!/setAttribute\("aria-label", [^)]*"Unmute"/.test(media), "the media player's mute keeps its name");
+});

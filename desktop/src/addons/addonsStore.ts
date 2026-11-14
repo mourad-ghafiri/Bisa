@@ -36,7 +36,7 @@ import { reloadOnReconnect } from "../shell/workspaceLoadModel.mjs";
 import type { Addon, AddonPermission } from "../types";
 import type { Placement } from "../ui/Dock";
 import { STORAGE_KEY_PREFIX } from "./addonBridgeModel.mjs";
-import { manifestWindow, pruneHidden, restoreAddon, sameAddon, withEnabled, staleWindowIds } from "./addonsModel.mjs";
+import { manifestWindow, pruneHidden, restoreAddon, sameAddon, withEnabled, staleWindowIds, raised } from "./addonsModel.mjs";
 import { defaultPlacement, sizeBounds, windowPrefFrom } from "./addonWindowModel.mjs";
 import type { Size, WindowPref } from "./addonWindowModel.mjs";
 import { failureReason } from "../ui/failure";
@@ -64,6 +64,8 @@ export interface AddonsState {
   readonly hidden: readonly string[];
   /** A bump per window move or resize, so a window re-reads its preference. */
   readonly windowsVersion: number;
+  /** The order windows were brought forward in — the last is in front. This sitting's alone: nothing is stored. */
+  readonly order: readonly string[];
 }
 
 function readHidden(): string[] {
@@ -81,6 +83,7 @@ let state: AddonsState = {
   layerShown: readPref(webStorage(), LAYER_KEY, switchPref, true),
   hidden: readHidden(),
   windowsVersion: 0,
+  order: [],
 };
 
 const listeners = new Set<() => void>();
@@ -158,6 +161,12 @@ export function toggleAddonLayer(on?: boolean): void {
   const next = on ?? !state.layerShown;
   writePref(webStorage(), LAYER_KEY, switchWord(next));
   set({ ...state, layerShown: next });
+}
+
+/** Bring a window in front of the others — a press on it, or its page taking the keyboard. */
+export function raiseAddon(id: string): void {
+  const order = raised(state.order, id);
+  if (order !== state.order) set({ ...state, order });
 }
 
 /** Put one window away, or bring it back. */

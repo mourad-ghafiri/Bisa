@@ -8,7 +8,7 @@
 <body>
   <main id="app" class="pomo" aria-label="Pomodoro">
     <div class="top">
-      <span id="phase" class="phase">Focus</span>
+      <span id="phase" class="phase" aria-live="polite">Focus</span>
       <span id="count" class="count"></span>
       <button id="gear" class="gear" type="button" aria-label="Lengths" title="Lengths" aria-expanded="false" aria-controls="lengths">⚙</button>
     </div>
@@ -17,7 +17,7 @@
         <circle class="track" cx="50" cy="50" r="46"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
         <circle id="arc" class="arc" cx="50" cy="50" r="46"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
       </svg>
-      <output id="time" class="time" aria-live="polite">25:00</output>
+      <output id="time" class="time" aria-live="off">25:00</output>
     </div>
     <div class="row">
       <button id="toggle" type="button">Start</button>

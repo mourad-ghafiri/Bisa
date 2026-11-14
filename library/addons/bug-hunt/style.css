@@ -3,12 +3,22 @@
    built-ins' chrome. The body is transparent and the page never scrolls.
    Every insect wears a rim the scheme picks, so soot and umber read on a
    dark field and slate reads on a light one. */
-:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --surface: rgba(250, 250, 249, 0.86); --rim: rgba(0, 0, 0, 0.38); --crack: rgba(255, 255, 255, 0.86); --crack-under: rgba(0, 0, 0, 0.3); --core: rgba(255, 255, 255, 0.4); --smear: rgba(255, 255, 255, 0.16); }
-:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --surface: rgba(28, 25, 23, 0.86); --rim: rgba(245, 245, 244, 0.6); --crack: rgba(255, 255, 255, 0.8); --crack-under: rgba(0, 0, 0, 0.45); --core: rgba(255, 255, 255, 0.3); --smear: rgba(255, 255, 255, 0.1); }
+/* --- chrome --- */
+/* What every built-in shares, word for word — a test holds the eighteen copies equal, so a change
+   is made in one and copied to the rest: the ink, the dim, the accent, the key and the line in
+   both schemes; the base type; the fence that makes `hidden` hide; the focus ring. An addon's own
+   tokens and rules come after, and say otherwise only where its surface asks (a paper's ink, a
+   sparkline's line, a pad's larger type). */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
 /* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font: 12px/1.4 system-ui, sans-serif; color: var(--ink); }
+/* --- end chrome --- */
+:root { --surface: rgba(250, 250, 249, 0.86); --rim: rgba(0, 0, 0, 0.38); --crack: rgba(255, 255, 255, 0.86); --crack-under: rgba(0, 0, 0, 0.3); --core: rgba(255, 255, 255, 0.4); --smear: rgba(255, 255, 255, 0.16); }
+:root[data-scheme="dark"] { --surface: rgba(28, 25, 23, 0.86); --rim: rgba(245, 245, 244, 0.6); --crack: rgba(255, 255, 255, 0.8); --crack-under: rgba(0, 0, 0, 0.45); --core: rgba(255, 255, 255, 0.3); --smear: rgba(255, 255, 255, 0.1); }
+html, body { line-height: 1.4; overflow: hidden; }
 button { font: inherit; color: inherit; }
 /* The symbol sheet: present, so its gradients resolve, and no size at all. */
 .sheet { position: absolute; width: 0; height: 0; overflow: hidden; }

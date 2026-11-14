@@ -10480,7 +10480,8 @@ export interface Addons {
 }
 /**
  * `POST /addons/validate`: the manifest as the node read it, and every
- * problem the folder has — none, and the folder installs.
+ * problem the folder has as a bundle — none, and the bundle is sound. Whether
+ * its id is free here, and what it would be granted, are the import's to say.
  */
 export interface AddonProblems {
   manifest: AddonManifest;

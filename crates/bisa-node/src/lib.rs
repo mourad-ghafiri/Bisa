@@ -488,7 +488,10 @@ fn router(state: Shared) -> Router {
         // page cannot read `run/token`, and the doors that answer without
         // the token either carry no authority (`/health`, the agent card)
         // or refuse a browser's call by its `Origin` where they act
-        // (`a2a`). What a page can learn is that a node is there.
+        // (`a2a`) — or, for an addon's files and its player page, answer
+        // across origins to the sandboxed frame alone (`addons::frame_alone`,
+        // layered just outside this one). What a page can learn is that a
+        // node is there.
         .layer(tower_http::cors::CorsLayer::permissive())
         // The two addon routes that answer without the token are read across
         // origins by the sandboxed frame alone (`addons::frame_alone`).

@@ -148,3 +148,29 @@ export function windowPrefFrom(raw, opening, fallbackDock, bounds) {
 export function sameSize(a, b) {
   return a.width === b.width && a.height === b.height;
 }
+
+/** A step of the keyboard, in pixels: an arrow, and an arrow with Shift. */
+const KEY_STEP = 8;
+const KEY_STEP_BIG = 32;
+
+/**
+ * What an arrow key moves by — a window by its grip, a size by its corner —
+ * or nothing for any other key.
+ * @param {string} key @param {boolean} shift
+ * @returns {{dx: number, dy: number} | null}
+ */
+export function keyStep(key, shift) {
+  const n = shift ? KEY_STEP_BIG : KEY_STEP;
+  switch (key) {
+    case "ArrowLeft":
+      return { dx: -n, dy: 0 };
+    case "ArrowRight":
+      return { dx: n, dy: 0 };
+    case "ArrowUp":
+      return { dx: 0, dy: -n };
+    case "ArrowDown":
+      return { dx: 0, dy: n };
+    default:
+      return null;
+  }
+}

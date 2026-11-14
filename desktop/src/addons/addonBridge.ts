@@ -20,6 +20,7 @@
  * the window (`onStartMissed`) and to the log.
  */
 
+import { relayKey } from "../ui/keyRelay";
 import { useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import { api } from "../api";
 import { locale } from "../i18n/l10n.mjs";
@@ -65,6 +66,8 @@ export interface AddonBridgeHandlers {
   onMediaRemove: () => void;
   /** The addon said hello and heard ready — a scene sends its first `scene` event here (`AddonScene.tsx`). */
   onReady?: () => void;
+  /** The pointer was pressed inside the page: the window comes forward. */
+  onPress?: () => void;
   /** No hello came within the deadline of the frame's key: the page is blank, broken, or slow — the window says so and offers a reload. */
   onStartMissed?: () => void;
   /** A scene asked for a mode; the host decides and says the mode in the `scene` event. */
@@ -264,6 +267,16 @@ export function useAddonBridge(
         post(helloMessage(session.current, { locale: locale(), scheme: currentScheme() }));
         post(eventMessage("visibility", { visible: latest.current.visible }));
         latest.current.handlers.onReady?.();
+        return;
+      }
+      // A press in the page: the window comes forward.
+      if (parsed.kind === "press") {
+        if (session.current.ready) latest.current.handlers.onPress?.();
+        return;
+      }
+      // A key the page did not use: handed to the app's own judge — only from the frame that has the keyboard.
+      if (parsed.kind === "key") {
+        if (session.current.ready && document.activeElement === frame) relayKey(frame, parsed.key);
         return;
       }
       if (parsed.kind === "bad") {

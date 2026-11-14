@@ -5,6 +5,8 @@
   var cells = { waiting: document.getElementById("waiting"), review: document.getElementById("review"), working: document.getElementById("working") };
   var note = document.getElementById("note");
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function show(summary) {
     if (!summary) return;
     Object.keys(cells).forEach(function (k) {
@@ -13,7 +15,13 @@
       cells[k].classList.toggle("hot", n > 0 && k !== "working");
     });
   }
-  function go(route) { return function () { if (bisa.granted("navigate")) bisa.navigate({ route: route }).catch(function (e) { note.textContent = e.message; }); }; }
+  function go(route) {
+    return function () {
+      // A door that cannot open says why: it looked like a button and did nothing.
+      if (!bisa.granted("navigate")) { note.textContent = "Grant “open one of the app's screens” in Settings › Addons to go there."; return; }
+      bisa.navigate({ route: route }).catch(function (e) { note.textContent = e.message; });
+    };
+  }
   cells.waiting.addEventListener("click", go("inbox"));
   cells.review.addEventListener("click", go("goals"));
   bisa.ready().then(function (hello) {

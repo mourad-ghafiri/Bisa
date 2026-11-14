@@ -2,13 +2,23 @@
    of character cells, a status row that speaks like a shell, the workspace's
    line. The only colour is syntax; the only motion is the game's. Between the
    kit markers lies what the three terminal games share, word for word. */
-/* --- kit --- */
-:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --card: rgba(255, 255, 255, 0.92); --screen: #faf8f4; --cursor: #1c1917; --kw: #1d4ed8; --str: #15803d; --num: #be123c; --fn: #0e7490; --type: #0f766e; --cmt: #8a8580; --op: #4d7c0f; --err: #dc2626; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --card: rgba(28, 25, 23, 0.94); --screen: #0c0a09; --cursor: #f5f5f4; --kw: #93c5fd; --str: #86efac; --num: #fda4af; --fn: #67e8f9; --type: #5eead4; --cmt: #a8a29e; --op: #bef264; --err: #f87171; }
+/* --- chrome --- */
+/* What every built-in shares, word for word — a test holds the eighteen copies equal, so a change
+   is made in one and copied to the rest: the ink, the dim, the accent, the key and the line in
+   both schemes; the base type; the fence that makes `hidden` hide; the focus ring. An addon's own
+   tokens and rules come after, and say otherwise only where its surface asks (a paper's ink, a
+   sparkline's line, a pad's larger type). */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
 /* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
+/* --- end chrome --- */
+/* --- kit --- */
+:root { color-scheme: light dark; --card: rgba(255, 255, 255, 0.92); --screen: #faf8f4; --cursor: #1c1917; --kw: #1d4ed8; --str: #15803d; --num: #be123c; --fn: #0e7490; --type: #0f766e; --cmt: #8a8580; --op: #4d7c0f; --err: #dc2626; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+:root[data-scheme="dark"] { --card: rgba(28, 25, 23, 0.94); --screen: #0c0a09; --cursor: #f5f5f4; --kw: #93c5fd; --str: #86efac; --num: #fda4af; --fn: #67e8f9; --type: #5eead4; --cmt: #a8a29e; --op: #bef264; --err: #f87171; }
+html, body { overflow: hidden; }
 .term { position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; padding: 8px; font-family: var(--mono); font-size: 13px; line-height: 1.25; }
 .prompt, .status, .wait { flex: none; height: 1.25em; margin: 0; overflow: hidden; white-space: pre; }
 .prompt .chev { color: var(--fn); }

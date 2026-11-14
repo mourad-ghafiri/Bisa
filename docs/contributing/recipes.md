@@ -646,6 +646,16 @@ field a language may translate is `catalog-addon-<slug>` (`.description`) in
 `locales/en/catalog.ftl`'s rule; English ships none. `addons/template/` is the starter a developer
 copies; what an addon may ask is `reference/addon-api.md`.
 
+**The shared chrome.** Every built-in's `style.css` opens — after its own header comment — with the
+block between `/* --- chrome --- */` and `/* --- end chrome --- */`: the ink, the dim, the accent,
+the key and the line in both schemes, the base type, the fence that makes `hidden` hide and the
+focus ring. Copy it from any built-in, word for word; the scenario test holds the copies equal, so
+a change is made in one and copied to all. An addon's own tokens and rules come after it and
+restate a shared one only to say something else (a paper's ink, a sparkline's line, a pad's
+larger type). Its `main.js` paints the first frame in the machine's scheme
+(`prefers-color-scheme`) before the app says its own; no text is set under 11 px; a value that
+moves by itself is not a live region; a switch keeps one name and flips `aria-pressed`.
+
 ## 28. Add a dependency
 
 A dependency is a licence the platform ships ([Release § Licence](release.md#licence)), so adding one

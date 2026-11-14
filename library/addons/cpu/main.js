@@ -13,6 +13,8 @@
   var barfill = document.getElementById("barfill");
 
   function scheme(s) { document.documentElement.dataset.scheme = s; }
+  // Before the app has said its scheme: the machine's own preference, so a dark app is not shown a light flash.
+  scheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   function points(values) {
     if (values.length < 2) return "";
     var step = 120 / (MAX - 1);

@@ -49,6 +49,8 @@ import { dmHead, dmLabel, sortDms } from "../views/_studio/channelListModel.mjs"
 import { usePrimaryNav } from "./navOrderStore";
 import { goToSection } from "./sectionDoor";
 import { settingsSearch } from "../views/_settings/settingsLink.mjs";
+import { addonCommands } from "../addons/addonsModel.mjs";
+import { setAddonHidden, toggleAddonLayer, useAddons } from "../addons/addonsStore";
 import { useWorkspace } from "./useWorkspaceData";
 import { useConversations } from "../views/_workbench/conversationsStore";
 import { originWords, routeOf, titleOf } from "../views/_studio/conversationsModel.mjs";
@@ -155,6 +157,7 @@ export function Omnibox({
   const root = useMemo(() => (rootScope && rootId ? { scope: rootScope, id: rootId } : null), [rootScope, rootId]);
   // The IDE's default mode, for the mode entry's fallback (ide/09 §Agent Mode).
   const { resolved } = useResolvedSettings(null);
+  const { addons, hidden, layerShown, switchedOn } = useAddons();
   const harnesses = useLaunchableHarnesses();
   const { launched, sessions: terminalSessions, active: activeTerminal } = useTerminals();
   // `@` symbols: `workspace/symbol` through the node, for the language of the
@@ -721,6 +724,25 @@ export function Omnibox({
       run: () => go({ name: "settings" }),
     });
 
+    // The addons (18): the layer's switch, each running window put away or
+    // shown, and the door to their settings — the footer's popover, from the keyboard.
+    for (const row of addonCommands({ addons, hidden, layerShown, switchedOn })) {
+      push({
+        key: `x:${row.id}`,
+        label: row.label,
+        group: tr("shell-omnibox-do"),
+        keywords: tr("shell-omnibox-addons-keywords"),
+        leading: <ICON.addon size={14} aria-hidden />,
+        trailing: row.id === "layer" ? <CommandHint id="toggle_addons" /> : undefined,
+        run: () => {
+          if (row.id === "layer") toggleAddonLayer();
+          else if (row.id === "settings") return go({ name: "settings" }, settingsSearch("addons"));
+          else if (row.addon) setAddonHidden(row.addon, row.id.startsWith("away:"));
+          onClose();
+        },
+      });
+    }
+
     // Appearance is twenty-six entries. Offering them unprompted would make the
     // palette's resting state a settings screen, so they are reachable by
     // typing — "dark", "teal", "compact", "inter", "larger" — and invisible otherwise.
@@ -962,7 +984,7 @@ export function Omnibox({
     }
 
     return out.slice(0, MAX_ITEMS);
-  }, [act, appearance, conversations.rows, enter, go, mode, nav, onClose, projects, q, remote, teams, workItems, workflows, workstreams, ws, root, index, indexTruncated, activeTerminal, harnesses, launched, resolved, symbolNote, symbols, terminalSessions]);
+  }, [act, appearance, conversations.rows, enter, go, mode, nav, onClose, projects, q, remote, teams, workItems, workflows, workstreams, ws, root, index, indexTruncated, activeTerminal, harnesses, launched, resolved, symbolNote, symbols, terminalSessions, addons, hidden, layerShown, switchedOn]);
 
   useEffect(() => {
     setCursor((c) => Math.min(c, Math.max(0, items.length - 1)));

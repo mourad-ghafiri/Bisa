@@ -79,3 +79,13 @@ test("two sizes are the same size when both edges are", async () => {
   assert.equal(sameSize({ width: 200, height: 120 }, { width: 201, height: 120 }), false);
   assert.equal(sameSize({ width: 200, height: 120 }, { width: 200, height: 121 }), false);
 });
+
+test("an arrow key is a step: eight pixels, thirty-two with Shift, and nothing for any other key", async () => {
+  const { keyStep } = await import("./addonWindowModel.mjs");
+  assert.deepEqual(keyStep("ArrowLeft", false), { dx: -8, dy: 0 });
+  assert.deepEqual(keyStep("ArrowRight", false), { dx: 8, dy: 0 });
+  assert.deepEqual(keyStep("ArrowUp", true), { dx: 0, dy: -32 });
+  assert.deepEqual(keyStep("ArrowDown", true), { dx: 0, dy: 32 });
+  assert.equal(keyStep("Enter", false), null);
+  assert.equal(keyStep("a", true), null);
+});

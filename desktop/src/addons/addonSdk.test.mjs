@@ -18,12 +18,18 @@ function fakeWindow({ manualTimers = false } = {}) {
   const posted = [];
   const listeners = [];
   const timers = [];
+  const keys = [];
+  const presses = [];
   const parent = { postMessage: (m) => posted.push(m) };
   const win = {
     parent,
     posted,
     timers,
-    addEventListener: (type, fn) => type === "message" && listeners.push(fn),
+    addEventListener: (type, fn) => (type === "message" ? listeners.push(fn) : type === "keydown" ? keys.push(fn) : type === "pointerdown" ? presses.push(fn) : 0),
+    /** Press the pointer somewhere in the page. */
+    point: () => presses.forEach((fn) => fn({})),
+    /** Press a key in the page: every keydown listener hears it, as the window would at the end of the bubble. */
+    press: (e) => keys.forEach((fn) => fn({ key: "", code: "", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false, ...e })),
     setTimeout: manualTimers ? (fn, ms) => timers.push({ fn, ms }) : (fn, ms) => setTimeout(fn, ms),
     clearTimeout: manualTimers ? () => {} : (h) => clearTimeout(h),
     /** Fire the oldest timer not yet fired, answering its wait. */
@@ -172,4 +178,36 @@ test("a call is waited for as long as its kind takes: ten seconds, longer for th
   const call = win.posted.at(-1);
   win.deliver({ v: 1, kind: "bisa:reply", id: call.id, ok: true, result: { opened: true } });
   assert.deepEqual(plain(await opened), { opened: true });
+});
+
+test("a chord or an Escape the page did not use is passed to the app, so a window with the keyboard is no trap", () => {
+  const win = fakeWindow();
+  const relayed = () => plain(win.posted.filter((m) => m.kind === "bisa:key"));
+  win.press({ key: "k", code: "KeyK", metaKey: true });
+  assert.deepEqual(relayed(), [], "before the app is ready there is nobody to pass a key to");
+  ready(win);
+  win.press({ key: "k", code: "KeyK", metaKey: true });
+  win.press({ key: "x", code: "KeyX", ctrlKey: true, shiftKey: true });
+  win.press({ key: "Escape", code: "Escape" });
+  assert.deepEqual(relayed(), [
+    { v: 1, kind: "bisa:key", key: "k", code: "KeyK", meta: true, ctrl: false, shift: false, alt: false },
+    { v: 1, kind: "bisa:key", key: "x", code: "KeyX", meta: false, ctrl: true, shift: true, alt: false },
+    { v: 1, kind: "bisa:key", key: "Escape", code: "Escape", meta: false, ctrl: false, shift: false, alt: false },
+  ]);
+  // What the page typed, and what it took for itself, is its own and is never passed on.
+  win.press({ key: "a", code: "KeyA" });
+  win.press({ key: "ArrowLeft", code: "ArrowLeft", shiftKey: true });
+  win.press({ key: "Escape", code: "Escape", defaultPrevented: true });
+  win.press({ key: "k", code: "KeyK", metaKey: true, defaultPrevented: true });
+  assert.equal(relayed().length, 3);
+});
+
+test("a press in the page is said to the app, so its window comes forward whoever had the keyboard", () => {
+  const win = fakeWindow();
+  win.point();
+  assert.equal(win.posted.filter((m) => m.kind === "bisa:press").length, 0, "nobody to tell before ready");
+  ready(win);
+  win.point();
+  win.point();
+  assert.deepEqual(plain(win.posted.filter((m) => m.kind === "bisa:press")), [{ v: 1, kind: "bisa:press" }, { v: 1, kind: "bisa:press" }]);
 });
