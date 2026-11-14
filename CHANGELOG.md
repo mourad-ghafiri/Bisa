@@ -27,7 +27,36 @@ notes (`docs/contributing/release.md`).
   *fresh session* beside it. The two carets are one list (`launchMenuModel`), so they cannot
   disagree.
 
+### Security
+
+- **An addon's `media` hosts are held to the `network` rule.** A `media` permission may no longer
+  name a host on a private or link-local network (`problem-addon-media-private-refused`): the node
+  writes a granted media host into the frame's policy and the webview fetches it itself, past the
+  broker. A permission names at most 32 hosts, each at most 253 bytes; a peer's addon record
+  cannot take a built-in's id.
+
 ### Fixed
+
+- **Bug hunt: no panel over the app, and a hunt that can always be left.** The panel the app drew
+  at the top centre while hunting is gone — the strip's *Work* switch and ✕ now stand first in the
+  strip, where no short window scrolls them away. While hunting, the footer stays the app's, so its
+  Addons control can put the scene away even if the addon's page stopped answering; a page that
+  reloads mid-hunt is back at work. Three defects found on the way are fixed: the first click on
+  the strip was lost (focus moving into the addon's frame was read as the pointer leaving), the
+  scene kept the pointer after a hunt ended until the pointer crossed the strip again, and under a
+  dark theme a see-through addon could paint an opaque white ground over the app.
+
+- **An addon can always be removed, and a write that landed says so.** A record cut short, or a
+  folder left with no record, wedged its id for good: the list skipped it, an install was refused
+  as "already installed; remove it first", and the removal answered not found. The folder is now
+  what is removed, in one move. A switch or a grant that was written but whose old snapshot would
+  not read was answered as an error and never announced, every time; the unreadable snapshot is
+  moved aside instead. A built-in whose files are missing on this machine — a record a peer sent,
+  a bundle folder lost — now gets them from the binary at any version, from the catalog's install
+  and at the next open. Also: eight folders deep is allowed, as the limit always said (the walk
+  stopped at seven); the same grants in another order are no change; a `.DS_Store` no longer
+  refuses a folder; a stale staging folder is cleared at open; an addons folder that cannot be
+  listed no longer stops the workspace from opening; a removal is said on the store's stream.
 
 - **The people of a workspace have one writer.** `members.json` and `invites.json` were each read,
   changed and written with no lock. A member's profile arriving as the owner removed them brought

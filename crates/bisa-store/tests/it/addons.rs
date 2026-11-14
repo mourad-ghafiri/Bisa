@@ -650,9 +650,25 @@ fn a_manifest_that_is_a_folder_or_too_large_a_name_that_is_not_text_and_a_folder
         .set_len(bisa_core::addon::MAX_MANIFEST_BYTES + 1)
         .unwrap();
     assert!(ws.validate_addon_dir(&huge).is_err());
+    // Eight folders deep is the limit, and the limit is allowed — the constant, the refusal's own
+    // sentence and the docs all say eight; the walk used to stop at seven.
+    let eight = plain(src.path(), "eight", "acme.eight");
+    let mut nested = eight.clone();
+    for level in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+        nested = nested.join(level);
+    }
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("x.js"), b"// x").unwrap();
+    let (_, problems) = ws.validate_addon_dir(&eight).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let installed = ws.install_addon(&eight, vec![], false).unwrap();
+    assert!(ws
+        .get_addon_file(installed.id(), "a/b/c/d/e/f/g/h/x.js")
+        .unwrap()
+        .is_file());
     let deep = plain(src.path(), "deep", "acme.deep");
     let mut nested = deep.clone();
-    for level in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+    for level in ["a", "b", "c", "d", "e", "f", "g", "h", "i"] {
         nested = nested.join(level);
     }
     std::fs::create_dir_all(&nested).unwrap();
@@ -682,4 +698,293 @@ fn a_manifest_that_is_a_folder_or_too_large_a_name_that_is_not_text_and_a_folder
             "{problems:?}"
         );
     }
+}
+
+/// Every `DefinitionRemoved` the store said since `rx` was last drained.
+fn removals(
+    rx: &mut tokio::sync::broadcast::Receiver<bisa_store::StoreEvent>,
+) -> Vec<(u16, String)> {
+    let mut out = Vec::new();
+    while let Ok(ev) = rx.try_recv() {
+        if let bisa_store::StoreEvent::DefinitionRemoved { kind, d } = ev {
+            out.push((kind, d));
+        }
+    }
+    out
+}
+
+#[test]
+fn an_addon_whose_record_is_damaged_or_gone_is_still_removed_and_its_id_is_free_again() {
+    // A record cut short, or a folder left with no record at all, used to wedge the id for good:
+    // the list skipped it, an install was refused as "already installed; remove it first", and the
+    // removal answered not found.
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    let paths = Paths::new(ws.root());
+    let mut rx = ws.subscribe_store_events();
+    for damage in ["cut short", "gone"] {
+        ws.install_addon(&from, vec![], false).unwrap();
+        let record = paths.addon_record(&id("acme.byte"));
+        match damage {
+            "cut short" => std::fs::write(&record, b"{\"manifest\":").unwrap(),
+            _ => std::fs::remove_file(&record).unwrap(),
+        }
+        assert!(ws.get_addon(&id("acme.byte")).is_err(), "{damage}");
+        assert!(
+            ws.install_addon(&from, vec![], false).is_err(),
+            "{damage}: the folder still holds the id"
+        );
+        removals(&mut rx);
+        ws.remove_addon(&id("acme.byte"))
+            .unwrap_or_else(|e| panic!("{damage}: {e}"));
+        assert!(!paths.addon_dir(&id("acme.byte")).exists(), "{damage}");
+        assert!(
+            !paths
+                .state_dir(Paths::NS_ADDONS)
+                .join("33407-acme.byte.json")
+                .exists(),
+            "{damage}: its snapshot goes with it"
+        );
+        assert_eq!(
+            removals(&mut rx),
+            vec![(33407, "acme.byte".to_string())],
+            "{damage}: the removal is said once on the store's stream"
+        );
+    }
+    // The id is free: the folder installs again.
+    ws.install_addon(&from, vec![], false).unwrap();
+    // What was never here is still not found, and says nothing.
+    let err = ws.remove_addon(&id("acme.nothing")).unwrap_err();
+    assert!(
+        matches!(err, bisa_store::StoreError::DefinitionNotFound { .. }),
+        "{err}"
+    );
+    assert!(removals(&mut rx).is_empty());
+    // Nothing is left under a staging name.
+    let leftovers: Vec<_> = std::fs::read_dir(paths.addons_dir())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with('.'))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn a_write_that_landed_is_answered_as_landed_over_a_snapshot_that_will_not_read() {
+    // The record was written, then reading the old snapshot's revision failed: the patch answered
+    // an error for a change that was on disk, nothing was announced, and every later patch did the
+    // same. A snapshot that will not read is moved aside and the count starts again.
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    ws.install_addon(&from, vec![], false).unwrap();
+    let snapshot = Paths::new(ws.root())
+        .state_dir(Paths::NS_ADDONS)
+        .join("33407-acme.byte.json");
+    std::fs::write(&snapshot, b"{x").unwrap();
+    let (addon, changes) = ws
+        .update_addon(&id("acme.byte"), Some(true), None)
+        .unwrap();
+    assert!(addon.record.enabled);
+    assert_eq!(changes, vec![AddonChange::Enabled]);
+    assert!(ws.get_addon(&id("acme.byte")).unwrap().record.enabled);
+    let event = snapshot_of(&ws, "acme.byte");
+    let stored: AddonRecord = serde_json::from_str(&event.content).unwrap();
+    assert!(stored.enabled, "the snapshot is written anew");
+    // And the next patch is an ordinary one.
+    let (_, changes) = ws
+        .update_addon(&id("acme.byte"), Some(false), None)
+        .unwrap();
+    assert_eq!(changes, vec![AddonChange::Disabled]);
+    assert_eq!(SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")), 2);
+}
+
+#[test]
+fn a_built_in_whose_files_are_missing_gets_them_from_the_binary_at_any_version() {
+    // A record from a peer, or a bundle folder lost on disk: the record stands at the shipped
+    // version, so the refresh passed it by, the catalog install answered "nothing to do", an import
+    // was refused — and the addon could never be switched on.
+    let (_a, alpha) = ws();
+    let twin_store = MemoryKeyStore::default();
+    bisa_store::KeyStore::set(
+        &twin_store,
+        "owner",
+        &alpha.owner_keys().secret_key().to_secret_hex(),
+    )
+    .unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let beta = Workspace::open_with_keystore(b.path(), Box::new(twin_store)).unwrap();
+    alpha.install(CatalogKind::Addon, "clock").unwrap();
+    alpha
+        .update_addon(&id("clock"), Some(false), Some(vec![]))
+        .unwrap();
+    let event = snapshot_of(&alpha, "clock");
+    beta.ingest_remote_event(&event).unwrap();
+    assert!(!beta.get_addon(&id("clock")).unwrap().files_present);
+
+    // Installing the catalog entry brings the files, and says an addon was installed.
+    let installed = beta.install(CatalogKind::Addon, "clock").unwrap();
+    assert_eq!(installed.addons, vec!["clock".to_string()]);
+    let clock = beta.get_addon(&id("clock")).unwrap();
+    assert!(clock.files_present);
+    assert!(
+        !clock.record.enabled && clock.record.granted.is_empty(),
+        "the switch and the grants the record carried are kept: {:?}",
+        clock.record
+    );
+    assert!(beta.get_addon_file(&id("clock"), "index.html").unwrap().is_file());
+    beta.set_addon_enabled(&id("clock"), true).unwrap();
+    // A second install is the idempotent nothing it always was.
+    assert!(beta.install(CatalogKind::Addon, "clock").unwrap().addons.is_empty());
+
+    // The same at open: a bundle folder lost on disk comes back, the record's choices kept.
+    let paths = Paths::new(beta.root());
+    std::fs::rename(paths.addon_files_dir(&id("clock")), b.path().join("lost-files")).unwrap();
+    assert!(!beta.get_addon(&id("clock")).unwrap().files_present);
+    let again = {
+        let keys = MemoryKeyStore::default();
+        bisa_store::KeyStore::set(
+            &keys,
+            "owner",
+            &beta.owner_keys().secret_key().to_secret_hex(),
+        )
+        .unwrap();
+        drop(beta);
+        Workspace::open_with_keystore(b.path(), Box::new(keys)).unwrap()
+    };
+    let clock = again.get_addon(&id("clock")).unwrap();
+    assert!(clock.files_present && clock.record.enabled);
+}
+
+#[test]
+fn grants_are_kept_in_the_order_declared_and_once_each_so_the_same_grants_are_no_change() {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    let network = AddonPermission::Network {
+        hosts: vec!["api.example.com".into()],
+    };
+    // Installed in another order and twice over: stored as declared, once.
+    let addon = ws
+        .install_addon(
+            &from,
+            vec![network.clone(), AddonPermission::Storage, network.clone()],
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        addon.record.granted,
+        vec![AddonPermission::Storage, network.clone()]
+    );
+    let rev = SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte"));
+    // The same grants said in another order are nothing new: nothing written, nothing to announce.
+    let (_, changes) = ws
+        .update_addon(
+            &id("acme.byte"),
+            None,
+            Some(vec![network.clone(), AddonPermission::Storage]),
+        )
+        .unwrap();
+    assert!(changes.is_empty(), "{changes:?}");
+    assert_eq!(SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")), rev);
+    // A real change is still one, and lands as declared.
+    let (addon, changes) = ws
+        .update_addon(
+            &id("acme.byte"),
+            None,
+            Some(vec![AddonPermission::Theme, AddonPermission::Storage, AddonPermission::Theme]),
+        )
+        .unwrap();
+    assert_eq!(changes, vec![AddonChange::Grants]);
+    assert_eq!(
+        addon.record.granted,
+        vec![AddonPermission::Storage, AddonPermission::Theme]
+    );
+}
+
+#[test]
+fn what_a_crash_left_under_a_staging_name_is_cleared_at_open_and_a_fresh_one_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys = || {
+        let k = MemoryKeyStore::default();
+        k
+    };
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys())).unwrap();
+    let secret = ws.owner_keys().secret_key().to_secret_hex();
+    let addons = Paths::new(ws.root()).addons_dir();
+    drop(ws);
+    std::fs::create_dir_all(addons.join(".staging-999-1/files")).unwrap();
+    std::fs::write(addons.join(".staging-999-1/files/index.html"), PAGE).unwrap();
+    std::fs::create_dir_all(addons.join(".staging-999-2")).unwrap();
+    // The first is a day old — nothing is still assembling it; the second was made just now, by
+    // another process of this workspace for all the open can tell.
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86_400);
+    std::fs::File::open(addons.join(".staging-999-1"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let again = keys();
+    bisa_store::KeyStore::set(&again, "owner", &secret).unwrap();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(again)).unwrap();
+    assert!(!addons.join(".staging-999-1").exists(), "the stale one is cleared");
+    assert!(addons.join(".staging-999-2").exists(), "the fresh one may be in use");
+    assert!(ws.list_addons().unwrap().is_empty());
+}
+
+#[test]
+fn an_addons_folder_that_cannot_be_listed_never_stops_the_workspace_from_opening() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    let secret = ws.owner_keys().secret_key().to_secret_hex();
+    let addons = Paths::new(ws.root()).addons_dir();
+    drop(ws);
+    // Where the folder should be, a file: listing it fails.
+    if addons.exists() {
+        std::fs::rename(&addons, dir.path().join("addons-aside")).unwrap();
+    }
+    std::fs::write(&addons, b"not a folder").unwrap();
+    let keys = MemoryKeyStore::default();
+    bisa_store::KeyStore::set(&keys, "owner", &secret).unwrap();
+    let ws = Workspace::open_with_keystore(dir.path(), Box::new(keys))
+        .expect("the built-ins' refresh is warned past, never a stop to the open");
+    assert!(ws.list_addons().is_err(), "the read itself still says so");
+}
+
+#[test]
+fn a_finder_folder_installs_and_its_ds_store_is_left_behind() {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    std::fs::write(from.join(".DS_Store"), b"\0\0\0\x01Bud1").unwrap();
+    std::fs::write(from.join("img/.DS_Store"), b"\0\0\0\x01Bud1").unwrap();
+    let (_, problems) = ws.validate_addon_dir(&from).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let addon = ws.install_addon(&from, vec![], false).unwrap();
+    let files = Paths::new(ws.root()).addon_files_dir(addon.id());
+    assert!(!files.join(".DS_Store").exists() && !files.join("img/.DS_Store").exists());
+    // Any other dotfile is still refused: a bundle carries nothing hidden.
+    std::fs::write(from.join(".env"), b"KEY=1").unwrap();
+    let (_, problems) = ws.validate_addon_dir(&from).unwrap();
+    assert!(problems.iter().any(|p| p.field.as_deref() == Some("files")), "{problems:?}");
+}
+
+#[test]
+fn a_record_that_names_another_id_than_its_folder_is_not_that_addon() {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    ws.install_addon(&plain(src.path(), "byte", "acme.byte"), vec![], false)
+        .unwrap();
+    let paths = Paths::new(ws.root());
+    let record = paths.addon_record(&id("acme.byte"));
+    let text = std::fs::read_to_string(&record).unwrap();
+    std::fs::write(&record, text.replace("\"acme.byte\"", "\"acme.other\"")).unwrap();
+    let err = ws.get_addon(&id("acme.byte")).unwrap_err();
+    assert!(matches!(err, bisa_store::StoreError::Unreadable { .. }), "{err}");
+    // A patch never writes under the other id.
+    assert!(ws.update_addon(&id("acme.byte"), Some(true), None).is_err());
+    assert!(!paths.addon_dir(&id("acme.other")).exists());
+    // And it can be removed.
+    ws.remove_addon(&id("acme.byte")).unwrap();
 }

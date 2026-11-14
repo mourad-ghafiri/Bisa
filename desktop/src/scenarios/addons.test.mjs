@@ -245,3 +245,40 @@ test("a person installs, grants, shows, moves, resizes, closes and switches off 
   assert.equal(parseAddonMessage({ v: 1, kind: "bisa:call", id: "x", method: "storage.get", params: {} }).kind, "call");
   assert.equal(parseAddonMessage({ kind: "bisa:call", id: "x", method: "storage.get" }), null, "no version, no reading");
 });
+
+test("a hunt can always be left: no panel over the app, Esc and the strip, the footer left to the app, a new page back at work", () => {
+  const scene = src("../addons/AddonScene.tsx");
+  // The panel at the top centre is gone, with its words: the strip the addon draws is where a hunt is left.
+  assert.ok(!scene.includes("huntWords") && !scene.includes("<Button") && !/top-2[^"]*-translate-x-1\/2/.test(scene), "no host-drawn panel in hunt mode");
+  assert.ok(!src("../addons/addonsModel.mjs").includes("addons-addons-model-leave"), "nor its button's word");
+  // What stays: Esc while the app has the keyboard — unless a dialog took the key — and the keyboard handed back on every way out.
+  assert.match(scene, /if \(e\.key !== "Escape" \|\| e\.defaultPrevented\) return;/, "Esc leaves, and a key a dialog took is the dialog's");
+  assert.ok(scene.includes("blurFrame();") && scene.includes('dispatch({ type: "leave" })'), "leaving hands the keyboard back");
+  // A hunt hides the pointer from the host, so the last point it saw is stale when the hunt ends: it is forgotten,
+  // or the scene would take the pointer back at work for a strip the pointer left long ago.
+  assert.match(scene, /const giveBack = useCallback\(\(\) => \{\s*lastPoint\.current = null;\s*blurFrame\(\);/, "leaving a hunt forgets where the pointer was");
+  assert.equal(scene.split("giveBack()").length - 1, 3, "on the page's ask, on Esc, and when the page starts again");
+  // The state is the model's: a new frame and a new hello are events, so a page that reloaded mid-hunt is at work.
+  assert.ok(scene.includes("useReducer(sceneAfter, SCENE_REST)"), "one reducer, the model's");
+  assert.match(scene, /dispatch\(\{ type: "frame" \}\);\s*\}, \[frameKey\]\)/, "another frame is another page");
+  assert.ok(scene.includes('dispatch({ type: "hello" })'), "and so is a page that said hello again");
+  // While hunting the scene gives up the footer: the Addons control there can always put the scene away.
+  assert.match(scene, /clipPath: kept > 0 \? `inset\(0 0 \$\{kept\}px 0\)` : undefined/, "the footer's band is cut from the scene, paint and pointer alike");
+  assert.ok(scene.includes("footerKept(mode, vp.top)"), "by the chrome's own height — the footer is the same token");
+  // A see-through frame says the scheme its page has when the page declares none — light — whatever the app's own.
+  assert.ok(scene.includes('style={{ colorScheme: "light" }}') && src("../addons/AddonWindow.tsx").includes('w.transparent ? { colorScheme: "light" } : undefined'), "never `normal`: under a dark app one engine reads it as dark and paints the pane opaque");
+  // Who has the pointer is said to a screen reader from a line that is always there.
+  assert.match(scene, /<p role="status" className="sr-only">\{huntStatus\(name, mode\)\}<\/p>/);
+
+  // The addon's half: its own ways out stand first in the strip, before the tools, so no short glass scrolls them away.
+  const page = readFileSync(new URL("library/addons/bug-hunt/index.html", root), "utf8");
+  const tools = at(page, 'class="tools"');
+  assert.ok(at(page, 'id="mode"') < tools && at(page, 'id="leave"') < tools, "Work and the way to put the scene away come before the tools");
+  assert.ok(page.includes('aria-label="Put Bug hunt away"') && !page.includes("Leave the scene"), "one meaning for the word leave: the hunt; the cross puts the scene away");
+  const main = readFileSync(new URL("library/addons/bug-hunt/main.js", root), "utf8");
+  assert.ok(main.includes('if (e.key === "Escape" && state.mode === "hunt") { e.preventDefault(); askMode("work"); return; }'), "Esc inside the page asks for work");
+  assert.ok(main.includes("bisa.window.close()"), "the cross puts the scene away");
+  assert.ok(main.includes("H.stripTight(") && !main.includes("state.bounds.height < 520"), "the close layout follows what the strip measures");
+  const manifest = JSON.parse(readFileSync(new URL("library/addons/bug-hunt/addon.json", root), "utf8"));
+  assert.notEqual(manifest.window.closable, false, "and the scene may be closed by its own page");
+});

@@ -4,7 +4,7 @@
  */
 
 import type { ClearBox } from "../shell/browserClearModel.mjs";
-import type { SceneMode } from "./addonBridgeModel.mjs";
+import type { SceneMode, SceneRect } from "./addonBridgeModel.mjs";
 
 export interface SceneViewport {
   width: number;
@@ -38,3 +38,24 @@ export function solidClears(rects: ReadonlyArray<SceneObstacle & { radius?: numb
 export function sceneEvent(facts: { mode: SceneMode; viewport: SceneViewport; slots: ReadonlyArray<SceneSlot>; cuts: boolean }): SceneEventPayload;
 export function sceneKey(event: unknown): string;
 export function modeAfter(current: SceneMode, asked: unknown): SceneMode;
+
+/** What a scene holds: its mode, the regions its page called solid, whether the pointer is over one. */
+export interface SceneState {
+  readonly mode: SceneMode;
+  readonly solid: ReadonlyArray<SceneRect>;
+  readonly hover: boolean;
+}
+/** What moves a scene's state. */
+export type SceneStateEvent =
+  | { type: "ask"; mode: unknown }
+  | { type: "leave" }
+  | { type: "solid"; rects: ReadonlyArray<SceneRect> }
+  | { type: "hover"; on: boolean }
+  | { type: "release" }
+  | { type: "blur"; focused: boolean }
+  | { type: "hello" }
+  | { type: "frame" };
+export const SCENE_REST: SceneState;
+export function sceneAfter(state: SceneState, event: SceneStateEvent): SceneState;
+/** The pixels of its bottom edge a scene gives up: the footer's height while it hunts. */
+export function footerKept(mode: string, footer: number): number;

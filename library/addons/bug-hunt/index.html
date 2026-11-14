@@ -14,6 +14,11 @@
     <div id="hand" class="hand" data-tool="swatter" hidden aria-hidden="true"><span class="shadow"></span><svg viewBox="0 0 128 128"><use id="handUse" href="#x-swatter"></use></svg></div>
   </main>
   <nav id="strip" class="strip" aria-label="Bug hunt tools">
+    <!-- The two ways out stand first, so no short glass scrolls them out of reach: the cross puts the scene away, the switch gives the app its pointer back. -->
+    <div class="head">
+      <button id="leave" class="icon" type="button" aria-label="Put Bug hunt away" title="Put Bug hunt away"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#t-leave"></use></svg></button>
+      <button id="mode" class="switch" type="button" aria-pressed="false" title="Take the pointer and hunt">Hunt</button>
+    </div>
     <div class="hud">
       <output id="score" class="score" aria-label="Score">0</output>
       <span id="streak" class="streak" aria-live="polite"></span>
@@ -27,13 +32,11 @@
       <button class="tool" type="button" data-tool="spray" aria-label="Spray" title="Spray — click to spray the way you moved" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#t-spray"></use></svg></button>
       <button class="tool" type="button" data-tool="squeegee" aria-label="Squeegee" title="Squeegee — drag to wipe the glass" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#t-squeegee"></use></svg></button>
     </div>
-    <button id="mode" class="switch" type="button" aria-pressed="false" title="Hunt (Esc returns to work)">Hunt</button>
     <div class="foot">
       <p id="wait" class="wait" aria-live="polite"></p>
       <button id="difficulty" class="pace" type="button" title="How many come: calm, busy or a swarm"><span class="pace-label">Pace</span><span id="paceValue" class="pace-value">Busy</span></button>
       <button id="marksBtn" class="icon" type="button" aria-label="Glass marks: off — a miss leaves no crack" aria-pressed="false" title="Glass marks: off — a miss leaves no crack (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#t-marks"></use></svg></button>
       <button id="mute" class="icon" type="button" aria-label="Mute" aria-pressed="false" title="Mute"><svg viewBox="0 0 24 24" aria-hidden="true"><use id="muteIcon" href="#t-sound"></use></svg></button>
-      <button id="leave" class="icon" type="button" aria-label="Leave the scene" title="Leave the scene"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#t-leave"></use></svg></button>
     </div>
   </nav>
   <svg class="sheet" aria-hidden="true" focusable="false">

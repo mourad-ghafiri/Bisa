@@ -64,4 +64,3 @@ addons-addons-model-not-started = { $name } has not started
 addons-addons-model-scene-not-started = { $name } has not started. Put it away and show it again to reload it
 addons-addons-model-stopped = { $name } stopped and was put away
 addons-addons-model-hunt = { $name } has the pointer · Esc leaves
-addons-addons-model-leave = Leave

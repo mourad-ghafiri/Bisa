@@ -112,7 +112,9 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   by default, a miss is a puff of air. `Esc` or the *Work* switch hands the app the pointer back and the insects keep
   walking; the ✕ puts the scene away (the footer's Addons popover brings it back). Sound is on with
   a mute switch; *Calm*, *Busy* and *Swarm* set how many come; the insects keep off a browser tab,
-  which paints over them. While hunting, the footer and the pet sit under the scene — `Esc` first.
+  which paints over them. The two ways out stand first in the strip. While hunting the footer stays
+  yours — its Addons control puts the scene away whatever the page is doing — and the pet sits
+  under the scene.
 - **Media player** — drop an audio or video file on it, *Open a file*, or paste a link: an `https://`
   media file plays in the window (sound as a scrolling spectrogram with a level meter, cold where it
   is quiet and warm where it is loud; video on the stage), and a YouTube URL — a watch page, a short
@@ -174,9 +176,10 @@ my-addon/
 }
 ```
 
-- **`id`** — lowercase letters, digits, `-`, `_`, `.`, `:`; up to 64. Namespace it (`acme.weather-pro`):
-  a built-in's id is its catalog slug, and a folder claiming one is refused.
-- **`version`** — `MAJOR.MINOR.PATCH`, with an optional `-pre` and `+build`.
+- **`id`** — lowercase letters, digits, `-`, `_`, `.`, `:`; up to 64, starting with a letter or a
+  digit, never `..`, and never `state`. Namespace it (`acme.weather-pro`): a built-in's id is its
+  catalog slug, and a folder claiming one is refused.
+- **`version`** — `MAJOR.MINOR.PATCH`, with an optional `-pre` and `+build`; 200 characters at most.
 - **`homepage`, `repo`** — `https://` only; shown, never fetched or cloned.
 - **`window`** — every field but `width` and `height` may be left out; edges are 40 to 1600 px;
   `frame` is `bar` (a slim bar with the name, the grip and the ✕), `none` (a grip on hover) or
@@ -187,7 +190,8 @@ my-addon/
   app through it; `default_dock` is the corner it opens in.
 - **`permissions`** — from the closed list: `platform_info`, `theme`, `system_load`,
   `workspace_summary`, `notify`, `clipboard_write`, `storage`, `network` (with `hosts`: `host[:port]`
-  or `*.suffix`, never this machine), `open_url`, `navigate` (to one of the app's screens, which
+  or `*.suffix`, at most 32, never this machine and never a private or link-local network — the
+  same holds for a `media` permission's hosts), `open_url`, `navigate` (to one of the app's screens, which
   opens as the person left it — and opens nothing of its own: no browser tab), `media` (with
   `hosts` your page's own `<audio>` and `<video>` may play from — `*` for any `https://` host —
   and `youtube: true` to ask for YouTube's own player beside your window). Declare what you need and no more: the
@@ -238,8 +242,8 @@ remove acme.weather-pro`, import again — an installed bundle is a copy, never 
 **Theme.** The `theme` permission is only for hearing changes; `hello.theme.scheme` comes with
 every ready. Follow it with a `[data-scheme="dark"]` block, and keep `prefers-reduced-motion` in
 mind — a clock's second hand stops sweeping under it. A page whose window is `transparent` should
-not declare `color-scheme: light dark`: the platform's frame is `color-scheme: normal`, and a page
-that disagrees can paint an opaque backdrop behind it.
+not declare `color-scheme: light dark`: the platform's frame is `color-scheme: light` — the scheme
+of a page that declares none — and a page that disagrees is given an opaque backdrop.
 
 **Hiding things.** An author `display` beats the browser's own `[hidden] { display: none }` — a
 `<form hidden>` styled `display: flex` is shown regardless — so every page fences the attribute

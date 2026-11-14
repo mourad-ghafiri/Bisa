@@ -245,9 +245,14 @@ export function stoppedWords(name) {
   return t("addons-addons-model-stopped", { name });
 }
 
-/** The pill a scene wears in hunt mode — the pointer is the scene's everywhere under the chrome — and its way out. @param {string} name */
-export function huntWords(name) {
-  return { note: t("addons-addons-model-hunt", { name }), action: t("addons-addons-model-leave") };
+/**
+ * What a screen reader hears of a scene's mode: who has the pointer while it
+ * hunts, and how to take it back — and nothing at work. Said from a line that
+ * is always there, so the change itself is what is announced.
+ * @param {string} name @param {string} mode
+ */
+export function huntStatus(name, mode) {
+  return mode === "hunt" ? t("addons-addons-model-hunt", { name }) : "";
 }
 
 /**

@@ -2170,12 +2170,11 @@ impl Workspace {
                 out.connectors.push(slug.to_string());
             }
             CatalogKind::Addon => {
-                let id = bisa_core::AddonId::new(slug)?;
-                if self.get_addon(&id).is_ok() {
-                    return Ok(());
+                // Whether it was already here whole is judged under the addon write lock
+                // (`install_addon_from_catalog`): nothing then, and nothing said.
+                if self.install_addon_from_catalog(slug)?.is_some() {
+                    out.addons.push(slug.to_string());
                 }
-                self.install_addon_from_catalog(slug)?;
-                out.addons.push(slug.to_string());
             }
         }
         Ok(())

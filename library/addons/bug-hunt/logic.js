@@ -588,13 +588,19 @@
   // --- the strip ------------------------------------------------------------------------
   /** Where the strip stands: the right edge, mid-height; the left when a tab covers that; the bottom when both are covered. */
   function stripPlacement(viewport, obstacles, size) {
-    var w = size.width, h = Math.min(size.height, Math.max(120, viewport.height - 16));
+    // Its least height is 120, a margin of eight above and below — and never more than the glass itself:
+    // the region the page calls solid must not reach past what the host shows.
+    var w = size.width, h = Math.min(size.height, Math.max(Math.min(120, Math.max(0, viewport.height)), viewport.height - 16));
     var right = { x: Math.max(0, viewport.width - w - 8), y: Math.max(0, Math.round((viewport.height - h) / 2)), width: w, height: h };
     var left = { x: 8, y: right.y, width: w, height: h };
     var bottom = { x: Math.max(0, Math.round((viewport.width - w) / 2)), y: Math.max(0, viewport.height - h - 8), width: w, height: h };
     var places = [right, left, bottom];
     for (var i = 0; i < places.length; i++) if (!overlapsAny(places[i], obstacles)) return places[i];
     return right;
+  }
+  /** Whether the strip must close up: at its ease it would not fit the glass with its margin. Nothing measured yet is at ease. */
+  function stripTight(natural, glassHeight) {
+    return natural > 0 && natural > glassHeight - 16;
   }
   function overlapsAny(a, list) {
     for (var i = 0; i < (list || []).length; i++) {
@@ -660,6 +666,7 @@
     newBest: newBest,
     waitWords: waitWords,
     stripPlacement: stripPlacement,
+    stripTight: stripTight,
     solidRects: solidRects,
     readSaved: readSaved,
   };

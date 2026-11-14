@@ -84,7 +84,9 @@
   // --- the strip's place -------------------------------------------------------------
   var placed = null;
   function placeStrip() {
-    strip.classList.toggle("tight", state.bounds.height < 520);
+    // Measured at its ease first: the close layout is for a glass the strip would not fit, whatever the strip holds.
+    strip.classList.remove("tight");
+    strip.classList.toggle("tight", H.stripTight(strip.scrollHeight, state.bounds.height));
     var h = strip.getBoundingClientRect().height || 360;
     var rect = H.stripPlacement(state.bounds, state.obstacles, { width: STRIP_WIDTH, height: h });
     strip.style.left = rect.x + "px";

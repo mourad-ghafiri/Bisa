@@ -47,8 +47,13 @@ pub const MAX_WINDOW_PX: u32 = 1600;
 pub const MAX_ADDON_NAME_CHARS: usize = 60;
 /// Longest a description may be, in characters.
 pub const MAX_ADDON_DESCRIPTION_CHARS: usize = 400;
-/// Longest any other free-text field may be, in characters.
+/// Longest any other free-text field may be, in characters — the version among them.
 pub const MAX_ADDON_FIELD_CHARS: usize = 200;
+/// Most hosts one `network` or `media` permission may name: each becomes a
+/// source in a policy header the node writes for every file it serves.
+pub const MAX_ADDON_HOSTS: usize = 32;
+/// Longest a host may be, in bytes — a DNS name's own limit.
+pub const MAX_ADDON_HOST_BYTES: usize = 253;
 
 /// The files a bundle may hold, by extension, and the type each is served
 /// as. A file of any other extension is refused at install; one that
@@ -411,6 +416,7 @@ impl AddonManifest {
         }
         for (field, value) in [
             ("author", self.author.as_deref()),
+            ("version", Some(self.version.as_str())),
             ("license", Some(self.license.as_str())),
             ("homepage", self.homepage.as_deref()),
             ("repo", self.repo.as_deref()),
@@ -558,8 +564,19 @@ impl AddonManifest {
                 if hosts.is_empty() {
                     push(&field, crate::text!("problem-addon-network-needs-host"));
                 }
+                if hosts.len() > MAX_ADDON_HOSTS {
+                    push(
+                        &field,
+                        crate::text!(
+                            "problem-addon-too-many-hosts",
+                            found = hosts.len().to_string(),
+                            max = MAX_ADDON_HOSTS.to_string()
+                        ),
+                    );
+                }
                 for host in hosts {
-                    if !crate::connector::is_host_pattern(host) {
+                    if host.len() > MAX_ADDON_HOST_BYTES || !crate::connector::is_host_pattern(host)
+                    {
                         push(
                             &field,
                             crate::text!(
@@ -590,11 +607,22 @@ impl AddonManifest {
                 if hosts.is_empty() && !youtube {
                     push(&field, crate::text!("problem-addon-media-asks-nothing"));
                 }
+                if hosts.len() > MAX_ADDON_HOSTS {
+                    push(
+                        &field,
+                        crate::text!(
+                            "problem-addon-too-many-hosts",
+                            found = hosts.len().to_string(),
+                            max = MAX_ADDON_HOSTS.to_string()
+                        ),
+                    );
+                }
                 for host in hosts {
                     if host == MEDIA_ANY_HOST {
                         continue;
                     }
-                    if !crate::connector::is_host_pattern(host) {
+                    if host.len() > MAX_ADDON_HOST_BYTES || !crate::connector::is_host_pattern(host)
+                    {
                         push(
                             &field,
                             crate::text!(
@@ -607,6 +635,16 @@ impl AddonManifest {
                             &field,
                             crate::text!(
                                 "problem-addon-media-loopback-refused",
+                                host = format!("{host:?}")
+                            ),
+                        );
+                    } else if crate::connector::is_private_network(host.trim_start_matches("*.")) {
+                        // The node writes a granted media host into `media-src`, and the
+                        // webview fetches it itself — past the broker and its network rules.
+                        push(
+                            &field,
+                            crate::text!(
+                                "problem-addon-media-private-refused",
                                 host = format!("{host:?}")
                             ),
                         );
@@ -1073,6 +1111,65 @@ mod tests {
                 ids(&problems)
             );
         }
+    }
+
+    #[test]
+    fn a_media_host_on_a_private_network_is_refused_as_a_network_host_is() {
+        let mut m = manifest();
+        m.permissions = vec![AddonPermission::Media {
+            hosts: vec![
+                "10.0.0.5".into(),
+                "*.192.168.1.20".into(),
+                "media.example.com".into(),
+            ],
+            youtube: false,
+        }];
+        let problems = m.validate();
+        let private: Vec<_> = problems
+            .iter()
+            .filter(|p| p.text.id == "problem-addon-media-private-refused")
+            .collect();
+        assert_eq!(private.len(), 2, "{:?}", ids(&problems));
+        assert_eq!(problems.len(), 2, "a public host is fine: {:?}", ids(&problems));
+    }
+
+    #[test]
+    fn a_version_and_a_host_list_have_a_length() {
+        let mut m = manifest();
+        m.version = format!("1.0.0-{}", "a".repeat(MAX_ADDON_FIELD_CHARS));
+        m.permissions = vec![
+            AddonPermission::Network {
+                hosts: (0..MAX_ADDON_HOSTS + 1)
+                    .map(|i| format!("h{i}.example.com"))
+                    .collect(),
+            },
+            AddonPermission::Media {
+                hosts: vec![format!("{}.example.com", "a".repeat(250))],
+                youtube: false,
+            },
+            AddonPermission::Media {
+                hosts: (0..MAX_ADDON_HOSTS + 1)
+                    .map(|i| format!("m{i}.example.com"))
+                    .collect(),
+                youtube: false,
+            },
+        ];
+        let problems = m.validate();
+        for (field, id) in [
+            ("version", "problem-addon-field-too-long"),
+            ("permissions.0", "problem-addon-too-many-hosts"),
+            ("permissions.1", "problem-addon-media-host-not-pattern"),
+            ("permissions.2", "problem-addon-too-many-hosts"),
+            ("permissions.2", "problem-addon-permission-declared-twice"),
+        ] {
+            assert!(has(&problems, field, id), "{field} {id}: {:?}", ids(&problems));
+        }
+        // At the caps, nothing is said.
+        let mut m = manifest();
+        m.permissions = vec![AddonPermission::Network {
+            hosts: (0..MAX_ADDON_HOSTS).map(|i| format!("h{i}.example.com")).collect(),
+        }];
+        assert!(m.validate().is_empty(), "{:?}", ids(&m.validate()));
     }
 
     #[test]

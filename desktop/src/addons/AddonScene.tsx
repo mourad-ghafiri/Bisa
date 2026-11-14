@@ -12,8 +12,14 @@
  * (`scene.solid`, its own strip) take it, and the host flips the frame's
  * `pointer-events` while the pointer hovers one and back when the page says
  * it left (`scene.release`); in **hunt** (`scene.mode`) the frame has the
- * pointer everywhere under the chrome, and `Esc` leaves. Leaving a hunt or a
- * solid region blurs the frame, so a chord typed next reaches the app.
+ * pointer everywhere under the chrome and above the footer, and `Esc` leaves.
+ * Leaving a hunt or a solid region blurs the frame, so a chord typed next
+ * reaches the app.
+ *
+ * A hunt is left from the page's own strip. The host draws nothing over the
+ * app for it; what it keeps is for a page that stopped answering: `Esc`, a
+ * footer no hunt covers (the Addons control puts the scene away), and a
+ * state that falls back to work whenever the page starts again (`sceneAfter`).
  *
  * The scene never publishes its whole box as a browser clear — a
  * viewport-sized hole would blank every native tab — only its solid regions
@@ -22,18 +28,18 @@
  * stand above the scene as they stand above every window.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
 import { useBrowserClearBoxes, useBrowserCutsAround } from "../shell/browserClear";
 import type { SlotState } from "../shell/layerSlots";
 import type { Addon } from "../types";
-import { Button, toaster, useDockViewport } from "../ui";
+import { toaster, useDockViewport } from "../ui";
 import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
 import type { AddonEvent, SceneMode, SceneRect } from "./addonBridgeModel.mjs";
-import { entryOf, frameKeyOf, huntWords, sceneNotStartedWords } from "./addonsModel.mjs";
-import { frameTaken, modeAfter, pointInSolid, sceneEvent, sceneKey, solidClears } from "./addonSceneModel.mjs";
+import { entryOf, frameKeyOf, huntStatus, sceneNotStartedWords } from "./addonsModel.mjs";
+import { SCENE_REST, footerKept, frameTaken, pointInSolid, sceneAfter, sceneEvent, sceneKey, solidClears } from "./addonSceneModel.mjs";
 import { setAddonHidden } from "./addonsStore";
 
 export function AddonScene({
@@ -56,13 +62,13 @@ export function AddonScene({
   const vp = useDockViewport(0);
   const cuts = useBrowserCutsAround();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [mode, setMode] = useState<SceneMode>("work");
+  // The mode, the solid regions and the hover are one value the model moves
+  // (`sceneAfter`): every way out of a hunt is an event there.
+  const [{ mode, solid, hover }, dispatch] = useReducer(sceneAfter, SCENE_REST);
   const modeRef = useRef<SceneMode>("work");
   modeRef.current = mode;
-  const [solid, setSolid] = useState<SceneRect[]>([]);
-  const solidRef = useRef<SceneRect[]>([]);
+  const solidRef = useRef<ReadonlyArray<SceneRect>>([]);
   solidRef.current = solid;
-  const [hover, setHover] = useState(false);
   /** The last pointer point the host saw, so a region that appears under a resting pointer takes it at once. */
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
   /** How many hellos the page said: the first `scene` event follows each. */
@@ -82,6 +88,15 @@ export function AddonScene({
     if (active instanceof HTMLElement && active !== document.body) active.blur();
   }, []);
 
+  // A hunt ends: the keyboard goes back to the app, and the last point the
+  // host saw is forgotten — the frame had every move since, so that point is
+  // wherever the hunt began (the strip, usually), and judging it again would
+  // hand the frame the pointer for a region the pointer left long ago.
+  const giveBack = useCallback(() => {
+    lastPoint.current = null;
+    blurFrame();
+  }, [blurFrame]);
+
   const handlers: AddonBridgeHandlers = useMemo(
     () => ({
       onResize: () => {},
@@ -91,27 +106,34 @@ export function AddonScene({
       onMediaEmbed: () => {},
       onMediaBox: () => {},
       onMediaRemove: () => {},
-      onReady: () => setReady((n) => n + 1),
+      onReady: () => {
+        // A page that says hello again started again: it is at work, whatever the last one was doing.
+        if (modeRef.current === "hunt") giveBack();
+        dispatch({ type: "hello" });
+        setReady((n) => n + 1);
+      },
       onStartMissed: () => toaster.error(sceneNotStartedWords(name)),
       onSceneMode: (asked) => {
-        const next = modeAfter(modeRef.current, asked);
-        if (next === modeRef.current) return;
-        if (next === "work") {
-          setHover(false);
-          blurFrame();
-        }
-        setMode(next);
+        if (asked === "work" && modeRef.current === "hunt") giveBack();
+        dispatch({ type: "ask", mode: asked });
       },
-      onSceneSolid: (rects) => setSolid(rects),
+      onSceneSolid: (rects) => dispatch({ type: "solid", rects }),
       onSceneRelease: () => {
-        setHover(false);
         blurFrame();
+        dispatch({ type: "release" });
       },
     }),
-    [addon.id, name, onOpenUrl, blurFrame],
+    [addon.id, name, onOpenUrl, blurFrame, giveBack],
   );
   const { sendEvent } = useAddonBridge(frame, addon, { visible: true, summary, load, handlers, epoch: frameKey });
   sendRef.current = sendEvent;
+
+  // Another frame is another page — the record moved, so it loads again:
+  // nothing of the last one stands, a hunt least of all. A page that failed
+  // to load would otherwise inherit a pane that takes every click.
+  useEffect(() => {
+    dispatch({ type: "frame" });
+  }, [frameKey]);
 
   // Work mode: the frame is click-through, so the page under it sees every
   // move; the pointer over a solid region hands the frame the pointer. A move
@@ -119,14 +141,15 @@ export function AddonScene({
   // scene or from the chrome, and the region test says which.
   useEffect(() => {
     if (mode !== "work" || shielded) {
-      setHover(false);
+      dispatch({ type: "hover", on: false });
       return;
     }
     const onMove = (e: PointerEvent) => {
       lastPoint.current = { x: e.clientX, y: e.clientY };
-      setHover(pointInSolid(lastPoint.current, solidRef.current, vp.top));
+      dispatch({ type: "hover", on: pointInSolid(lastPoint.current, solidRef.current, vp.top) });
     };
-    const onBlur = () => setHover(false);
+    // `document.hasFocus()` stays true when focus only moved into the scene's own frame.
+    const onBlur = () => dispatch({ type: "blur", focused: document.hasFocus() });
     window.addEventListener("pointermove", onMove, { capture: true, passive: true });
     window.addEventListener("blur", onBlur);
     return () => {
@@ -137,27 +160,28 @@ export function AddonScene({
   // The regions moved: the resting pointer is judged again.
   useEffect(() => {
     if (mode !== "work" || shielded || !lastPoint.current) return;
-    setHover(pointInSolid(lastPoint.current, solid, vp.top));
+    dispatch({ type: "hover", on: pointInSolid(lastPoint.current, solid, vp.top) });
   }, [solid, mode, shielded, vp.top]);
 
-  // Hunt mode: the frame has the pointer everywhere under the chrome, the
-  // footer included, and the host hears `Esc` only while it has the
-  // keyboard — so a pill at the top edge says who has the pointer and
-  // offers the way out, for a page that stopped answering mid-hunt.
+  // Hunt mode: the frame has the pointer everywhere under the chrome — but
+  // not over the footer (`footerKept`). The page's own strip is where a hunt
+  // is left; the host draws nothing over the app for it. What the host keeps
+  // is for a page that stopped answering mid-hunt: `Esc` while the app has
+  // the keyboard, and the footer's Addons control, which a hunt never covers.
   const leave = useCallback(() => {
-    setHover(false);
-    blurFrame();
-    setMode("work");
-  }, [blurFrame]);
+    giveBack();
+    dispatch({ type: "leave" });
+  }, [giveBack]);
   useEffect(() => {
     if (mode !== "hunt") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") leave();
+      // A key a dialog took is the dialog's: one Esc closes it, the next leaves the hunt.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      leave();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, leave]);
-  const hunt = huntWords(name);
 
   // What the page is told, once per change of a fact: the mode, the size,
   // the tabs to keep off, whether the solid regions are cut around.
@@ -178,13 +202,16 @@ export function AddonScene({
   useEffect(() => () => blurFrame(), [blurFrame]);
 
   const taken = frameTaken({ mode, hovering: hover, shielded });
+  // The footer is as tall as the chrome — one token (`h-chrome`) — so the
+  // chrome's height is the band a hunt leaves at the bottom.
+  const kept = footerKept(mode, vp.top);
 
   return createPortal(
     <div
       role="region"
       aria-label={name}
       data-scene-mode={mode}
-      style={{ left: 0, right: 0, bottom: 0, top: vp.top, pointerEvents: taken ? "auto" : "none" }}
+      style={{ left: 0, right: 0, bottom: 0, top: vp.top, pointerEvents: taken ? "auto" : "none", clipPath: kept > 0 ? `inset(0 0 ${kept}px 0)` : undefined }}
       className="fixed z-30 bg-transparent"
     >
       <iframe
@@ -198,14 +225,13 @@ export function AddonScene({
         // @ts-expect-error — the attribute WebKit reads for a see-through frame.
         allowtransparency="true"
         className="block h-full w-full border-0 bg-transparent"
-        style={{ colorScheme: "normal" }}
+        // `light`, said outright: a page that declares no scheme is a light canvas, and a frame
+        // whose scheme differs from its page's is given an opaque ground. `normal` left that to
+        // the engine — under a dark app root one of them reads it as dark, and the pane went white.
+        style={{ colorScheme: "light" }}
       />
-      {mode === "hunt" && (
-        <div role="status" data-pane className="pointer-events-auto absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-border bg-surface py-1 pl-2.5 pr-1 text-2xs text-text-dim shadow-lg">
-          <span>{hunt.note}</span>
-          <Button size="sm" variant="ghost" onClick={leave}>{hunt.action}</Button>
-        </div>
-      )}
+      {/* Who has the pointer, for a screen reader: always here, so the change is what is said. Nothing is drawn. */}
+      <p role="status" className="sr-only">{huntStatus(name, mode)}</p>
       {/* The shield: while anything in the layer is dragged or resized, the frame takes nothing — even under a root that takes nothing itself. */}
       {shielded && <div aria-hidden className="pointer-events-auto absolute inset-0" />}
     </div>,

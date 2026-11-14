@@ -98,10 +98,23 @@ browser tabs' boxes and whether it cuts around the solid regions in the `scene` 
 never publishes its whole box as a browser clear — a viewport-sized hole would blank every native
 tab — only its solid regions; the page keeps its creatures off the tabs' boxes. Panels, dialogs and
 menus stand above it as above every window; a drag elsewhere in the layer shields it; put away or
-with the layer off it unmounts like any window, and keeps what it must in its store. In `hunt` the
-frame has the pointer everywhere under the chrome, the footer included, and the host hears `Esc`
-only while it has the keyboard — so a pill at the scene's top edge says who has the pointer and
-offers *Leave*, for a page that stopped answering mid-hunt.
+with the layer off it unmounts like any window, and keeps what it must in its store.
+
+**Leaving a hunt.** A hunt is left from the page's own strip; the host draws nothing over the app
+for it. What the host keeps is for a page that stopped answering mid-hunt, and each is a row of
+one state machine (`addonSceneModel.sceneAfter`): `Esc` while the app has the keyboard (a key a
+dialog took stays the dialog's); the **footer**, which a hunt never covers — the scene gives up
+the footer's height at its bottom edge while it hunts (`footerKept`, a `clip-path`, paint and
+pointer alike), so the footer's Addons control can always put the scene away; a page that says
+hello again is at work; another frame — the record moved, the page loads again — starts from rest,
+mode and solid regions both. Leaving forgets the last pointer position the host saw (the frame had
+every move since) and blurs the frame. A window blur gives the pointer up only when the app itself
+lost focus: focus moving into the scene's own frame blurs the window too, at the press of a click
+on the strip, and letting go there lost the click. A line for a screen reader, always mounted,
+says who has the pointer. A see-through frame — a scene, a `transparent` window — is styled
+`color-scheme: light`, the scheme of a page that declares none: a frame whose scheme differs from
+its page's is given an opaque ground, and `normal` under a dark app root is read as dark by one
+engine.
 
 **The shell.** WebKit asks the navigation delegate about every frame's navigation and wry hands
 `on_navigation` the URL; the main window is built in `setup` (`"create": false` in
@@ -183,12 +196,22 @@ cut at 1 MiB and handed over as text.
   before the node has the switch would get a bare 404 for its files and, its key unmoved, never
   load again. A refusal puts the object held before the switch back and asks the node what stands;
   switching on brings a put-away window back. On the node a patch is judged whole and written once
-  (`update_addon`, under the addon write lock every writer takes): a grant never declared refuses
+  (`update_addon`, under the addon write lock every writer of one process takes — a CLI run
+  without the node is another process, and is not serialised with a running node): a grant never
+  declared refuses
   the patch with the switch beside it untouched, each change is said on the bus in order (the
   switch, then the grants), and a patch that changed nothing says nothing.
 - **Grant / revoke** — one switch per declared permission; a grant is the declaration copied
   (`network` keeps its hosts), and a grant the manifest never declared is refused by word.
-- **Remove** — the record, the bundle, the snapshot. A built-in can be installed again.
+- **Remove** — the record, the bundle, the snapshot, said as `DefinitionRemoved` on the store's
+  stream. What is removed is the **folder**, whatever its record reads as — a record cut short or
+  missing still holds the id against every install, so it can still be removed — and it leaves in
+  one rename, never half. A built-in can be installed again.
+- **A write that landed is answered as landed.** The record is the fact: a snapshot that will not
+  read is moved aside (a workspace problem says so) and counted as none, and a snapshot that could
+  not be written after the record is logged — never an error for a change the next read shows.
+  Grants are kept in the order the manifest declares them, once each, so the same grants said in
+  another order are no change.
 - **The machine's switch** — `addons.enabled` (machine scope): off, nothing draws or is served on
   this machine; every record is kept.
 - **Furniture** — whether the layer shows (the footer's Addons popover, `⌘⇧X`), which windows are
@@ -223,12 +246,26 @@ numbers reissued before 0.1.0 — `33401`, the drawing's, is the other ([19](19-
 
 The **bundle's bytes** and the **window's placement** are one machine's and never travel: a record
 that arrived from a peer for an id this machine holds nothing under lists with `files_present:
-false` and cannot be enabled until the folder is imported here under the same id; a built-in's
-files come from this machine's own binary. **A record this machine holds wins**: its switch and its
+false` and cannot be enabled until its files are here — remove it and import the folder under the
+same id; a built-in's files come from this machine's own binary, **at any version**: the open's
+refresh and the catalog's install both write them where they are absent, the record's switch and
+grants kept. A peer's record cannot take a built-in's id, nor say the catalog under another id,
+and a snapshot filed under one id whose record names another makes no record. A record on disk
+that names another id than its folder is unreadable, not that addon. **A record this machine
+holds wins**: its switch and its
 grants are the person's decisions here, so a peer's later record (ingest applies the snapshot
 first, then `adopt_remote_addon`) lands in the snapshot store alone and the record file stands —
 the next local write republishes past the peer's revision. Which means `GET /addons` and the
 snapshot can disagree for an addon both machines hold, until this machine writes it again.
+
+**At open** a staging folder older than ten minutes — what a crash left of an install — is
+cleared, and the built-ins are refreshed; neither stops the open (an addons folder that cannot be
+listed says so where the addons are read).
+
+**What is open.** Removing an addon deletes its snapshot, as removing a skill or a team does, so a
+re-install starts its revisions again at 1 and a peer still holding the removed record at a higher
+revision keeps its own until this machine has written past it — the same for every definition
+kind, and not changed here.
 
 ---
 

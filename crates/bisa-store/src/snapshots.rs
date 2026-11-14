@@ -121,6 +121,18 @@ impl SnapshotStore {
             .unwrap_or(0))
     }
 
+    /// The current revision for a write that follows: as [`Self::current_revision`], but a
+    /// snapshot that is there and will not read is moved aside and said as a workspace problem —
+    /// what [`Self::put`] itself does with it — and counts as none. A writer that has already
+    /// changed its record must not fail on the old snapshot's bytes.
+    pub fn revision_for_write(&self, ns: &str, wire_kind: u16, d: &str) -> Result<u64, StoreError> {
+        let path = self.path_for(ns, wire_kind, d)?;
+        Ok(self
+            .existing_or_quarantined(&path, wire_kind, d)?
+            .map(|ev| Self::revision_of(&ev))
+            .unwrap_or(0))
+    }
+
     /// Sign and store a snapshot. `value` becomes the event content; `d`
     /// addresses it; `revision` is the monotonic snapshot authority — a write
     /// at or below the stored `(revision, created_at)` is refused.

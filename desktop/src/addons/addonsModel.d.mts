@@ -32,7 +32,7 @@ export const START_DEADLINE_MS: number;
 export function notStartedWords(name: string): string;
 export function sceneNotStartedWords(name: string): string;
 export function stoppedWords(name: string): string;
-export function huntWords(name: string): { note: string; action: string };
+export function huntStatus(name: string, mode: string): string;
 export function slotOf(addons: readonly Addon[], id: string): number;
 export function barTitle(addon: Pick<Addon, "manifest">, title: string | null): string;
 export interface ManifestWindow {

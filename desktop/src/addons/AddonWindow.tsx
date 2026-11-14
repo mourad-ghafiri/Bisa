@@ -255,7 +255,8 @@ export function AddonWindow({
           // @ts-expect-error — the attribute WebKit reads for a see-through frame.
           allowtransparency="true"
           className={cn("block h-full w-full border-0", w.transparent ? "bg-transparent" : "bg-surface")}
-          style={w.transparent ? { colorScheme: "normal" } : undefined}
+          // `light`, said outright — see `AddonScene.tsx`: the scheme a page that declares none has.
+          style={w.transparent ? { colorScheme: "light" } : undefined}
         />
         {/* A page that said no hello in time — blank, broken, or slow: the kit's failure note says so, its Retry reloads the frame; the frame stays under it, so a slow page that arrives is not lost. */}
         {start === "missed" && (

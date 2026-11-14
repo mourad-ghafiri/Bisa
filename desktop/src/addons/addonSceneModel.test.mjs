@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { frameTaken, modeAfter, obstaclesOf, pointInSolid, sceneBox, sceneEvent, sceneKey, solidClears } from "./addonSceneModel.mjs";
+import { SCENE_REST, footerKept, frameTaken, modeAfter, obstaclesOf, pointInSolid, sceneAfter, sceneBox, sceneEvent, sceneKey, solidClears } from "./addonSceneModel.mjs";
 
 const vp = { width: 1024, height: 700, top: 40 };
 
@@ -48,4 +48,51 @@ test("the solid regions become clears on the page, rounded outward with their co
   assert.deepEqual(event, { mode: "work", viewport: { width: 1024, height: 660 }, obstacles: [{ x: 300, y: 20, width: 500, height: 400 }], cuts: true });
   assert.equal(sceneKey(event), sceneKey(sceneEvent({ mode: "work", viewport: { ...vp }, slots: [{ rect: { left: 300, top: 60, width: 500, height: 400 }, visible: true, layer: "browser" }], cuts: true })), "the same facts are one key");
   assert.notEqual(sceneKey(event), sceneKey({ ...event, mode: "hunt" }));
+});
+
+test("a scene's state moves by events alone: an ask, Esc, a release, a new hello, a new frame", () => {
+  assert.deepEqual(SCENE_REST, { mode: "work", solid: [], hover: false });
+  const strip = [{ x: 960, y: 100, width: 56, height: 300 }];
+  let s = sceneAfter(SCENE_REST, { type: "solid", rects: strip });
+  assert.deepEqual(s, { mode: "work", solid: strip, hover: false });
+  s = sceneAfter(s, { type: "hover", on: true });
+  assert.equal(s.hover, true);
+  assert.equal(sceneAfter(s, { type: "hover", on: true }), s, "nothing moved: the same object, so nothing draws again");
+  s = sceneAfter(s, { type: "ask", mode: "hunt" });
+  assert.deepEqual(s, { mode: "hunt", solid: strip, hover: true });
+  assert.equal(sceneAfter(s, { type: "ask", mode: "fly" }), s, "a word the scene does not know changes nothing");
+  assert.equal(sceneAfter(s, { type: "ask", mode: "hunt" }), s);
+  // Every way back to work lets go of the pointer.
+  assert.deepEqual(sceneAfter(s, { type: "ask", mode: "work" }), { mode: "work", solid: strip, hover: false });
+  assert.deepEqual(sceneAfter(s, { type: "leave" }), { mode: "work", solid: strip, hover: false });
+  const resting = { mode: "work", solid: strip, hover: false };
+  assert.equal(sceneAfter(resting, { type: "leave" }), resting);
+  assert.deepEqual(sceneAfter({ ...resting, hover: true }, { type: "release" }), resting);
+  assert.equal(sceneAfter(resting, { type: "release" }), resting);
+  // A page that says hello again is a page that started again: it is at work, and the regions it
+  // called solid stand until it says them anew — it places its strip once and says so once.
+  assert.deepEqual(sceneAfter(s, { type: "hello" }), { mode: "work", solid: strip, hover: false });
+  assert.equal(sceneAfter(resting, { type: "hello" }), resting, "a hello repeated before the ready landed moves nothing");
+  // Another frame is another page: nothing of the last one stands — a hunt least of all.
+  assert.equal(sceneAfter(s, { type: "frame" }), SCENE_REST);
+  assert.equal(sceneAfter(SCENE_REST, { type: "frame" }), SCENE_REST);
+  // The window's blur: the app itself lost focus — the pointer is nobody's, so the frame lets go.
+  // But focus moving into the scene's own frame also blurs the window, at the press of a click on
+  // the strip; letting go there took the frame away between the press and the release, and the
+  // first click on the strip was lost.
+  const over = { mode: "work", solid: strip, hover: true };
+  assert.deepEqual(sceneAfter(over, { type: "blur", focused: false }), resting);
+  assert.equal(sceneAfter(over, { type: "blur", focused: true }), over, "focus went into the frame: the click under way lands");
+  assert.equal(sceneAfter(resting, { type: "blur", focused: false }), resting);
+  assert.equal(sceneAfter(s, { type: "nothing known" }), s);
+  assert.equal(sceneAfter(s, null), s);
+});
+
+test("a hunt leaves the footer to the app: the scene gives up the footer's height at its bottom edge, and only then", () => {
+  assert.equal(footerKept("hunt", 40), 40);
+  assert.equal(footerKept("hunt", 36.4), 37, "a whole pixel, rounded outward: never a sliver of the scene over the footer's edge");
+  assert.equal(footerKept("work", 40), 0, "at work the scene takes nothing but its solid regions: the insects cross the footer");
+  assert.equal(footerKept("hunt", 0), 0);
+  assert.equal(footerKept("hunt", NaN), 0);
+  assert.equal(footerKept("hunt", -3), 0);
 });

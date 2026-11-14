@@ -711,6 +711,14 @@ impl Workspace {
             // addon lists here with its files absent (18 — Addons).
             k if k == kind::KIND_ADDON => {
                 match serde_json::from_str::<bisa_core::AddonRecord>(&event.content) {
+                    // The snapshot is filed by its `d`; a record that names another id would
+                    // be written under an id its own snapshot does not hold.
+                    Ok(r) if r.manifest.id.as_str() != d => {
+                        Err(StoreError::Invalid(bisa_core::text!(
+                            "error-store-ingest-refused",
+                            detail = format!("the addon record names {}", r.manifest.id)
+                        )))
+                    }
                     Ok(r) => self.adopt_remote_addon(&r),
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
                         "error-store-ingest-refused",

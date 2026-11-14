@@ -467,7 +467,12 @@ impl Workspace {
         ws.ensure_general_channel()?;
         // A built-in addon this binary ships at a version other than the one
         // installed takes the new bundle; the person's switch and grants stay.
-        ws.refresh_builtin_addons()?;
+        // Neither is a reason not to open: a workspace whose addons folder cannot be listed still
+        // has its goals, and says the folder's trouble where the addons are read.
+        ws.clear_stale_addon_staging();
+        if let Err(e) = ws.refresh_builtin_addons() {
+            tracing::warn!(target: "bisa_store::addons", "the built-in addons were not refreshed: {e}");
+        }
         Ok(ws)
     }
 

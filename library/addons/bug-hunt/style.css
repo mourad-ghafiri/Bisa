@@ -179,14 +179,16 @@ body.shake .glass { animation: shake 120ms linear; }
 /* --- the strip ----------------------------------------------------------- */
 .strip { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 56px; max-height: calc(100% - 16px); overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); user-select: none; }
 .strip::-webkit-scrollbar { display: none; }
-/* A short pane: the strip closes its gaps and drops the best, so Leave stays in reach without a scroll. */
+/* A short pane (`stripTight`, by what the strip measures): the strip closes its gaps and drops the best. The ways out stand first (`.head`), so whatever still scrolls away below is never one of them. */
 .strip.tight { gap: 4px; padding: 6px 4px; }
+.strip.tight .head { gap: 2px; }
 .strip.tight .hud { min-height: 0; gap: 0; }
 .strip.tight .best, .strip.tight .streak { display: none; }
 .strip.tight .tools { padding: 2px 0; gap: 0; }
 .strip.tight .tool { height: 30px; }
 .strip.tight .foot { gap: 3px; }
 .strip.tight .wait { min-height: 0; }
+.head { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .hud { display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 44px; }
 .score { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .streak { min-height: 14px; font-size: 11px; font-weight: 600; color: var(--accent); }

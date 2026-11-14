@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntWords, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntStatus, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
@@ -146,8 +146,8 @@ test("two readings of one addon are the same by their facts, and a window's slot
   assert.equal(notStartedWords("Clock"), "Clock has not started");
   assert.match(sceneNotStartedWords("Bug hunt"), /Bug hunt/);
   assert.match(stoppedWords("Clock"), /Clock/);
-  assert.match(huntWords("Bug hunt").note, /Esc/);
-  assert.equal(huntWords("Bug hunt").action, "Leave");
+  assert.match(huntStatus("Bug hunt", "hunt"), /Bug hunt.*Esc/, "what a screen reader hears when the scene takes the pointer");
+  assert.equal(huntStatus("Bug hunt", "work"), "", "and nothing at work");
   const addons = [addon("clock"), addon("cpu"), addon("calculator")];
   assert.equal(slotOf(addons, "calculator"), 0);
   assert.equal(slotOf(addons, "clock"), 1);

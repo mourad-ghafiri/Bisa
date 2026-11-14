@@ -432,6 +432,18 @@ test("the streak multiplies within two seconds and a miss ends it; arrivals quic
   const bottom = H.stripPlacement(vp, [{ x: 700, y: 0, width: 324, height: 660 }, { x: 0, y: 0, width: 300, height: 660 }], size);
   assert.deepEqual([bottom.x, bottom.y], [484, 332], "tabs on both sides send it to the bottom");
   assert.equal(H.stripPlacement({ width: 400, height: 200 }, [], size).height, 184, "a short glass shortens the strip");
+  // A glass shorter than the strip's least height: the strip — and the region it calls solid — is never taller than the glass.
+  const sliver = H.stripPlacement({ width: 400, height: 100 }, [], size);
+  assert.deepEqual([sliver.y, sliver.height], [0, 100]);
+  assert.equal(H.stripPlacement({ width: 400, height: 130 }, [], size).height, 120, "between the two, the least height holds");
+  assert.equal(H.stripPlacement({ width: 400, height: 0 }, [], size).height, 0);
+  // The close layout is chosen by what the strip measures, never by a fixed height of glass:
+  // whenever the strip at its ease would not fit with its margin, it closes up.
+  assert.equal(H.stripTight(519, 536), false, "it fits with eight pixels above and below");
+  assert.equal(H.stripTight(519, 534), true);
+  assert.equal(H.stripTight(600, 1200), false);
+  assert.equal(H.stripTight(0, 300), false, "nothing measured yet: at ease");
+  assert.equal(H.stripTight(NaN, 300), false);
   assert.deepEqual(plain(H.solidRects({ x: 960.4, y: 170, width: 56, height: 320 })), [{ x: 960, y: 170, width: 56, height: 320, radius: 10 }]);
   const fresh = { best: 0, muted: false, tool: "swatter", difficulty: "busy", marks: false };
   assert.deepEqual(plain(H.readSaved("junk")), fresh);

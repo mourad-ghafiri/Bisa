@@ -85,6 +85,12 @@ pub struct AddonOffer {
     pub installed: bool,
 }
 
+/// The file macOS's Finder writes into a folder it has shown.
+const FINDER_FILE_NAME: &str = ".DS_Store";
+/// How old a staging folder must be before an open clears it: long past any
+/// install another process of this workspace could still be assembling.
+const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// The one id no addon may take: `addons/state/` is the snapshots'.
 const RESERVED_ADDON_IDS: &[&str] = &["state"];
 
@@ -197,6 +203,11 @@ fn walk_into(
             ));
             // LCOV_EXCL_STOP
         };
+        // What Finder leaves in every folder it showed is no part of a bundle and no reason to
+        // refuse one: passed over, as the build passes over it for a built-in.
+        if name == FINDER_FILE_NAME {
+            continue;
+        }
         if name.starts_with('.') {
             return Err(bisa_core::text!(
                 "error-store-invalid-addon-dotfile",
@@ -219,7 +230,7 @@ fn walk_into(
             ));
         }
         if meta.is_dir() {
-            if depth + 1 >= MAX_BUNDLE_DEPTH {
+            if depth + 1 > MAX_BUNDLE_DEPTH {
                 return Err(bisa_core::text!(
                     "error-store-invalid-addon-too-deep",
                     path = shown,
@@ -262,9 +273,20 @@ fn read_bundle(from: &Path, manifest: &AddonManifest) -> Result<BundleFiles, Sto
     let listing: Vec<(String, u64)> = listed.iter().map(|(p, b, _)| (p.clone(), *b)).collect();
     check_bundle_listing(&listing, &manifest.entry)?;
     let mut files = Vec::with_capacity(listed.len());
-    for (rel, _, path) in listed {
+    for (rel, listed_bytes, path) in listed {
         let bytes =
             std::fs::read(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        // The caps were judged on the listing: a file that is no longer what was listed — grown,
+        // or swapped for a link to something else — is not the file that was judged.
+        // LCOV_EXCL_START: a file changed between the walk and the read is a race with another program on the folder
+        if bytes.len() as u64 != listed_bytes {
+            return Err(invalid(bisa_core::text!(
+                "error-store-invalid-addon-folder-unreadable",
+                path = path.display().to_string(),
+                e = "it changed while it was being read".to_string()
+            )));
+        }
+        // LCOV_EXCL_STOP
         files.push((rel, bytes));
     }
     Ok(files)
@@ -314,6 +336,17 @@ fn joined_problems(problems: &[AddonProblem]) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// Grants as they are kept: in the order the manifest declares them, each
+/// once. The order a caller said them in is no fact — the same grants said in
+/// another order are the same grants, and no change to write or announce.
+fn as_declared(granted: &[AddonPermission], declared: &[AddonPermission]) -> Vec<AddonPermission> {
+    declared
+        .iter()
+        .filter(|d| granted.contains(d))
+        .cloned()
+        .collect()
 }
 
 /// The first grant that was never declared, as its word.
@@ -412,6 +445,7 @@ impl Workspace {
             return Err(AddonError::GrantNotDeclared(word).into());
         }
         let files = read_bundle(from, &manifest)?;
+        let granted = as_declared(&granted, &manifest.permissions);
         let record = AddonRecord {
             manifest,
             origin: Origin::Local,
@@ -425,7 +459,11 @@ impl Workspace {
     /// Materialise a built-in from the binary: enabled, granted what it
     /// declares — the platform wrote it, and the person read the list before
     /// choosing it.
-    pub(crate) fn install_addon_from_catalog(&self, slug: &str) -> Result<AddonEntry, StoreError> {
+    /// `None` when it was already here whole: the idempotent nothing.
+    pub(crate) fn install_addon_from_catalog(
+        &self,
+        slug: &str,
+    ) -> Result<Option<AddonEntry>, StoreError> {
         let bundle = CATALOG.addon_bundle(slug).ok_or_else(|| {
             invalid(bisa_core::text!(
                 "error-store-invalid-catalog-has-no-called",
@@ -435,6 +473,19 @@ impl Workspace {
         })?;
         let manifest = parse_addon(slug, bundle.manifest)?;
         let _writer = self.addon_writer();
+        // Already here from the catalog — judged under the lock, so two installs of one slug at
+        // once are an install and a nothing, never an install and a refusal. Its files absent
+        // (a peer's record, a bundle folder lost): the binary's own are written and its switch
+        // and grants kept.
+        if let Ok(entry) = self.get_addon(&manifest.id) {
+            if matches!(&entry.record.origin, Origin::Catalog { slug: s } if s == slug) {
+                if !entry.files_present {
+                    self.refresh_builtin(entry, bundle)?;
+                    return self.get_addon(&manifest.id).map(Some);
+                }
+                return Ok(None);
+            }
+        }
         self.refuse_taken_addon_id(&manifest.id)?;
         let files = shipped_files(bundle, &manifest)?;
         let granted = manifest.permissions.clone();
@@ -447,7 +498,7 @@ impl Workspace {
             granted,
             installed_at: now_secs(),
         };
-        self.place_addon(record, &files)
+        self.place_addon(record, &files).map(Some)
     }
 
     fn refuse_taken_addon_id(&self, id: &AddonId) -> Result<(), StoreError> {
@@ -512,7 +563,7 @@ impl Workspace {
             return Err(StoreError::io(dest.display().to_string(), e));
         }
         // LCOV_EXCL_STOP
-        self.write_addon_snapshot(&record)?;
+        self.snapshot_written(&record);
         Ok(AddonEntry {
             record,
             files_present: true,
@@ -548,7 +599,8 @@ impl Workspace {
             // LCOV_EXCL_STOP
         }
         clear_staging(&retired);
-        self.write_addon_snapshot(&record)
+        self.snapshot_written(&record);
+        Ok(())
     }
 
     /// The built-ins this binary outgrew: for every installed record from
@@ -571,6 +623,12 @@ impl Workspace {
             let Some(bundle) = CATALOG.addon_bundle(slug) else {
                 continue;
             };
+            // A built-in's id is its slug. A record that says it came from the catalog under
+            // another id is not that built-in, and refreshing it would write the built-in's own
+            // folder with this record's switch and grants.
+            if entry.id().as_str() != slug {
+                continue;
+            }
             let id = entry.id().clone();
             match self.refresh_builtin(entry, bundle) {
                 Ok(true) => refreshed.push(id),
@@ -590,7 +648,9 @@ impl Workspace {
         bundle: &BuiltinAddon,
     ) -> Result<bool, StoreError> {
         let manifest = parse_addon(bundle.slug, bundle.manifest)?;
-        if manifest.version == entry.record.manifest.version {
+        // At the shipped version with its files here: nothing to do. With its files absent — a
+        // record a peer sent, a bundle folder lost — the binary's own are written, at any version.
+        if manifest.version == entry.record.manifest.version && entry.files_present {
             return Ok(false);
         }
         let files = shipped_files(bundle, &manifest)?;
@@ -623,11 +683,28 @@ impl Workspace {
         )
     }
 
+    /// Snapshot a record that is **already on disk**. The record is the fact
+    /// and the answer; a snapshot that could not be written is said in the log
+    /// and never turns a write that landed into a failure — the caller would
+    /// answer an error for a change the next read shows, and announce nothing.
+    /// The next write of the record snapshots it again.
+    fn snapshot_written(&self, record: &AddonRecord) {
+        // LCOV_EXCL_START: the snapshot is written beside records this process just wrote; a failure here is the disk's
+        if let Err(e) = self.write_addon_snapshot(record) {
+            tracing::warn!(
+                target: "bisa_store::addons",
+                "the addon {} is written; its snapshot is not: {e}",
+                record.manifest.id
+            );
+        }
+        // LCOV_EXCL_STOP
+    }
+
     fn write_addon_snapshot(&self, record: &AddonRecord) -> Result<(), StoreError> {
         let id = record.manifest.id.as_str();
         let existing_rev = self
             .snapshots
-            .current_revision(Paths::NS_ADDONS, KIND_ADDON, id)?;
+            .revision_for_write(Paths::NS_ADDONS, KIND_ADDON, id)?;
         let event = self.snapshots.put(
             Paths::NS_ADDONS,
             KIND_ADDON,
@@ -663,6 +740,15 @@ impl Workspace {
         })?;
         let record: AddonRecord = serde_json::from_slice(&bytes)
             .map_err(|e| StoreError::unreadable(&path, "addon", e))?;
+        // A record is its folder's: one that names another id is not this addon's record, and a
+        // write of it would land under the other id.
+        if &record.manifest.id != id {
+            return Err(StoreError::unreadable(
+                &path,
+                "addon",
+                format!("it is the record of {}", record.manifest.id),
+            ));
+        }
         let files_present = self
             .paths
             .addon_files_dir(id)
@@ -757,6 +843,7 @@ impl Workspace {
             }
         }
         if let Some(granted) = granted {
+            let granted = as_declared(&granted, &addon.record.manifest.permissions);
             if addon.record.granted != granted {
                 addon.record.granted = granted;
                 changes.push(AddonChange::Grants);
@@ -766,7 +853,7 @@ impl Workspace {
             return Ok((addon, changes));
         }
         self.write_record(&addon.record)?;
-        self.write_addon_snapshot(&addon.record)?;
+        self.snapshot_written(&addon.record);
         Ok((addon, changes))
     }
 
@@ -785,14 +872,64 @@ impl Workspace {
         Ok(self.update_addon(id, None, Some(granted))?.0)
     }
 
-    /// Remove an addon: its record, its bundle, its snapshot.
+    /// Remove an addon: its record, its bundle, its snapshot — and say so on
+    /// the store's stream.
+    ///
+    /// The **folder** is what is removed, whatever its record reads as: one
+    /// cut short, or missing, still holds the id against every install, and a
+    /// removal that needed a readable record left that id wedged for good.
+    /// The folder leaves in one rename — to a staging name, cleared after —
+    /// so a removal is never half done; once it has left, the addon is gone
+    /// and the answer says so, whatever became of the snapshot file.
     pub fn remove_addon(&self, id: &AddonId) -> Result<(), StoreError> {
         let _writer = self.addon_writer();
-        self.get_addon(id)?;
         let dir = self.paths.addon_dir(id);
-        std::fs::remove_dir_all(&dir).map_err(|e| StoreError::io(dir.display().to_string(), e))?;
-        self.snapshots
+        if RESERVED_ADDON_IDS.contains(&id.as_str()) || !dir.is_dir() {
+            return Err(StoreError::DefinitionNotFound {
+                kind: "addon",
+                id: id.to_string(),
+            });
+        }
+        let retired = self.paths.addon_staging_dir();
+        std::fs::rename(&dir, &retired).map_err(|e| StoreError::io(dir.display().to_string(), e))?;
+        // LCOV_EXCL_START: the snapshot file is this process's own to remove; a refusal is the disk's
+        if let Err(e) = self
+            .snapshots
             .delete_snapshot(Paths::NS_ADDONS, KIND_ADDON, id.as_str())
+        {
+            tracing::warn!(target: "bisa_store::addons", "the addon {id} is removed; its snapshot is not: {e}");
+        }
+        // LCOV_EXCL_STOP
+        clear_staging(&retired);
+        self.emit_store_event(StoreEvent::DefinitionRemoved {
+            kind: KIND_ADDON,
+            d: id.to_string(),
+        });
+        Ok(())
+    }
+
+    /// Clear what a crash left under a staging name — an install part way, a
+    /// retired folder never cleared. Only what is old: a fresh one may be
+    /// another process of this workspace assembling an install right now.
+    pub(crate) fn clear_stale_addon_staging(&self) {
+        let _writer = self.addon_writer();
+        let Ok(entries) = std::fs::read_dir(self.paths.addons_dir()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_name().to_string_lossy().starts_with(".staging-") {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|at| at.elapsed().ok())
+                .is_some_and(|age| age >= STALE_STAGING);
+            if stale {
+                clear_staging(&entry.path());
+            }
+        }
     }
 
     /// One file of an installed bundle, resolved inside it and never
@@ -828,6 +965,20 @@ impl Workspace {
             return Err(invalid(bisa_core::text!(
                 "error-store-invalid-addon-id-reserved",
                 id = record.manifest.id.to_string()
+            )));
+        }
+        // A built-in's id belongs to the catalog's own record of it, under its slug: a record made
+        // by hand somewhere under that id, or one that says the catalog under another, would hold
+        // the id against the built-in here — or be taken for it at the next refresh.
+        let id = record.manifest.id.as_str();
+        let fits = match &record.origin {
+            Origin::Catalog { slug } => slug == id,
+            _ => CATALOG.addon_bundle(id).is_none(),
+        };
+        if !fits {
+            return Err(invalid(bisa_core::text!(
+                "error-store-invalid-addon-ships-with-platform-give-your-own",
+                a0 = format!("{id:?}")
             )));
         }
         let _writer = self.addon_writer();
@@ -910,7 +1061,7 @@ mod tests {
         ws.adopt_remote_addon(&record("acme.local", Origin::Local))
             .unwrap();
         ws.adopt_remote_addon(&record(
-            "acme.gone",
+            "gone",
             Origin::Catalog {
                 slug: "gone".into(),
             },
@@ -927,7 +1078,7 @@ mod tests {
             .iter()
             .map(|a| a.id().to_string())
             .collect();
-        assert_eq!(listed, ["acme.gone", "acme.local"]);
+        assert_eq!(listed, ["acme.local", "gone"]);
         // A switch and a grant already as asked write nothing new.
         let id = AddonId::new("acme.local").unwrap();
         let before = ws.get_addon(&id).unwrap();
@@ -946,6 +1097,94 @@ mod tests {
         later.installed_at = 2;
         ws.adopt_remote_addon(&later).unwrap();
         assert_eq!(ws.get_addon(&id).unwrap().record, before.record);
+    }
+
+    /// A built-in's id is the catalog's: a peer's record made by hand under
+    /// it, or one that says the catalog under another id, is refused — the
+    /// first would hold the id against the built-in here, the second would be
+    /// taken for the built-in at the next refresh and overwrite its folder.
+    #[test]
+    fn a_peers_record_cannot_take_a_built_ins_id_or_wear_its_origin_under_another() {
+        let (_dir, ws) = ws();
+        let by_hand = ws
+            .adopt_remote_addon(&record("clock", Origin::Local))
+            .unwrap_err()
+            .to_string();
+        assert!(by_hand.contains("clock"), "{by_hand}");
+        let disguised = record(
+            "acme.byte",
+            Origin::Catalog {
+                slug: "clock".into(),
+            },
+        );
+        assert!(ws.adopt_remote_addon(&disguised).is_err());
+        assert!(ws.list_addons().unwrap().is_empty());
+        // The catalog's own record of it is what a peer's install sends, and lands.
+        ws.adopt_remote_addon(&record(
+            "clock",
+            Origin::Catalog {
+                slug: "clock".into(),
+            },
+        ))
+        .unwrap();
+        // Written by hand on disk — past every door — a record that wears the clock's origin
+        // under another id is passed over by the refresh: the clock's folder is not its to write.
+        let odd = record(
+            "acme.odd",
+            Origin::Catalog {
+                slug: "weather".into(),
+            },
+        );
+        ws.write_record(&odd).unwrap();
+        assert!(ws.refresh_builtin_addons().unwrap().iter().all(|id| id.as_str() == "clock"));
+        assert!(!ws.paths.addon_dir(&AddonId::new("weather").unwrap()).exists());
+        assert_eq!(
+            ws.get_addon(&AddonId::new("acme.odd").unwrap()).unwrap().record,
+            odd
+        );
+        // And a record written by hand under a built-in's id is not the built-in: the catalog's
+        // install refuses the id as taken — removing it is what frees it.
+        ws.write_record(&record("weather", Origin::Local)).unwrap();
+        let taken = ws.install_addon_from_catalog("weather").unwrap_err().to_string();
+        assert!(taken.contains("weather"), "{taken}");
+        ws.remove_addon(&AddonId::new("weather").unwrap()).unwrap();
+        assert!(ws.install_addon_from_catalog("weather").unwrap().is_some());
+    }
+
+    /// A snapshot is filed by its `d`: one whose record names another id is
+    /// refused at ingest, never written under an id its snapshot does not hold.
+    #[test]
+    fn a_peers_snapshot_filed_under_one_id_and_naming_another_is_refused() {
+        let (_a, alpha) = ws();
+        let keys = MemoryKeyStore::default();
+        crate::identity::KeyStore::set(
+            &keys,
+            "owner",
+            &alpha.owner_keys().secret_key().to_secret_hex(),
+        )
+        .unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let beta = Workspace::open_with_keystore(b.path(), Box::new(keys)).unwrap();
+        let named = record("acme.other", Origin::Local);
+        let event = alpha
+            .snapshots
+            .put(
+                Paths::NS_ADDONS,
+                KIND_ADDON,
+                "acme.filed",
+                &named,
+                1,
+                &alpha.owner,
+                now_secs(),
+                None,
+                &named.manifest.tags,
+            )
+            .unwrap();
+        // The snapshot itself is kept, as every snapshot a peer sends is; no record is made of it.
+        beta.ingest_remote_event(&event).unwrap();
+        assert!(beta.list_addons().unwrap().is_empty());
+        assert!(!beta.paths.addon_dir(&AddonId::new("acme.other").unwrap()).exists());
+        assert!(!beta.paths.addon_dir(&AddonId::new("acme.filed").unwrap()).exists());
     }
 
     /// The addon write lock a panic poisoned is taken over: the next writer
