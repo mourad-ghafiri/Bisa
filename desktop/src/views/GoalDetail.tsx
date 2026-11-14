@@ -367,13 +367,16 @@ export default function GoalDetail({ id }: { id: string }) {
               />
             )}
             {tab === "conversation" && (
-              <div className="min-h-0 flex-1">
+              // A flex column, as every host of the conversation surface is: the
+              // surface fills by flex, and in a block it took its thread's whole
+              // height — nothing scrolled, and focus dragged the tab instead.
+              <div className="flex min-h-0 flex-1 flex-col">
                 {/* The conversations about this goal list above its thread. */}
                 <GoalConversationPane goal={goal} />
               </div>
             )}
             {tab === "workflow" && (
-              <div className="min-h-0 flex-1">
+              <div className="flex min-h-0 flex-1 flex-col">
                 <GoalWorkflowTab view={data} onChanged={refreshAll} onOpenItem={openItem} onGoToGate={scrollToYourMove} />
               </div>
             )}

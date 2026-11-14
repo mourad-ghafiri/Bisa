@@ -188,7 +188,7 @@ test("a thread's sticky day divider sits at the true top of its scrollport and l
   // and its containing block's, so the thread's head room is a spacer in the
   // flow, never a `pt-*` on the viewport or on the content it scrolls.
   const chat = src("../views/_studio/Chat.tsx");
-  const viewport = chat.match(/className="min-h-0 flex-1 overflow-y-auto[^"]*"\n\s*>\n\s*<div ref=\{content\}>\n\s*(<div[^>]*>)/);
+  const viewport = chat.match(/className="relative min-h-0 flex-1 overflow-y-auto[^"]*"\n\s*>\n\s*<div ref=\{content\}>\n\s*(<div[^>]*>)/);
   assert.ok(viewport, "the thread viewport wraps its content");
   assert.doesNotMatch(viewport[0].split("\n")[0], /\bpt-\d/, "no head padding on the viewport");
   assert.match(viewport[1], /className="h-2" aria-hidden="true"/, "the head room is a spacer in the flow");

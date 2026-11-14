@@ -57,6 +57,15 @@ body,
   height: 100%;
 }
 
+/* The window is the frame, never a scrollport: the top bar and the footer stay
+   put and each screen owns the region that scrolls. Without this, one box a
+   screen lets past its region makes the page taller than the window, and a
+   wheel turn over anything that does not scroll moves the whole app. */
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text);

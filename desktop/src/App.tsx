@@ -443,7 +443,7 @@ export default function App() {
                     through `AuxPortal` (the goal's Details) must stay mounted
                     to fill it. */}
                 {(
-                  <main className="min-w-0 flex-1 overflow-hidden" hidden={singleColumn && auxOpen}>
+                  <main className="relative min-w-0 flex-1 overflow-hidden" hidden={singleColumn && auxOpen}>
                     <ErrorBoundary
                       resetKey={routeKey}
                       onError={(error, info) =>

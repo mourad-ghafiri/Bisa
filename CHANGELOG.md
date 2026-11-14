@@ -203,6 +203,14 @@ notes (`docs/contributing/release.md`).
   here* over a click that continued the last session there, and offered no way to start without
   it. It now reads *Resume Claude Code here*, with *New Claude Code here* beside it; a harness that
   never ran there reads as before.
+- **The window no longer scrolls under a goal or a workflow.** On a workflow's page a hidden line of
+  the Properties form was placed against the whole window and made it taller than the screen, so a
+  scroll over the header, the palette or the footer moved the entire app, footer included. On a
+  goal's Conversation tab the thread took its full height instead of scrolling, so the composer sat
+  out of sight and focusing it dragged the tab's header away. The window is now a fixed frame —
+  nothing a screen does can scroll it — every screen region anchors what is placed inside it, and
+  the goal's thread scrolls in its own box with the composer in view. *Go to your move* moves only
+  as far as it must.
 
 ## [0.8.0] - 2026-11-13
 

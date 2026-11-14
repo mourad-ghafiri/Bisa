@@ -562,7 +562,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
               ) : (
                 // Each step's properties are kept under the step's own name: another step's form is another page.
                 <div ref={propertiesRoot} className="flex min-h-0 flex-1 flex-col">
-                  <div data-scroll-keep={propertiesScrollName(selected)} className="min-h-0 flex-1 overflow-y-auto">
+                  <div data-scroll-keep={propertiesScrollName(selected)} className="relative min-h-0 flex-1 overflow-y-auto">
                     <Inspector
                       value={body}
                       selected={selected}

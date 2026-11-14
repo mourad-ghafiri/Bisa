@@ -159,7 +159,7 @@ export function AuxPane({ singleColumn, available }: { singleColumn: boolean; av
         ) : kind === "browser" ? (
           <BrowserPane tab={id} />
         ) : (
-          <div ref={publishAuxSlot} data-scroll-keep={`pane:${kind}:${id ?? ""}`} className="min-h-0 flex-1 overflow-auto" />
+          <div ref={publishAuxSlot} data-scroll-keep={`pane:${kind}:${id ?? ""}`} className="relative min-h-0 flex-1 overflow-auto" />
         )}
       </aside>
     </>

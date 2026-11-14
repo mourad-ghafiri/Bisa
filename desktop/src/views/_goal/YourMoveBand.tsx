@@ -69,7 +69,7 @@ export function YourMoveBand({
   );
 }
 
-/** Bring the band into view — the step list's "decide it" gesture; a jump, not a glide, for a person who asked for less motion. */
+/** Bring the band into view — the step list's "decide it" gesture; a jump, not a glide, for a person who asked for less motion. `nearest`: only what must move does — the band heads its scrollport, so that is its top — and no ancestor is shifted to line the band up with the window. */
 export function scrollToYourMove(): void {
-  document.querySelector(`[${YOUR_MOVE_ATTR}]`)?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  document.querySelector(`[${YOUR_MOVE_ATTR}]`)?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
 }

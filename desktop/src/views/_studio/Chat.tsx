@@ -1111,7 +1111,7 @@ export function Chat({
         // scrollport's padding and its containing block's, so a `pt-2` here
         // left it 8px short of the top with a strip of the scrolled words
         // showing above its band; the head room is a spacer in the flow.
-        className="min-h-0 flex-1 overflow-y-auto pb-2"
+        className="relative min-h-0 flex-1 overflow-y-auto pb-2"
       >
         <div ref={content}>
         <div className="h-2" aria-hidden="true" />
