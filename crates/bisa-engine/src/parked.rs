@@ -8,7 +8,10 @@
 //! desk knows when a desktop was last heard from — it read the list, or it
 //! answered — so an op can say *nobody home* at once rather than after the
 //! answer timeout, and a request nobody answers is forgotten with a word
-//! the caller chooses.
+//! the caller chooses. A request whose asker went away — its session hung
+//! up — is withdrawn ([`Desk::hold`]), so no desktop performs what nobody
+//! waits for; and an answer nobody is left to hear is said not to have
+//! been taken.
 
 use dashmap::DashMap;
 use serde::Serialize;
@@ -90,7 +93,8 @@ impl<P: Parked> Desk<P> {
         rx
     }
 
-    /// The desktop's answer; `false` when nothing waits under that id.
+    /// The desktop's answer; `false` when nothing waits under that id — no
+    /// such request, or one whose asker stopped waiting a moment ago.
     pub fn answer(&self, id: &str, answer: P::Answer) -> bool {
         self.desktop_seen();
         let Some((_, slot)) = self.slots.remove(id) else {
@@ -108,13 +112,29 @@ impl<P: Parked> Desk<P> {
             elapsed_ms = slot.asked.elapsed().as_millis() as u64, // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
             "request answered"
         );
-        // No receiver means the op gave up waiting, which is not a fault.
-        if slot.tx.send(Some(answer)).is_err() {
-            // LCOV_EXCL_START an answer with no waiter left; a race
+        // No receiver means the op gave up waiting, which is not a fault —
+        // and not an answer anybody took.
+        let heard = slot.tx.send(Some(answer)).is_ok();
+        if !heard {
             tracing::debug!(id, what = self.what, "request answered with no waiter");
-            // LCOV_EXCL_STOP
         }
-        true
+        heard
+    }
+
+    /// Withdraw a request: nothing waits for it any more, and a desktop that
+    /// reads the list no longer finds it. `false` when it was not there.
+    pub fn forget(&self, id: &str) -> bool {
+        self.slots.remove(id).is_some()
+    }
+
+    /// Keep a parked request for as long as its asker waits: when the guard
+    /// goes — the wait ended, or the asker itself was dropped because its
+    /// session hung up — a request still on the desk is withdrawn.
+    pub fn hold<'a>(&'a self, id: &str) -> Held<'a, P> {
+        Held {
+            desk: self,
+            id: id.to_string(),
+        }
     }
 
     /// Every request still waiting, oldest first — what a desktop that just
@@ -179,6 +199,20 @@ impl<P: Parked> Desk<P> {
     }
 }
 
+/// A parked request held by its asker ([`Desk::hold`]).
+pub struct Held<'a, P: Parked> {
+    desk: &'a Desk<P>,
+    id: String,
+}
+
+impl<P: Parked> Drop for Held<'_, P> {
+    fn drop(&mut self) {
+        if self.desk.forget(&self.id) {
+            tracing::debug!(id = %self.id, what = self.desk.what, "request withdrawn: its asker went");
+        }
+    }
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -238,5 +272,38 @@ mod tests {
             desk.pending().is_empty(),
             "a timed-out request is forgotten"
         );
+    }
+
+    /// An answer nobody is left to hear was not taken: the op gave up
+    /// waiting and its receiver went, so the desktop is told nothing waits —
+    /// and whoever answers for it can announce what the answer carried.
+    #[tokio::test]
+    async fn an_answer_with_no_waiter_left_is_not_taken() {
+        let desk: Desk<Ping> = Desk::new("ping", Duration::from_secs(45));
+        let rx = desk.park(Ping { id: "01".into() });
+        drop(rx);
+        assert!(!desk.answer("01", "pong"), "nobody heard it");
+        assert!(
+            desk.pending().is_empty(),
+            "and the slot is gone all the same"
+        );
+    }
+
+    /// A request is on the desk for as long as its asker holds it.
+    #[tokio::test]
+    async fn a_request_is_withdrawn_when_its_asker_goes() {
+        let desk: Desk<Ping> = Desk::new("ping", Duration::from_secs(45));
+        let _rx = desk.park(Ping { id: "01".into() });
+        {
+            let _held = desk.hold("01");
+            assert_eq!(desk.pending().len(), 1);
+        }
+        assert!(desk.pending().is_empty(), "withdrawn with its asker");
+        assert!(!desk.forget("01"), "nothing left to withdraw");
+        // An answered request's guard has nothing to withdraw.
+        let _rx = desk.park(Ping { id: "02".into() });
+        let held = desk.hold("02");
+        assert!(desk.answer("02", "pong"));
+        drop(held);
     }
 }

@@ -886,3 +886,324 @@ async fn the_list_is_narrowed_by_scope_and_a_drawing_that_went_is_said_so() {
     );
     engine.shutdown().await;
 }
+
+// --- the hardening pass ---
+
+fn new_drawing(engine: &bisa_engine::Engine, scope: OwnerScope, title: &str) -> bisa_core::Drawing {
+    drawings::create(
+        engine.inner(),
+        NewDrawing {
+            scope,
+            title: title.into(),
+            scene: None,
+        },
+    )
+    .unwrap()
+}
+
+/// An agent that stopped is waiting for nothing: when its session hangs up
+/// on a request parked for the canvas, the request is withdrawn — at once,
+/// not after the minute's wait — so no desktop performs a drawing nobody
+/// asked to see, and an answer that still comes is nobody's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_whose_session_hung_up_is_withdrawn_from_the_desk() {
+    use tokio::io::AsyncWriteExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let drawing = new_drawing(&engine, OwnerScope::Workspace, "Abandoned");
+    // A desktop is home.
+    assert!(engine.inner().draw.pending().is_empty());
+    let mut session = tokio::net::UnixStream::connect(engine.socket_path())
+        .await
+        .unwrap();
+    let mut line = json!({"op": "draw", "request": {"action": "draw", "drawing": drawing.id,
+        "elements": [box_at("a", 0)]}})
+    .to_string();
+    line.push('\n');
+    session.write_all(line.as_bytes()).await.unwrap();
+    let parked = until("a parked drawing request", || {
+        let p = engine.inner().draw.pending();
+        (!p.is_empty()).then_some(p)
+    })
+    .await;
+    // The agent is stopped: its session goes.
+    drop(session);
+    until("the request withdrawn", || {
+        engine.inner().draw.pending().is_empty().then_some(())
+    })
+    .await;
+    assert!(
+        !drawings::answer(
+            engine.inner(),
+            &parked[0].id,
+            DrawResult::refused("too late")
+        ),
+        "an answer for a withdrawn request is nobody's"
+    );
+    // A session that is still there — its next request already sent behind
+    // the drawing — is waited for: both are answered, in order.
+    let mut session = tokio::net::UnixStream::connect(engine.socket_path())
+        .await
+        .unwrap();
+    let mut two = line.clone();
+    two.push_str(&json!({"op": "draw", "request": {"action": "list"}}).to_string());
+    two.push('\n');
+    session.write_all(two.as_bytes()).await.unwrap();
+    let parked = until("the second parked drawing request", || {
+        let p = engine.inner().draw.pending();
+        (!p.is_empty()).then_some(p)
+    })
+    .await;
+    assert!(engine.inner().draw.answer(
+        &parked[0].id,
+        DrawResult {
+            ok: true,
+            ..DrawResult::default()
+        }
+    ));
+    let mut replies = tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(session));
+    let first: serde_json::Value =
+        serde_json::from_str(&replies.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(first["result"]["drawing"], json!(drawing.id), "{first}");
+    let second: serde_json::Value =
+        serde_json::from_str(&replies.next_line().await.unwrap().unwrap()).unwrap();
+    assert!(second["result"]["drawings"].is_array(), "{second}");
+
+    // The door still answers the next session.
+    let reply = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "draw", "request": {"action": "list"}}),
+    )
+    .await;
+    assert_eq!(reply["result"]["ok"], json!(true), "{reply}");
+}
+
+/// Who may draw is the word of the project the drawing is **filed under**:
+/// a project that lets no agent draw is not drawn into from a conversation
+/// that stands somewhere else, and a call that names no project is the
+/// workspace's.
+#[tokio::test(flavor = "multi_thread")]
+async fn who_may_draw_is_the_word_of_the_project_the_drawing_is_filed_under() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let ws = engine.workspace();
+    let socket = engine.socket_path().to_path_buf();
+    let closed = ws
+        .create_project(bisa_store::NewProject::managed("closed").unwrap())
+        .unwrap();
+    let open = ws
+        .create_project(bisa_store::NewProject::managed("open").unwrap())
+        .unwrap();
+    let of_closed = new_drawing(&engine, OwnerScope::Project { id: closed.id }, "Theirs");
+    let of_open = new_drawing(&engine, OwnerScope::Project { id: open.id }, "Ours");
+    let of_workspace = new_drawing(&engine, OwnerScope::Workspace, "Anyone's");
+    ws.set_setting(
+        SettingScope::Project,
+        Some(closed.id),
+        "draw.agents",
+        json!("nobody"),
+    )
+    .unwrap();
+    let read = |id: bisa_core::DrawingId| json!({"op": "draw", "request": {"action": "read", "drawing": id}});
+    // No conversation: the call stands nowhere, and the drawing's project speaks.
+    let reply = intake_roundtrip(&socket, read(of_closed.id)).await;
+    assert_eq!(errors_of(&reply), vec![NOBODY_MAY.to_string()], "{reply}");
+    for id in [of_open.id, of_workspace.id] {
+        let reply = intake_roundtrip(&socket, read(id)).await;
+        assert_eq!(reply["result"]["ok"], json!(true), "{reply}");
+    }
+    // A new drawing filed under the closed project is the closed project's too.
+    let reply = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "request": {"action": "create", "title": "x",
+            "scope": "project", "scope_id": closed.id}}),
+    )
+    .await;
+    assert_eq!(errors_of(&reply), vec![NOBODY_MAY.to_string()], "{reply}");
+    // From a conversation about the open project, the closed project's
+    // drawing is still the closed project's.
+    let about_open = ws
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Project { id: open.id },
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let mut call = read(of_closed.id);
+    call["scope"] = json!(about_open.id);
+    let reply = intake_roundtrip(&socket, call).await;
+    assert_eq!(errors_of(&reply), vec![NOBODY_MAY.to_string()], "{reply}");
+    // And from a conversation about the closed project, a list — which
+    // names no drawing — is the conversation's project's word, as before.
+    let about_closed = ws
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Project { id: closed.id },
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let reply = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "scope": about_closed.id, "request": {"action": "list"}}),
+    )
+    .await;
+    assert_eq!(errors_of(&reply), vec![NOBODY_MAY.to_string()], "{reply}");
+}
+
+/// What the canvas answers is the canvas's word on whether it drew and on
+/// the picture it took — nothing else. The drawing's facts are read from the
+/// store, whatever the answer claimed; and a snapshot, which changes
+/// nothing, announces no change.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_canvas_answer_is_held_to_the_stores_facts_and_a_snapshot_announces_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let socket = engine.socket_path().to_path_buf();
+    let drawing = new_drawing(&engine, OwnerScope::Workspace, "Honest");
+    let other = new_drawing(&engine, OwnerScope::Workspace, "Another");
+    assert!(engine.inner().draw.pending().is_empty());
+
+    let answer_next = |result: DrawResult| {
+        let engine = &engine;
+        async move {
+            let pending = until("a parked drawing request", || {
+                let p = engine.inner().draw.pending();
+                (!p.is_empty()).then_some(p)
+            })
+            .await;
+            assert!(engine.inner().draw.answer(&pending[0].id, result));
+        }
+    };
+
+    // A draw the canvas says it did — dressed up with another drawing's id,
+    // a hash of its own making, a description and a list.
+    let socket2 = socket.clone();
+    let id = drawing.id;
+    let call = tokio::spawn(async move {
+        intake_roundtrip(
+            &socket2,
+            json!({"op": "draw", "request": {"action": "draw", "drawing": id, "elements": [box_at("a", 0)]}}),
+        )
+        .await
+    });
+    answer_next(DrawResult {
+        ok: true,
+        drawing: Some(other.id),
+        title: Some("Not its title".into()),
+        hash: Some("made-up".into()),
+        element_count: Some(99),
+        description: Some("words the canvas made up".into()),
+        drawings: Some(vec![]),
+        path: Some("/etc/hosts".into()),
+        ..DrawResult::default()
+    })
+    .await;
+    let reply = call.await.unwrap();
+    let result = &reply["result"];
+    assert_eq!(result["ok"], json!(true), "{reply}");
+    assert_eq!(
+        result["drawing"],
+        json!(drawing.id),
+        "the drawing asked about"
+    );
+    assert_eq!(result["title"], json!("Honest"));
+    assert_eq!(result["hash"], json!(scene_hash(&drawing.scene)));
+    assert_eq!(result["element_count"], json!(0));
+    for made_up in ["description", "drawings", "path"] {
+        assert!(result.get(made_up).is_none(), "{made_up}: {reply}");
+    }
+
+    // A refusal keeps its words, cut to a size an agent can read.
+    let socket2 = socket.clone();
+    let call = tokio::spawn(async move {
+        intake_roundtrip(
+            &socket2,
+            json!({"op": "draw", "request": {"action": "mermaid", "drawing": id, "text": "flowchart LR\n a --> b"}}),
+        )
+        .await
+    });
+    // Cut on a character's boundary: the cap falls inside an `é` here.
+    answer_next(DrawResult::refused(format!("x{}", "é".repeat(50_000)))).await;
+    let reply = call.await.unwrap();
+    assert_eq!(reply["result"]["ok"], json!(false));
+    assert!(
+        reply["result"]["error"].as_str().unwrap().len() <= 4200,
+        "{}",
+        reply["result"]["error"].as_str().unwrap().len()
+    );
+
+    // A snapshot: answered, and nothing is said to have changed.
+    let mut bus = engine.inner().subscribe();
+    let socket2 = socket.clone();
+    let call = tokio::spawn(async move {
+        intake_roundtrip(
+            &socket2,
+            json!({"op": "draw", "request": {"action": "snapshot", "drawing": id}}),
+        )
+        .await
+    });
+    answer_next(DrawResult {
+        ok: true,
+        width: Some(640),
+        height: Some(480),
+        ..DrawResult::default()
+    })
+    .await;
+    let reply = call.await.unwrap();
+    assert_eq!(reply["result"]["ok"], json!(true), "{reply}");
+    assert_eq!(reply["result"]["width"], json!(640));
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let announced = std::iter::from_fn(|| bus.try_recv().ok())
+        .any(|ev| matches!(ev.payload, EnginePayload::DrawingChanged { .. }));
+    assert!(!announced, "a snapshot changes nothing");
+}
+
+/// A drawing whose snapshot will not read is deleted like any other, and a
+/// deletion is said as one: the frame carries `removed`, which a change
+/// never does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drawing_nobody_can_read_is_deleted_and_a_deletion_is_said_as_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let ws = engine.workspace();
+    let torn = new_drawing(&engine, OwnerScope::Workspace, "Torn");
+    let snapshot = ws
+        .paths()
+        .state_dir(bisa_store::Paths::NS_DRAWINGS)
+        .join(format!(
+            "{}-{}.json",
+            bisa_core::kind::KIND_DRAWING,
+            torn.id
+        ));
+    std::fs::write(&snapshot, b"{torn").unwrap();
+    let mut bus = engine.inner().subscribe();
+    drawings::delete(engine.inner(), torn.id).unwrap();
+    assert!(!snapshot.exists());
+    let said = until("the deletion on the bus", || loop {
+        match bus.try_recv() {
+            Ok(ev) if matches!(ev.payload, EnginePayload::DrawingChanged { .. }) => {
+                return Some(serde_json::to_value(&ev.payload).unwrap())
+            }
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    })
+    .await;
+    assert_eq!(said["drawing"], json!(torn.id));
+    assert_eq!(said["scope"], json!("workspace"));
+    assert_eq!(said["removed"], json!(true), "{said}");
+    // A change says nothing of the kind.
+    let kept = new_drawing(&engine, OwnerScope::Workspace, "Kept");
+    let made = until("the creation on the bus", || loop {
+        match bus.try_recv() {
+            Ok(ev) if matches!(ev.payload, EnginePayload::DrawingChanged { .. }) => {
+                return Some(serde_json::to_value(&ev.payload).unwrap())
+            }
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    })
+    .await;
+    assert_eq!(made["drawing"], json!(kept.id));
+    assert!(made.get("removed").is_none(), "{made}");
+}

@@ -53,6 +53,11 @@ notes (`docs/contributing/release.md`).
   character. A scene saved before this still opens; it is its next save that is refused, with the
   element named.
 
+- **Who may draw is the word of the project the drawing is filed under.** `draw.agents` set on a
+  project was read from the project the asking conversation stood in, so an agent speaking
+  elsewhere could draw into a project that lets none. The drawing's own project now speaks — for
+  a drawing named, for the conversation's drawing, and for a new one filed under a project.
+
 - **A drawing from another machine is checked before it is stored.** It must decode, be filed
   under its own id and be a scene a save here would accept, or nothing of it is kept; it used to
   be stored first and judged after.
@@ -105,6 +110,22 @@ notes (`docs/contributing/release.md`).
   machines at their next pull.
 
 - **An agent's append with no text is refused** instead of adding a header with nothing under it.
+
+- **An agent's drawing request ends with the agent.** A request waiting on the canvas is withdrawn
+  when the session that made it hangs up — an agent stopped mid-drawing used to leave it for the
+  desktop to perform up to a minute later, for nobody. A request the canvas performs is sent
+  once, on a connection of its own: an engine that went away mid-request no longer has it sent a
+  second time, and the session's other tools are not held behind it.
+
+- **What the canvas answers is held to what the store holds.** The reply an agent reads names the
+  drawing it asked about, with the title, hash and element count the store has; a snapshot no
+  longer announces a change that did not happen; a refusal from the canvas is cut to a size an
+  agent can read. An answer that arrives after the wait ended is told nothing waits, as the route
+  always documented.
+
+- **A deleted drawing is said as deleted** (`removed` on `drawing_changed`), where it was
+  announced like a change. A drawing's refusals say *drawing* — a stale save answered *the note
+  changed since you read it*.
 
 - **A drawing is saved once its record is.** A save whose export file could not be written
   answered as failed with the record already saved, leaving the canvas with a stale hash; it is

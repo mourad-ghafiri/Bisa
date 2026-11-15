@@ -827,6 +827,18 @@ mod tests {
                 Some(&scene_hash(&d.scene)),
             )
             .unwrap();
+        // The title it already has is no change either.
+        let renamed_to_itself = ws
+            .update_drawing(
+                d.id,
+                DrawingPatch {
+                    title: Some(" Ordered ".into()),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(renamed_to_itself, d);
         assert_eq!(same.updated_at, d.updated_at);
         assert_eq!(
             scene_hash(&same.scene),

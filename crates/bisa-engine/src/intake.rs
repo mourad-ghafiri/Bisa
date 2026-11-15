@@ -809,6 +809,21 @@ async fn handle_conn(inner: Arc<Inner>, stream: UnixStream) {
                         );
                         envelope_fault(op.as_deref(), &e.to_string())
                     }
+                    // A call that waits on the canvas waits for as long as
+                    // its session does: a session that hangs up — its agent
+                    // was stopped — withdraws the request rather than leave
+                    // it for a desktop to perform for nobody.
+                    Ok(op @ Op::Draw { .. }) => {
+                        match unless_hung_up(&mut reader, handle_op(&inner, op)).await {
+                            Some(reply) => reply,
+                            None => {
+                                tracing::debug!(
+                                    "a session hung up on a drawing request: withdrawn"
+                                );
+                                break;
+                            }
+                        }
+                    }
                     Ok(op) => handle_op(&inner, op).await,
                 }
             }
@@ -829,6 +844,30 @@ async fn handle_conn(inner: Arc<Inner>, stream: UnixStream) {
         if write.write_all(buf.as_bytes()).await.is_err() {
             break; // LCOV_EXCL_LINE: the session hung up between its request and the reply: a race
         }
+    }
+}
+
+/// Run `work` unless the session on `reader` hangs up first: `None` when it
+/// did, and `work` is dropped where it stood. A session that sent its next
+/// request instead is there — the work is then waited for to its end.
+async fn unless_hung_up<R, T>(
+    reader: &mut R,
+    work: impl std::future::Future<Output = T>,
+) -> Option<T>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt as _;
+    tokio::pin!(work);
+    let there = tokio::select! {
+        biased;
+        done = &mut work => return Some(done),
+        more = reader.fill_buf() => matches!(more, Ok(buf) if !buf.is_empty()),
+    };
+    if there {
+        Some(work.await)
+    } else {
+        None
     }
 }
 
@@ -3634,8 +3673,11 @@ async fn draw(
     let screening =
         crate::content::Screening::gather(inner, &facts, scope, agent, work_item, goal_named);
     let agent_id = screening.agent.clone();
-    let access =
-        crate::drawings::access(inner, crate::browser::project_of(inner, &facts, work_item));
+    // The project that speaks is the one the drawing is filed under; a call
+    // that names none answers to the one its conversation stands in.
+    let project = crate::drawings::policy_project(inner, &request, facts.conversation.as_ref())
+        .or_else(|| crate::browser::project_of(inner, &facts, work_item));
+    let access = crate::drawings::access(inner, project);
     let has_skill = || {
         inner
             .ws

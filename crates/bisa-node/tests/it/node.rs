@@ -10435,11 +10435,23 @@ async fn a_parked_drawing_request_is_answered_over_http() {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let parked = parked.expect("the request parked for the desktop");
+        // The desktop draws it and saves through the node, as it does; what
+        // the op then answers is what the store holds — never the count the
+        // desktop's answer claims.
+        let (code, v) = node
+            .req(
+                "PATCH",
+                &format!("/drawings/{id}"),
+                Some(json!({"base_hash": hash, "scene": {"elements": [
+                    {"id": "api", "type": "rectangle", "x": 0, "y": 0, "width": 160, "height": 80}]}})),
+            )
+            .await;
+        assert_eq!(code, 200, "{v}");
         let (code, v) = node
             .req(
                 "POST",
                 &format!("/drawings/requests/{parked}"),
-                Some(json!({"ok": true, "drawing": id, "hash": hash, "element_count": 1})),
+                Some(json!({"ok": true, "drawing": id, "hash": hash, "element_count": 7})),
             )
             .await;
         assert_eq!(code, 200, "{v}");

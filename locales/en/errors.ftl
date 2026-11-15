@@ -1014,6 +1014,8 @@ error-node-notes-id-needs-scope = an `id` needs a `scope`
 error-node-notes-note-id = note id: { $e }
 error-node-drawings-drawing-id = drawing id: { $e }
 error-node-drawings-nothing-waits-under-id = no drawing request waits under that id
+error-node-drawings-changed-since-read = the drawing changed since you read it
+error-node-drawings-drawing-names-nothing-drop-id = a { $kind } drawing names nothing — drop `id`
 error-node-notes-note-names-nothing-drop-id = a { $kind } note names nothing — drop `id`
 error-node-notes-scope-needs-id = scope={ $kind } needs an `id`
 error-node-notes-unknown-scope-one = unknown scope { $kind }: one of { $a0 }

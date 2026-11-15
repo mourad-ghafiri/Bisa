@@ -396,6 +396,10 @@ pub enum EnginePayload {
         #[serde(skip_serializing_if = "Option::is_none")]
         scope_id: Option<String>,
         hash: String,
+        /// The drawing was deleted — `hash` is then the last scene's, or
+        /// empty when nobody could read it. Absent for a change.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        removed: bool,
     },
     /// An agent asked the canvas to draw (19): the desktop performs it in the
     /// live canvas or an offscreen one and answers

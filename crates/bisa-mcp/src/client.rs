@@ -252,6 +252,21 @@ impl IntakeClient {
         unreachable!("loop returns on second attempt") // LCOV_EXCL_LINE: the loop above answers or fails on its second turn; the line keeps the function total
     }
 
+    /// Send one request on a connection of its own, once: for a call that
+    /// waits on the desktop's canvas. It may wait a minute, and must not
+    /// hold the session's shared connection — every other tool would queue
+    /// behind it; it must never be sent again after a failure — the canvas
+    /// may already have drawn, and a second sending would draw it twice; and
+    /// when the call is dropped the connection closes with it, which is how
+    /// the engine learns nobody waits (`intake::unless_hung_up`). A fresh
+    /// connection is never a stale one, so there is nothing to retry for.
+    async fn call_apart(&self, request: &Value) -> Result<Value, IntakeError> {
+        let mut line = request.to_string();
+        line.push('\n');
+        let mut conn = self.connect().await?;
+        Self::roundtrip(&mut conn, line.as_bytes()).await
+    }
+
     async fn roundtrip(conn: &mut Framed, line: &[u8]) -> Result<Value, IntakeError> {
         let (reader, writer) = conn;
         writer.write_all(line).await?;
@@ -555,9 +570,20 @@ impl IntakeClient {
         scope: &Scope,
         request: Value,
     ) -> Result<OpResult<Value>, IntakeError> {
+        // What the canvas performs — a skeleton, a Mermaid text, a snapshot —
+        // goes on a connection of its own, once (`call_apart`); what the
+        // store answers goes the shared way.
+        let waits_on_the_canvas = matches!(
+            request["action"].as_str(),
+            Some("draw" | "mermaid" | "snapshot")
+        );
         let mut req = json!({"op": "draw", "request": request});
         scope.apply(&mut req);
-        let reply = self.call(&req).await?;
+        let reply = if waits_on_the_canvas {
+            self.call_apart(&req).await?
+        } else {
+            self.call(&req).await?
+        };
         Ok(Self::op_result(reply).map(|r| r["result"].clone()))
     }
 

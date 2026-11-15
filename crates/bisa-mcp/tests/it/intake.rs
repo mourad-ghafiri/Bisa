@@ -2483,3 +2483,122 @@ async fn an_engine_that_refuses_the_core_agents_own_reads_is_a_tool_error() {
     let workflow = ToolCore::new(fake.path.clone(), workflow_agent_scope());
     assert!(refusal(workflow.list_workflow_templates().await).contains("refused on purpose"));
 }
+
+/// An engine that counts the canvas requests it was sent: the first one it
+/// reads it hangs up on without a word; a list it answers; a canvas request
+/// carrying `slow` it answers after a pause.
+struct CanvasIntake {
+    path: PathBuf,
+    canvas_requests: Arc<AtomicU64>,
+    _dir: tempfile::TempDir,
+}
+
+impl CanvasIntake {
+    fn start() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("canvas.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let canvas_requests = Arc::new(AtomicU64::new(0));
+        let seen = Arc::clone(&canvas_requests);
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let seen = Arc::clone(&seen);
+                tokio::spawn(async move {
+                    let (r, mut w) = stream.into_split();
+                    let mut lines = BufReader::new(r).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let req: Value = serde_json::from_str(&line).unwrap();
+                        let action = req["request"]["action"].as_str().unwrap_or("");
+                        let reply = if action == "list" {
+                            json!({"ok": true, "result": {"ok": true, "drawings": []}})
+                        } else {
+                            seen.fetch_add(1, Ordering::SeqCst);
+                            if !line.contains("slow") {
+                                // The engine went away mid-request: whether
+                                // the canvas drew is anybody's guess.
+                                return;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                            json!({"ok": true, "result": {"ok": true, "drawing": "01DRAWING"}})
+                        };
+                        let mut buf = reply.to_string();
+                        buf.push('\n');
+                        if w.write_all(buf.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        Self {
+            path,
+            canvas_requests,
+            _dir: dir,
+        }
+    }
+}
+
+/// A request for the canvas is sent once. If the engine goes away before it
+/// answers, the canvas may already have drawn: sending it again would draw
+/// it twice, so the call fails in a sentence and the agent reads the
+/// drawing before it decides.
+#[tokio::test]
+async fn a_canvas_request_the_engine_hung_up_on_is_never_sent_twice() {
+    let fake = CanvasIntake::start();
+    let client = IntakeClient::new(fake.path.clone());
+    for action in ["draw", "mermaid", "snapshot"] {
+        let before = fake.canvas_requests.load(Ordering::SeqCst);
+        let lost = client
+            .draw(
+                &wi_scope(),
+                json!({"action": action, "drawing": "01DRAWING"}),
+            )
+            .await;
+        assert!(lost.is_err(), "{action}: {lost:?}");
+        assert_eq!(
+            fake.canvas_requests.load(Ordering::SeqCst) - before,
+            1,
+            "{action} was sent once"
+        );
+    }
+}
+
+/// A call that waits on the canvas — up to a minute — waits on a connection
+/// of its own: the session's other tools are answered meanwhile.
+#[tokio::test]
+async fn a_canvas_request_does_not_hold_the_sessions_other_tools() {
+    let fake = CanvasIntake::start();
+    let client = Arc::new(IntakeClient::new(fake.path.clone()));
+    let drawing = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move {
+            client
+                .draw(
+                    &wi_scope(),
+                    json!({"action": "draw", "drawing": "01DRAWING", "title": "slow"}),
+                )
+                .await
+        })
+    };
+    // Let the canvas request reach the engine first.
+    while fake.canvas_requests.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
+    let started = std::time::Instant::now();
+    let listed = client
+        .draw(&wi_scope(), json!({"action": "list"}))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(250),
+        "the list waited on the canvas: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(listed["ok"], json!(true));
+    let drawn = drawing.await.unwrap().unwrap().unwrap();
+    assert_eq!(drawn["drawing"], json!("01DRAWING"));
+}

@@ -25,7 +25,7 @@ use crate::dto::{
     DrawingDetail, DrawingRow, FolderRepo, NewDrawingBody, PatchDrawingBody, RepoCommitBody,
     RepoCommitRow, RepoIdentityBody, RepoRemoteBody,
 };
-use crate::owner::{conflict_or, filter_of, scope_of, ScopeQuery};
+use crate::owner::{conflict_or, filter_of, scope_of, Records, ScopeQuery};
 use crate::route_docs::RouteDoc;
 use crate::Query;
 use crate::{bad_request, not_found, repo_git, ApiError, Shared};
@@ -104,7 +104,7 @@ async fn list(
     State(state): State<Shared>,
     Query(q): Query<ScopeQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let filter = filter_of(q.scope.as_deref(), q.id.as_deref())?;
+    let filter = filter_of(q.scope.as_deref(), q.id.as_deref(), Records::Drawings)?;
     let drawings: Vec<DrawingRow> = state
         .engine
         .workspace()
@@ -119,7 +119,7 @@ async fn create(
     State(state): State<Shared>,
     crate::Body(body): crate::Body<NewDrawingBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let scope = scope_of(&body.scope, body.id.as_deref())?;
+    let scope = scope_of(&body.scope, body.id.as_deref(), Records::Drawings)?;
     let drawing = eng::create(
         state.engine.inner(),
         NewDrawing {
@@ -162,7 +162,7 @@ async fn patch_drawing(
     match patched {
         // Silent on the bus on purpose; `bisa_engine::drawings::update` says why.
         Ok(drawing) => Json(json!({"drawing": detail_of(drawing)})).into_response(),
-        Err(e) => conflict_or(e, &locale),
+        Err(e) => conflict_or(e, &locale, Records::Drawings),
     }
 }
 

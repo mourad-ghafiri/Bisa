@@ -12,6 +12,15 @@ use bisa_store::{OwnerFilter, StoreError};
 use serde::Deserialize;
 use serde_json::json;
 
+/// Which records a route speaks of — so a refusal says *drawing* on the
+/// drawings' routes and *note* on the notes', where it used to say *note*
+/// on both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Records {
+    Notes,
+    Drawings,
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ScopeQuery {
     /// One of `OwnerScope::KINDS`. Absent means every record.
@@ -27,7 +36,11 @@ pub(crate) struct ScopeQuery {
 /// and a record kind without one, are both refusals here rather than
 /// something the store has to guess at. Whether the id names anything is
 /// the store's question, and it answers it when the record is written.
-pub(crate) fn scope_of(kind: &str, id: Option<&str>) -> Result<OwnerScope, ApiError> {
+pub(crate) fn scope_of(
+    kind: &str,
+    id: Option<&str>,
+    records: Records,
+) -> Result<OwnerScope, ApiError> {
     let id = id.filter(|s| !s.trim().is_empty());
     if !OwnerScope::KINDS.contains(&kind) {
         return Err(bad_request(bisa_core::text!(
@@ -37,10 +50,16 @@ pub(crate) fn scope_of(kind: &str, id: Option<&str>) -> Result<OwnerScope, ApiEr
         )));
     }
     match (OwnerScope::kind_takes_id(kind), id) {
-        (false, Some(_)) => Err(bad_request(bisa_core::text!(
-            "error-node-notes-note-names-nothing-drop-id",
-            kind = kind.to_string()
-        ))),
+        (false, Some(_)) => Err(bad_request(match records {
+            Records::Notes => bisa_core::text!(
+                "error-node-notes-note-names-nothing-drop-id",
+                kind = kind.to_string()
+            ),
+            Records::Drawings => bisa_core::text!(
+                "error-node-drawings-drawing-names-nothing-drop-id",
+                kind = kind.to_string()
+            ),
+        })),
         (true, None) => Err(bad_request(bisa_core::text!(
             "error-node-notes-scope-needs-id",
             kind = kind.to_string()
@@ -57,7 +76,11 @@ pub(crate) fn scope_of(kind: &str, id: Option<&str>) -> Result<OwnerScope, ApiEr
 
 /// What a listing lists: nothing asked is every record; a kind alone is
 /// every record of that kind (a tab); a kind with an id is one scope.
-pub(crate) fn filter_of(kind: Option<&str>, id: Option<&str>) -> Result<OwnerFilter, ApiError> {
+pub(crate) fn filter_of(
+    kind: Option<&str>,
+    id: Option<&str>,
+    records: Records,
+) -> Result<OwnerFilter, ApiError> {
     let id = id.filter(|s| !s.trim().is_empty());
     match (kind, id) {
         (None, None) => Ok(OwnerFilter::All),
@@ -75,7 +98,7 @@ pub(crate) fn filter_of(kind: Option<&str>, id: Option<&str>) -> Result<OwnerFil
                     a0 = (OwnerScope::KINDS.join(", ")).to_string()
                 ))
             }),
-        (Some(kind), id) => Ok(OwnerFilter::Scope(scope_of(kind, id)?)),
+        (Some(kind), id) => Ok(OwnerFilter::Scope(scope_of(kind, id, records)?)),
     }
 }
 
@@ -89,14 +112,21 @@ pub(crate) fn filter_of(kind: Option<&str>, id: Option<&str>) -> Result<OwnerFil
 /// rides along, as every refusal's does: `text` for the reader to say in its
 /// language, `error` in the request's (17). Every other failure keeps the
 /// mapping it already has.
-pub(crate) fn conflict_or(e: EngineError, locale: &bisa_i18n::Locale) -> Response {
+pub(crate) fn conflict_or(
+    e: EngineError,
+    locale: &bisa_i18n::Locale,
+    records: Records,
+) -> Response {
     match e {
         EngineError::Store(StoreError::EditConflict {
             current,
             current_hash,
             ..
         }) => {
-            let text = bisa_core::text!("error-node-notes-changed-since-read");
+            let text = match records {
+                Records::Notes => bisa_core::text!("error-node-notes-changed-since-read"),
+                Records::Drawings => bisa_core::text!("error-node-drawings-changed-since-read"),
+            };
             (
                 StatusCode::CONFLICT,
                 Json(json!({

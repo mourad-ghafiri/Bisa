@@ -3034,6 +3034,7 @@ mod tests {
                     scope: "workspace".into(),
                     scope_id: None,
                     hash: "h".into(),
+                    removed: false,
                 },
                 "d1",
             ),

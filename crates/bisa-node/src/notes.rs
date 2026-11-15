@@ -40,7 +40,7 @@ use crate::dto::{
     FolderRepo, NewNoteBody, NoteRow, PatchNoteBody, RepoCommitBody, RepoCommitRow,
     RepoIdentityBody, RepoRemoteBody,
 };
-use crate::owner::{conflict_or, filter_of, scope_of, ScopeQuery};
+use crate::owner::{conflict_or, filter_of, scope_of, Records, ScopeQuery};
 use crate::route_docs::RouteDoc;
 use crate::Query;
 use crate::{bad_request, repo_git, ApiError, Shared};
@@ -142,7 +142,7 @@ async fn list(
     State(state): State<Shared>,
     Query(q): Query<ScopeQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let filter = filter_of(q.scope.as_deref(), q.id.as_deref())?;
+    let filter = filter_of(q.scope.as_deref(), q.id.as_deref(), Records::Notes)?;
     let notes: Vec<NoteRow> = state
         .engine
         .workspace()
@@ -157,7 +157,7 @@ async fn create(
     State(state): State<Shared>,
     crate::Body(body): crate::Body<NewNoteBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let scope = scope_of(&body.scope, body.id.as_deref())?;
+    let scope = scope_of(&body.scope, body.id.as_deref(), Records::Notes)?;
     let note = bisa_engine::notes::create(
         state.engine.inner(),
         NewNote {
@@ -207,7 +207,7 @@ async fn patch_note(
             }
             Json(json!({"note": row(note)})).into_response()
         }
-        Err(e) => conflict_or(e, &locale),
+        Err(e) => conflict_or(e, &locale, Records::Notes),
     }
 }
 

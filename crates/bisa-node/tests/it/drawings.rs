@@ -202,6 +202,25 @@ async fn drawings_over_http_with_their_repository() {
     assert_eq!(status, 409, "{v}");
     assert_eq!(v["current_hash"], json!(fresh));
     assert_eq!(v["current"]["elements"].as_array().unwrap().len(), 1);
+    // Said of a drawing, in a drawing's words — it used to say "the note".
+    assert_eq!(
+        v["error"],
+        json!("the drawing changed since you read it"),
+        "{v}"
+    );
+    let (status, v) = request(
+        &socket,
+        "POST",
+        "/drawings",
+        Some(json!({"scope": "workspace", "id": "x", "title": "Misfiled"})),
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(
+        v["error"],
+        json!("a workspace drawing names nothing — drop `id`"),
+        "{v}"
+    );
     // A title needs no hash.
     let (status, v) = request(
         &socket,

@@ -14,7 +14,15 @@
 //! **Who may draw** is the workspace's word — `draw.enabled` (the machine's
 //! switch) and `draw.agents` (*everyone* by default; *assigned* is carrying
 //! the Drawing skill, the core agents always; *nobody*) — checked before
-//! anything is read or parked, as the browser's is.
+//! anything is read or parked, as the browser's is. `draw.agents` may be a
+//! project's own, and the project that speaks is the one the drawing is
+//! **filed under** ([`policy_project`]), never merely the one the asking
+//! conversation stands in.
+//!
+//! **What the canvas answers** is its word on whether it drew and on the
+//! picture it took; the drawing's facts in the reply are the store's
+//! ([`canvas_result`]). A request is on the desk for as long as its asker
+//! waits: a session that hangs up withdraws it.
 
 use crate::events::{EngineEvent, EnginePayload};
 use crate::parked::{Desk, Parked};
@@ -47,6 +55,8 @@ pub const NOBODY_HOME: &str =
 pub const DESKTOP_SILENT: &str = "the canvas was open but did not answer this request in \
 time — drawing_read the drawing first, since the canvas may have saved after the wait, then try \
 the same call once more; if it happens again, tell the person the canvas is not responding and stop";
+/// Longest refusal a canvas's answer carries to an agent, in bytes.
+pub const MAX_CANVAS_ERROR_BYTES: usize = 4 * 1024;
 /// The sentences the op refuses with, by policy.
 pub const OFF: &str = "the canvas is turned off in Settings › You › Draw";
 pub const NOBODY_MAY: &str = "the workspace lets no agent draw (draw.agents = nobody)";
@@ -172,21 +182,20 @@ impl DrawResult {
 
     /// The description cut to its cap on a character boundary.
     pub fn bounded(mut self) -> Self {
-        if let Some(text) = self.description.take() {
-            self.description = Some(if text.len() > draw::MAX_DESCRIBE_BYTES {
-                let mut cut = draw::MAX_DESCRIBE_BYTES;
-                while !text.is_char_boundary(cut) {
-                    cut -= 1;
-                }
-                format!(
-                    "{}\n… cut at {} bytes",
-                    &text[..cut],
-                    draw::MAX_DESCRIBE_BYTES
-                )
-            } else {
-                text
-            });
-        }
+        self.description = self.description.take().map(|text| {
+            if text.len() <= draw::MAX_DESCRIBE_BYTES {
+                return text;
+            }
+            let mut cut = draw::MAX_DESCRIBE_BYTES;
+            while !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            format!(
+                "{}\n… cut at {} bytes",
+                &text[..cut],
+                draw::MAX_DESCRIBE_BYTES
+            )
+        });
         self
     }
 
@@ -331,12 +340,27 @@ pub fn update(
     Ok(drawing)
 }
 
-/// Delete a drawing and announce it, so an overlay showing it lets go.
+/// Delete a drawing and announce it as removed, so an overlay showing it
+/// lets go. A drawing nobody can read is deleted like any other — the store
+/// removes it by where its row says it is — and said with the hash of the
+/// last scene anyone could read.
 pub fn delete(inner: &Arc<Inner>, id: DrawingId) -> Result<(), EngineError> {
-    let drawing = inner.ws.get_drawing(id)?;
-    inner.ws.delete_drawing(id)?;
+    let last = inner.ws.get_drawing(id).ok();
+    let scope = inner.ws.delete_drawing(id)?;
     inner.drawings_git.touched(inner);
-    emit_changed(inner, &drawing);
+    let scope = scope.or_else(|| last.as_ref().map(|d| d.scope.clone()));
+    inner.emit(EngineEvent::global(EnginePayload::DrawingChanged {
+        drawing: id.to_string(),
+        // A snapshot that would not read and had no row was filed nowhere a
+        // list shows: every list re-reads on the workspace's word.
+        scope: scope
+            .as_ref()
+            .map_or(OwnerScope::Workspace.kind(), OwnerScope::kind)
+            .to_string(),
+        scope_id: scope.as_ref().and_then(OwnerScope::id),
+        hash: last.map(|d| scene_hash(&d.scene)).unwrap_or_default(),
+        removed: true,
+    }));
     Ok(())
 }
 
@@ -395,7 +419,70 @@ pub fn emit_changed(inner: &Inner, drawing: &Drawing) {
         scope: drawing.scope.kind().to_string(),
         scope_id: drawing.scope.id(),
         hash: scene_hash(&drawing.scene),
+        removed: false,
     }));
+}
+
+/// The project whose word on who may draw a call answers to: the one the
+/// drawing it means is filed under — the drawing named, else the
+/// conversation's — or the one a new drawing or a listing names as its
+/// scope. `None` when the call names no project: the caller then takes the
+/// project its conversation stands in, as every other tool does.
+pub fn policy_project(
+    inner: &Inner,
+    request: &DrawRequest,
+    conversation: Option<&bisa_core::Conversation>,
+) -> Option<ProjectId> {
+    let of_scope = |scope: OwnerScope| match scope {
+        OwnerScope::Project { id } => Some(id),
+        _ => None,
+    };
+    if let Some(named) = request
+        .scope
+        .as_deref()
+        .and_then(|kind| OwnerScope::from_parts(kind, request.scope_id.as_deref()))
+    {
+        return of_scope(named);
+    }
+    request
+        .drawing
+        .or_else(|| conversation.and_then(|c| c.origin.drawing()))
+        .and_then(|id| inner.ws.get_drawing(id).ok())
+        .and_then(|d| of_scope(d.scope))
+}
+
+/// What a canvas's answer becomes before an agent reads it. The canvas's
+/// word is whether it drew, why not (cut to [`MAX_CANVAS_ERROR_BYTES`]), and
+/// the picture a snapshot took; the drawing's own facts — which drawing,
+/// its title, its hash, how many elements — are read from the store, and
+/// nothing else the answer carried is passed on.
+fn canvas_result(inner: &Inner, id: DrawingId, answered: DrawResult) -> DrawResult {
+    if !answered.ok {
+        let mut why = answered
+            .error
+            .unwrap_or_else(|| "the canvas refused".to_string());
+        if why.len() > MAX_CANVAS_ERROR_BYTES {
+            let mut cut = MAX_CANVAS_ERROR_BYTES;
+            while !why.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            why.truncate(cut);
+            why.push('…');
+        }
+        return DrawResult::refused(why);
+    }
+    let facts = match inner.ws.get_drawing(id) {
+        Ok(d) => DrawResult::of(&d),
+        // LCOV_EXCL_START a drawing gone under the canvas's answer; a race
+        Err(e) => return DrawResult::refused(e.to_string()),
+        // LCOV_EXCL_STOP
+    };
+    DrawResult {
+        snapshot: answered.snapshot,
+        width: answered.width,
+        height: answered.height,
+        ..facts
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -578,23 +665,29 @@ pub async fn perform(
                 drawing: Some(id),
                 ..request
             };
+            let action = request.action;
             let (park_id, rx) = ask(inner, request, scope);
-            let result = inner
+            // On the desk for as long as this call waits: dropped with it
+            // when the session hangs up, the request is withdrawn.
+            let held = inner.draw.hold(&park_id);
+            let answered = inner
                 .draw
                 // LCOV_EXCL_START a sixty-second wait on the canvas; by decision
                 .wait_for(&park_id, rx, ANSWER_TIMEOUT, || {
                     DrawResult::refused(DESKTOP_SILENT)
                 })
                 // LCOV_EXCL_STOP
-                .await
-                .with_named_copy(inner);
-            if result.ok {
+                .await;
+            drop(held);
+            let result = canvas_result(inner, id, answered).with_named_copy(inner);
+            // A snapshot looked and changed nothing: there is nothing to say.
+            if result.ok && action != DrawAction::Snapshot {
                 if let Ok(d) = inner.ws.get_drawing(id) {
                     inner.drawings_git.touched(inner);
                     emit_changed(inner, &d);
                 } // LCOV_EXCL_LINE a drawing gone under the canvas's answer; a race
             }
-            result.bounded()
+            result
         }
     }
 }
