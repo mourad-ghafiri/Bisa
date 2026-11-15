@@ -6,6 +6,8 @@
  * wears a working dot while an agent draws.
  */
 
+import { ariaChord } from "./drawSettingsModel.mjs";
+import { isMac } from "../ui/KeyHint";
 import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
 import { WorkingDot } from "../ui";
@@ -45,7 +47,7 @@ export function DrawDock() {
       ref={button}
       type="button"
       aria-label={count ? t("draw-dock-drawings-count", { count }) : t("draw-dock-drawings")}
-      aria-keyshortcuts={chord ?? undefined}
+      aria-keyshortcuts={ariaChord(chord, isMac)}
       title={t("draw-dock-drawings")}
       style={dockStyle(box)}
       onPointerDown={drag.onPointerDown}

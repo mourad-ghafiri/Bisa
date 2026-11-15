@@ -5,17 +5,19 @@
  * reads on every theme. Decorative: the tile's name says what it is.
  */
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { templatePreview } from "./templates/preview.mjs";
 
 export function TemplatePreview({ skeleton }: { skeleton: () => Record<string, unknown>[] }) {
   const { viewBox, shapes } = useMemo(() => templatePreview(skeleton()), [skeleton]);
+  // One arrowhead per preview: an id is the document's, and a dozen tiles under one id drew every arrow with the first tile's.
+  const arrow = `tpl-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   if (shapes.length === 0) return <span className="block h-full w-full" aria-hidden />;
   const stroke = Math.max(1, viewBox.w / 400);
   return (
     <svg viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`} preserveAspectRatio="xMidYMid meet" aria-hidden className="block h-full w-full text-text" style={{ strokeWidth: stroke }}>
       <defs>
-        <marker id="tpl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <marker id={arrow} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
         </marker>
       </defs>
@@ -33,7 +35,7 @@ export function TemplatePreview({ skeleton }: { skeleton: () => Record<string, u
             return <polygon key={i} points={`${cx},${s.y} ${s.x + s.w},${cy} ${cx},${s.y + s.h} ${s.x},${cy}`} fill={s.fill ?? "none"} stroke="currentColor" />;
           }
           case "line":
-            return <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="currentColor" markerEnd={s.arrow ? "url(#tpl-arrow)" : undefined} />;
+            return <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="currentColor" markerEnd={s.arrow ? `url(#${arrow})` : undefined} />;
           case "text":
             return (
               <text key={i} x={s.x} y={s.y} fontSize={s.size} textAnchor={s.anchor} dominantBaseline={s.anchor === "middle" ? "middle" : undefined} fill="currentColor" stroke="none" fontFamily="var(--font-sans)">

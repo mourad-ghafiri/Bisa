@@ -13,6 +13,16 @@ import { t } from "../i18n/l10n.mjs";
 export const DRAW_PRESENCE_MS = 20_000;
 /** How many taken-up requests the bridge remembers, so one heard twice is performed once — the latest, never every one since the window opened. */
 export const HANDLED_KEPT = 256;
+/**
+ * How long the desktop gives one request before it answers that the canvas
+ * was too slow — under the engine's sixty seconds, so the agent hears the
+ * desktop's own word (and what to do next) rather than a silence.
+ */
+export const REQUEST_DEADLINE_MS = 50_000;
+/** How long the engine waits for an answer: a parked request older than this has already been answered as silent. */
+const ENGINE_WAIT_MS = 60_000;
+/** How many times an answer is sent before the desktop gives up on it. */
+export const ANSWER_TRIES = 3;
 /** The font size a Mermaid text is laid out at. */
 export const MERMAID_FONT_SIZE = 20;
 
@@ -23,6 +33,57 @@ export const NOT_A_SKELETON = t("draw-request-not-a-skeleton");
 export const MERMAID_REFUSED = t("draw-request-mermaid-refused");
 export const SNAPSHOT_FAILED = t("draw-request-snapshot-failed");
 export const UNKNOWN_ACTION = t("draw-request-unknown-action");
+export const MERMAID_AS_PICTURE = t("draw-request-mermaid-as-picture");
+export const CANVAS_FAILED = t("draw-request-canvas-failed");
+export const CANVAS_SLOW = t("draw-request-canvas-slow");
+
+/**
+ * Whether a parked request is past the engine's wait: read off the list
+ * after a window that was hidden or a node that was away, it has already
+ * been answered to its agent as silent, and performing it now would draw
+ * what the agent was told was not drawn. A frame carries no time
+ * (`asked_at: 0`): it was asked just now.
+ * @param {number} askedAt unix seconds, or 0 @param {number} now milliseconds
+ */
+export function requestExpired(askedAt, now) {
+  return askedAt > 0 && now - askedAt * 1000 > ENGINE_WAIT_MS;
+}
+
+/**
+ * Whether an answer the node did not take is sent again: when the node did
+ * not answer at all or failed (`0`, a `5xx`), up to [`ANSWER_TRIES`]. A
+ * `404` is the engine saying nothing waits under that id — it has answered
+ * the agent already — and any other `4xx` would be refused the same again.
+ * @param {number} status the refusal's status, 0 for none @param {number} attempt the try that failed, from 0
+ */
+export function answerRetries(status, attempt) {
+  return attempt < ANSWER_TRIES - 1 && (status === 0 || status >= 500);
+}
+
+/**
+ * Whether what a Mermaid text converted to can be drawn as shapes. The
+ * converter draws flowcharts, sequence, class, entity-relationship and state
+ * diagrams as elements; every other kind comes back as **one image** of the
+ * rendered diagram, which a drawing never keeps — and nothing at all is
+ * nothing to draw.
+ * @param {readonly {type?: string}[]} elements
+ */
+export function mermaidDrawable(elements) {
+  return elements.length > 0 && !elements.some((e) => e.type === "image");
+}
+
+/**
+ * What a bridge save that lost to another writer does next. On the **open**
+ * canvas it gives way: the agent is told the drawing moved, and the person's
+ * canvas is left to its own editor — an agent's retry never replaces what
+ * they are drawing. Offscreen, the store's scene is re-read and the agent's
+ * shapes merged into it, once.
+ * @param {boolean} live the shapes landed on the open canvas @param {number} attempt from 0
+ * @returns {"merge" | "moved"}
+ */
+export function conflictStep(live, attempt) {
+  return !live && attempt === 0 ? "merge" : "moved";
+}
 
 /**
  * What one parked request asks: laid-out skeleton elements, a Mermaid text,

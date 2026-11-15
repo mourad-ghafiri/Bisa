@@ -133,6 +133,27 @@ notes (`docs/contributing/release.md`).
   with the title gone. A drawing that cannot be opened says so with a retry that opens it, and a
   canvas whose code failed to load is asked for again instead of failing for the session.
 
+- **Agents' drawing requests are always answered, and never held by a hidden window.** With the
+  window hidden to the tray or behind another, the desktop waited on a frame that never came and
+  every agent's request queued behind it; work that threw was never answered at all. Each wait
+  now ends on a clock, a failure is a refusal the agent reads, a request is answered within fifty
+  seconds whatever the canvas does, an answer the node did not take is sent again, and a request
+  the engine has stopped waiting for is not drawn late.
+
+- **An agent drawing into a closed drawing keeps its background and grid**, which were reset to
+  white and no grid at each such save — and a snapshot of it is taken on them. A Mermaid diagram
+  that can only be shown as a picture (a pie, a gantt, a mindmap) is refused in a sentence that
+  says which kinds draw, where it used to leave a broken image on the canvas. A save an agent's
+  shapes lost on the open canvas takes them back off and tells the agent; it no longer replaces
+  what the person was drawing.
+
+- **Draw's shell.** With Draw turned off the footer has no switch for it, and nothing is served in
+  the moment before the settings are read. The Draw dock starts beside the Notes dock, clear of
+  both panels' corners, where it used to sit on them (a place you dragged it to is kept). Escape
+  in the drawings search box only clears the search, and Escape on the canvas no longer also
+  closes the Details pane. The shape library's labels are translated, each template preview has
+  its own arrowhead, and the offscreen canvas is let go of after two idle minutes.
+
 - **An agent's drawing request ends with the agent.** A request waiting on the canvas is withdrawn
   when the session that made it hangs up — an agent stopped mid-drawing used to leave it for the
   desktop to perform up to a minute later, for nobody. A request the canvas performs is sent

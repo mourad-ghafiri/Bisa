@@ -12,6 +12,12 @@
 import { useSyncExternalStore } from "react";
 import type { ExcalidrawImperativeAPI } from "../ui/excalidraw";
 
+/** How long a request waits for the offscreen canvas to mount before it fails — the request, never the queue behind it. */
+const OFFSCREEN_MOUNT_MS = 15_000;
+/** How long the offscreen canvas is kept once nobody has needed it: a 1600×1000 canvas and the last drawing's elements are not held for the rest of the session. */
+const OFFSCREEN_IDLE_MS = 120_000;
+
+let idle: ReturnType<typeof setTimeout> | null = null;
 let wanted = false;
 let api: ExcalidrawImperativeAPI | null = null;
 const waiting = new Set<(api: ExcalidrawImperativeAPI) => void>();
@@ -41,14 +47,39 @@ export function offscreenGone(): void {
   api = null;
 }
 
-/** The offscreen canvas's API, mounting it first when it is not there yet. */
+/** The offscreen canvas's API, mounting it first when it is not there yet. Fails when the canvas does not mount in time. */
 export function offscreenApi(): Promise<ExcalidrawImperativeAPI> {
+  if (idle) {
+    clearTimeout(idle);
+    idle = null;
+  }
   if (api) return Promise.resolve(api);
   if (!wanted) {
     wanted = true;
     for (const l of listeners) l();
   }
-  return new Promise((resolve) => {
-    waiting.add(resolve);
+  return new Promise((resolve, reject) => {
+    const mounted = (next: ExcalidrawImperativeAPI) => {
+      clearTimeout(timer);
+      resolve(next);
+    };
+    const timer = setTimeout(() => {
+      waiting.delete(mounted);
+      reject(new Error("the offscreen canvas did not mount"));
+    }, OFFSCREEN_MOUNT_MS);
+    waiting.add(mounted);
   });
+}
+
+/** A request has finished: the offscreen canvas is let go of once nobody has asked for it for a while. */
+export function offscreenIdle(): void {
+  if (!wanted) return;
+  if (idle) clearTimeout(idle);
+  idle = setTimeout(() => {
+    idle = null;
+    if (waiting.size > 0) return;
+    wanted = false;
+    api = null;
+    for (const l of listeners) l();
+  }, OFFSCREEN_IDLE_MS);
 }

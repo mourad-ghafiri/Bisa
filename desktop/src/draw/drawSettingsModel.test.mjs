@@ -18,3 +18,16 @@ test("the three policies each have a sentence", () => {
   assert.equal(new Set(words).size, 3);
   assert.ok(words.every((w) => w.length > 10));
 });
+
+
+test("a delay is said in the reader's language, and a chord as ARIA spells one", async () => {
+  const { ariaChord, secondsWords } = await import("./drawSettingsModel.mjs");
+  assert.equal(secondsWords(1000, "en"), "1.0s");
+  assert.equal(secondsWords(700, "en"), "0.7s");
+  assert.match(secondsWords(1500, "fr"), /^1,5\s?s$/, "the decimal mark and the unit are the language's");
+  assert.equal(typeof secondsWords(1000), "string", "the runtime's language when none is given");
+  assert.equal(ariaChord("Mod+Alt+D", true), "Meta+Alt+D");
+  assert.equal(ariaChord("Mod+Alt+D", false), "Control+Alt+D");
+  assert.equal(ariaChord("Alt+N", true), "Alt+N");
+  assert.equal(ariaChord(null, true), undefined);
+});

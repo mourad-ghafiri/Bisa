@@ -174,3 +174,26 @@ test("a note or a drawing is deleted from its list row, asked first in the edito
     assert.ok(src.includes(del) && src.includes(gone) && src.includes("sayFailure("), `${file}: the same delete, gone counts as done, a failure said through the kit`);
   }
 });
+
+test("the Draw shell: off is off everywhere, the dock clears the panels, and one Escape does one thing", () => {
+  const status = read("shell/DrawStat.tsx");
+  assert.ok(status.includes("if (!enabled) return null;"), "with Draw off, the footer has no switch for a dock that is not there");
+  const panel = read("draw/DrawPanel.tsx");
+  assert.ok(panel.includes("const on = read && enabled;"), "nothing is served before the settings are read: the default must not serve a machine that turned Draw off");
+  const store = read("draw/drawStore.ts");
+  const dock = /DEFAULT_DOCK: Placement = \{ h: "right", x: (\d+), v: "bottom", y: (\d+) \}/.exec(store);
+  assert.ok(dock, "the default is one line a test can read");
+  // The floating panels stand 80px above the window's bottom edge; a 48px dock under that line covers neither's corner.
+  assert.ok(Number(dock[2]) + 48 <= 80, "the dock stands below the panels' bottom edge");
+  assert.ok(Number(dock[1]) >= 24 + 48 + 8, "and beside the notes dock, not on it");
+  const overlay = read("draw/DrawOverlay.tsx");
+  assert.ok(overlay.includes('if (e.key !== "Escape" || !maximized || e.defaultPrevented) return;'), "a search box that took the key keeps it, as the Notes panel's does");
+  const app = read("App.tsx");
+  assert.ok(app.includes('closest("[data-terminal-panel], [data-draw-canvas]")'), "the canvas's own Escape — a shape let go of — does not also close the Details pane");
+  const preview = read("draw/TemplatePreview.tsx");
+  assert.ok(preview.includes("useId()") && !preview.includes('id="tpl-arrow"'), "each preview's arrowhead is its own: one id per document");
+  for (const file of ["draw/library/drawing.mjs", "draw/library/software.mjs", "draw/library/stickers.mjs"]) {
+    const words = [...read(file).matchAll(/(?:box|caption|title|frame|sticky|label)\("[a-z0-9-]+",(?: -?\d+,){0,4} "([A-Z][a-z]+[^"]*)"/g)].map((m) => m[1]);
+    assert.deepEqual(words, [], `${file}: a shape's words are the catalogue's`);
+  }
+});

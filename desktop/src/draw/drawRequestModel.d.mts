@@ -27,3 +27,13 @@ export declare function snapshotResult(drawing: string, snapshot: AttachmentRef,
 export declare function refusedResult(error: string, drawing?: string | null): DrawResult;
 export declare function snapshotName(drawing: string, at?: Date): string;
 export declare function drawingWords(count: number): string;
+
+export declare const REQUEST_DEADLINE_MS: number;
+export declare const ANSWER_TRIES: number;
+export declare const MERMAID_AS_PICTURE: string;
+export declare const CANVAS_FAILED: string;
+export declare const CANVAS_SLOW: string;
+export declare function requestExpired(askedAt: number, now: number): boolean;
+export declare function answerRetries(status: number, attempt: number): boolean;
+export declare function mermaidDrawable(elements: readonly { type?: string }[]): boolean;
+export declare function conflictStep(live: boolean, attempt: number): "merge" | "moved";

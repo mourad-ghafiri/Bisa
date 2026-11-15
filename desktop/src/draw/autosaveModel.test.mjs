@@ -184,7 +184,7 @@ test("a read never swaps the canvas under the pen: a stroke made while it was ou
 
 test("the editor's wiring: what is saved is what the canvas last reported, never read from a canvas that may have gone", () => {
   const editor = readFileSync(new URL("./DrawEditor.tsx", import.meta.url), "utf8");
-  const save = editor.slice(editor.indexOf("const save = useCallback("), editor.indexOf("/** Save now and say whether the canvas is clean afterwards"));
+  const save = editor.slice(editor.indexOf("const save = useCallback("), editor.indexOf("const saveNow = useCallback("));
   assert.ok(!save.includes("getSceneElements()") && !save.includes("getAppState()"), "an unmounted canvas reads as an empty scene — a flush from it wiped the drawing");
   assert.ok(save.includes("latest.current"), "the last scene `onChange` handed over");
   assert.ok(save.includes("failureKind(") && save.includes("rearms("), "the model reads the refusal and decides the re-arm");

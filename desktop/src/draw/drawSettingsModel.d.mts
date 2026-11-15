@@ -9,3 +9,6 @@ export declare const MAX_SNAPSHOT_WIDTH: number;
 export declare const DEFAULT_SNAPSHOT_WIDTH: number;
 export declare function snapshotWidth(value: unknown): number;
 export declare function policyWords(policy: string): string;
+
+export declare function secondsWords(ms: number, locale?: string): string;
+export declare function ariaChord(chord: string | null | undefined, mac: boolean): string | undefined;

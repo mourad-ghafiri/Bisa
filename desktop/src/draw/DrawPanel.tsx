@@ -26,26 +26,30 @@ type ExcalidrawModule = typeof import("@excalidraw/excalidraw");
 export function DrawPanel() {
   const { resolved } = useResolvedSettings(null);
   useEffect(() => setDrawPrefs(drawPrefsOf(resolved)), [resolved]);
-  const { enabled } = useDrawPrefs();
+  // Served only once the settings have been read and say Draw is on: the
+  // default is *on*, and a machine that turned Draw off must not perform one
+  // request, or say it is home, in the moment before its settings arrive.
+  const { read, enabled } = useDrawPrefs();
+  const on = read && enabled;
 
   // The parked list at start, then each frame as it comes.
   useEffect(() => {
-    if (!enabled) return;
+    if (!on) return;
     void api
       .drawingRequests()
       .then((r) => {
         for (const pending of r.requests) void performDrawRequest(pending);
       })
       .catch((e: unknown) => log.debug("draw", "the pending drawing requests could not be read", errorFields(e)));
-  }, [enabled]);
+  }, [on]);
   useEngineEvents((e) => {
-    if (e.payload.type === "drawing_request" && enabled) void performDrawRequest({ id: e.payload.id, request: e.payload.request, scope: e.payload.scope, asked_at: 0 });
+    if (e.payload.type === "drawing_request" && on) void performDrawRequest({ id: e.payload.id, request: e.payload.request, scope: e.payload.scope, asked_at: 0 });
   });
 
   // A desktop that is open says so: the engine refuses a request at once as
   // not available when none has read the list within its presence window.
   useEffect(() => {
-    if (!enabled) return;
+    if (!on) return;
     let failures = 0;
     const read = () =>
       void api
@@ -62,7 +66,7 @@ export function DrawPanel() {
         });
     const timer = window.setInterval(read, DRAW_PRESENCE_MS);
     return () => window.clearInterval(timer);
-  }, [enabled]);
+  }, [on]);
 
   // The offscreen canvas, mounted once the first request needs it.
   const wanted = useOffscreenWanted();

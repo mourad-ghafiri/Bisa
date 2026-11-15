@@ -37,8 +37,15 @@ const PLACE = "draw";
 const ACTIVE = "active";
 const QUERY = "query";
 
-/** Where the dock starts before anyone has dragged it: above the notes' corner, so the two never overlap. */
-const DEFAULT_DOCK: Placement = { h: "right", x: 24, v: "bottom", y: 84 };
+/**
+ * Where the dock starts before anyone has dragged it: beside the notes dock,
+ * on its row. Both floating panels end 80px above the window's bottom edge,
+ * so a dock on this row covers neither's corner — standing above the notes
+ * dock, as it used to, it sat on the corner of whichever panel was open, and
+ * a press meant for the canvas's last button closed the panel. A place
+ * somebody dragged it to is kept.
+ */
+const DEFAULT_DOCK: Placement = { h: "right", x: 84, v: "bottom", y: 24 };
 
 interface DrawState {
   open: boolean;

@@ -10,7 +10,8 @@
 import { Button, Card, Section, Slider, Switch } from "../../ui";
 import { SAVE_MAX_MS, SAVE_MIN_MS, SAVE_STEP_MS } from "../../draw/drawModel.mjs";
 import { drawDockMoved, resetDrawDockPosition, setDrawCountBadge, setDrawDockVisible, setDrawMaximized, setDrawSaveDelay, useDrawOverlay } from "../../draw/drawStore";
-import { t } from "../../i18n/l10n.mjs";
+import { secondsWords } from "../../draw/drawSettingsModel.mjs";
+import { locale, t } from "../../i18n/l10n.mjs";
 
 export function DrawPanel() {
   const { dock, dockVisible, countBadge, maximized, saveDelay } = useDrawOverlay();
@@ -37,7 +38,7 @@ export function DrawPanel() {
             max={SAVE_MAX_MS}
             step={SAVE_STEP_MS}
             onChange={setDrawSaveDelay}
-            format={(ms) => `${(ms / 1000).toFixed(1)}s`}
+            format={(ms) => secondsWords(ms, locale())}
             hint={t("settings-draw-panel-save-hint")}
           />
         </Card>

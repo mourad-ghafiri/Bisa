@@ -24,13 +24,13 @@ function actor(id, text) {
 }
 
 export const SOFTWARE_ITEMS = Object.freeze([
-  { id: "service", name: t("draw-library-service"), skeleton: () => [box("service", 0, 0, "Service", { fill: PALETTE.green })] },
-  { id: "database", name: t("draw-library-database"), skeleton: () => store("database", "Database") },
-  { id: "queue", name: t("draw-library-queue"), skeleton: () => [box("queue", 0, 0, "▮▮▮ Queue", { fill: PALETTE.orange, height: 56 })] },
-  { id: "cache", name: t("draw-library-cache"), skeleton: () => [box("cache", 0, 0, "Cache", { type: "ellipse", fill: PALETTE.grey })] },
-  { id: "client", name: t("draw-library-client"), skeleton: () => [box("client", 0, 0, "Client", { fill: PALETTE.blue })] },
+  { id: "service", name: t("draw-library-service"), skeleton: () => [box("service", 0, 0, t("draw-library-service"), { fill: PALETTE.green })] },
+  { id: "database", name: t("draw-library-database"), skeleton: () => store("database", t("draw-library-database")) },
+  { id: "queue", name: t("draw-library-queue"), skeleton: () => [box("queue", 0, 0, `▮▮▮ ${t("draw-library-queue")}`, { fill: PALETTE.orange, height: 56 })] },
+  { id: "cache", name: t("draw-library-cache"), skeleton: () => [box("cache", 0, 0, t("draw-library-cache"), { type: "ellipse", fill: PALETTE.grey })] },
+  { id: "client", name: t("draw-library-client"), skeleton: () => [box("client", 0, 0, t("draw-library-client"), { fill: PALETTE.blue })] },
   { id: "api-gateway", name: t("draw-library-api-gateway"), skeleton: () => [box("gateway", 0, 0, t("draw-shape-api-gateway"), { fill: PALETTE.yellow })] },
   { id: "load-balancer", name: t("draw-library-load-balancer"), skeleton: () => [box("lb", 0, 0, t("draw-shape-load-balancer"), { type: "diamond", width: 200, height: 100, fill: PALETTE.yellow })] },
   { id: "external-system", name: t("draw-library-external-system"), skeleton: () => [box("external", 0, 0, t("draw-shape-external-system"), { fill: PALETTE.grey, dashed: true })] },
-  { id: "actor", name: t("draw-library-actor"), skeleton: () => actor("actor", "Person") },
+  { id: "actor", name: t("draw-library-actor"), skeleton: () => actor("actor", t("draw-library-actor")) },
 ]);

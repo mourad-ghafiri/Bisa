@@ -7,6 +7,7 @@
 
 import { useBusyDrawings } from "../draw/drawActivityStore";
 import { drawingWords } from "../draw/drawRequestModel.mjs";
+import { useDrawPrefs } from "../draw/drawPrefsStore";
 import { setDrawDockVisible, useDrawOverlay } from "../draw/drawStore";
 import { ICON, WorkingDot } from "../ui";
 import { FooterToggle } from "./FooterToggle";
@@ -15,6 +16,9 @@ import { t } from "../i18n/l10n.mjs";
 export function DrawStat() {
   const { dockVisible } = useDrawOverlay();
   const busy = useBusyDrawings();
+  // With Draw off on this machine there is no dock to show or hide: the switch for it goes too.
+  const { enabled } = useDrawPrefs();
+  if (!enabled) return null;
   return (
     <span className="relative inline-flex" data-draw-stat>
       <FooterToggle icon={ICON.draw} on={dockVisible} label={dockVisible ? t("shell-status-bar-hide-draw-button") : t("shell-status-bar-show-draw-button")} onClick={() => setDrawDockVisible(!dockVisible)} />

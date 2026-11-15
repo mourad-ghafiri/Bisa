@@ -322,7 +322,8 @@ export default function App() {
     onEscape: () => {
       // Inside a terminal, Escape is a keystroke somebody's editor is waiting
       // for — closing a pane with it would make vim unusable in the drawer.
-      if (document.activeElement?.closest("[data-terminal-panel]")) return;
+      // And on the canvas it lets go of a shape or a tool: the canvas's own key, not the Details pane's.
+      if (document.activeElement?.closest("[data-terminal-panel], [data-draw-canvas]")) return;
       if (omnibox) setOmnibox(null);
       else if (aux.kind) aux.close();
     },
@@ -482,7 +483,8 @@ export default function App() {
                 <BrowserPanel />
               </ErrorBoundary>
               {/* The drawing bridge (19 — Drawings): the agents' requests performed, the presence read, the offscreen canvas. */}
-              <ErrorBoundary resetKey={routeKey} onError={(error, info) => log.error("draw", "the draw panel crashed", { ...errorFields(error), component_stack: info.componentStack })}>
+              {/* It draws nothing a person sees, so a crash in it draws nothing either: the log has it, and the next route mounts it again. */}
+              <ErrorBoundary resetKey={routeKey} fallback={() => null} onError={(error, info) => log.error("draw", "the draw panel crashed", { ...errorFields(error), component_stack: info.componentStack })}>
                 <DrawPanel />
               </ErrorBoundary>
             </div>

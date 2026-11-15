@@ -340,7 +340,7 @@ export function DrawOverlay() {
 
   // Escape restores a maximized panel — once the canvas has nothing of its own to cancel.
   const onPanelKey = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.key !== "Escape" || !maximized) return;
+    if (e.key !== "Escape" || !maximized || e.defaultPrevented) return;
     if (!restoreOnEscape(canvasApi.current?.getAppState() ?? null)) return;
     e.preventDefault();
     setDrawMaximized(false);

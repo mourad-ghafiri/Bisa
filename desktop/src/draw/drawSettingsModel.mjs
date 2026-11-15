@@ -7,6 +7,26 @@
 
 import { t } from "../i18n/l10n.mjs";
 
+/**
+ * A delay in milliseconds, said as seconds in the reader's language — one
+ * decimal, the unit as that language writes it (`1.0s`, `1,0 s`).
+ * @param {number} ms @param {string} [locale] a BCP 47 tag; the runtime's when absent
+ */
+export function secondsWords(ms, locale) {
+  return new Intl.NumberFormat(locale, { style: "unit", unit: "second", unitDisplay: "narrow", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(ms / 1000);
+}
+
+/**
+ * A keymap chord as `aria-keyshortcuts` spells one: the keymap's `Mod` is
+ * no key ARIA knows — it is `Meta` on a Mac and `Control` elsewhere.
+ * @param {string | null | undefined} chord @param {boolean} mac
+ * @returns {string | undefined}
+ */
+export function ariaChord(chord, mac) {
+  return chord ? chord.replace(/\bMod\b/g, mac ? "Meta" : "Control") : undefined;
+}
+
+
 export const ENABLED_KEY = "draw.enabled";
 export const AGENTS_KEY = "draw.agents";
 export const SNAPSHOT_WIDTH_KEY = "draw.snapshot.width";
