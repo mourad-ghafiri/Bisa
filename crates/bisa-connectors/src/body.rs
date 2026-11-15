@@ -293,6 +293,7 @@ mod tests {
                 .collect(),
             select: None,
             expect: None,
+            or_empty: false,
             writes: true,
             idempotency: None,
             idempotency_key: None,

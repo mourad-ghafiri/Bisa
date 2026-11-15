@@ -102,20 +102,58 @@ impl ConnectorError {
     }
 }
 
-/// `text` with every non-empty secret — and its base64 form, which is how a
-/// Basic credential travels — replaced by `«redacted»`.
+/// `text` with every non-empty secret replaced by `«redacted»` — as it is,
+/// in its base64 form (how a Basic credential travels), and as a URL carries
+/// it: form-encoded (a space as `+`) and percent-encoded (a space as `%20`),
+/// which is how a key placed in a query comes back in a redirect's
+/// `Location` or a platform's "bad request for …?key=…".
 pub fn scrub(text: &str, secrets: &[&str]) -> String {
     use base64::Engine as _;
     let mut out = text.to_string();
     for secret in secrets.iter().filter(|s| !s.is_empty()) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
-        for needle in [*secret, encoded.as_str()] {
-            if !needle.is_empty() && out.contains(needle) {
+        let formed: String = url::form_urlencoded::byte_serialize(secret.as_bytes()).collect();
+        let percent = formed.replace('+', "%20");
+        for needle in [*secret, encoded.as_str(), formed.as_str(), percent.as_str()] {
+            if out.contains(needle) {
                 out = out.replace(needle, "«redacted»");
             }
         }
     }
     out
+}
+
+/// A secret shorter than this is not looked for in an **answer**: a
+/// two-letter test key would redact half a document. Every real credential
+/// is far longer; an error's text is scrubbed whatever the length.
+pub const MIN_ANSWER_SCRUB: usize = 8;
+
+/// [`scrub`] over every string an answer holds — the values, at any depth —
+/// so a platform that echoes the credential it was sent hands the step a
+/// placeholder. Keys are a platform's field names and are left alone.
+pub fn scrub_value(value: &mut serde_json::Value, secrets: &[&str]) {
+    let secrets: Vec<&str> = secrets
+        .iter()
+        .copied()
+        .filter(|s| s.len() >= MIN_ANSWER_SCRUB)
+        .collect();
+    if secrets.is_empty() {
+        return;
+    }
+    fn walk(value: &mut serde_json::Value, secrets: &[&str]) {
+        match value {
+            serde_json::Value::String(text) => {
+                let clean = scrub(text, secrets);
+                if clean != *text {
+                    *text = clean;
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(|v| walk(v, secrets)),
+            serde_json::Value::Object(map) => map.values_mut().for_each(|v| walk(v, secrets)),
+            _ => {}
+        }
+    }
+    walk(value, &secrets);
 }
 
 #[cfg(test)]

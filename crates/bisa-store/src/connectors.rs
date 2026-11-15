@@ -261,6 +261,15 @@ impl Workspace {
 
     // --- accounts ------------------------------------------------------
 
+    /// The one writer of connector accounts at a time (`accounts_writes`).
+    /// A writer that panicked left nothing half-written — a record is one
+    /// atomic file — so its poison is taken off.
+    fn accounts_writer(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.accounts_writes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn write_connector_account(&self, account: &ConnectorAccount) -> Result<(), StoreError> {
         let dir = self.paths.connector_accounts_dir(&account.connector);
         crate::identity::ensure_private_dir(&self.paths.identity_dir())?;
@@ -280,6 +289,7 @@ impl Workspace {
         &self,
         new: NewConnectorAccount,
     ) -> Result<ConnectorAccount, StoreError> {
+        let _one_writer = self.accounts_writer();
         let connector = self.get_connector(&new.connector)?;
         let others = self.list_connector_accounts(&new.connector)?;
         let account = ConnectorAccount {
@@ -395,6 +405,7 @@ impl Workspace {
         label: String,
         params: BTreeMap<String, serde_json::Value>,
     ) -> Result<ConnectorAccount, StoreError> {
+        let _one_writer = self.accounts_writer();
         let def = self.get_connector(connector)?;
         let mut existing = self.get_connector_account(connector, account)?;
         existing.label = label;
@@ -410,6 +421,7 @@ impl Workspace {
         connector: &ConnectorId,
         account: AccountId,
     ) -> Result<ConnectorAccount, StoreError> {
+        let _one_writer = self.accounts_writer();
         // The account first: a default moved to one nobody added would have
         // taken the mark off the one that had it, and left none.
         let mut chosen = self.get_connector_account(connector, account)?;
@@ -433,6 +445,7 @@ impl Workspace {
         connector: &ConnectorId,
         account: AccountId,
     ) -> Result<(), StoreError> {
+        let _one_writer = self.accounts_writer();
         self.get_connector_account(connector, account)?;
         for field in SecretField::ALL.iter().copied() {
             self.identity
@@ -485,11 +498,25 @@ impl Workspace {
         account: AccountId,
         secrets: &BTreeMap<SecretField, String>,
     ) -> Result<ConnectorAccount, StoreError> {
+        let _one_writer = self.accounts_writer();
+        self.set_secrets_held(connector, account, secrets)
+    }
+
+    /// [`Workspace::set_connector_secrets`], for a caller that already holds
+    /// the accounts' writer.
+    fn set_secrets_held(
+        &self,
+        connector: &ConnectorId,
+        account: AccountId,
+        secrets: &BTreeMap<SecretField, String>,
+    ) -> Result<ConnectorAccount, StoreError> {
         self.validate_connector_secrets(connector, secrets)?;
         let mut existing = self.get_connector_account(connector, account)?;
         for (field, value) in secrets {
-            self.identity
-                .set_secret(&secret_name(connector, account, *field), value)?;
+            self.identity.set_secret(
+                &secret_name(connector, account, *field),
+                kept_secret(*field, value),
+            )?;
             if !existing.auth.fields_set.contains(field) {
                 existing.auth.fields_set.push(*field);
             }
@@ -512,6 +539,7 @@ impl Workspace {
         from: SecretField,
         to: SecretField,
     ) -> Result<bool, StoreError> {
+        let _one_writer = self.accounts_writer();
         let mut existing = self.get_connector_account(connector, account)?;
         let value = self
             .identity
@@ -523,6 +551,12 @@ impl Workspace {
                 if !existing.auth.fields_set.contains(&to) {
                     existing.auth.fields_set.push(to);
                 }
+                // The record names both before the old value goes: stopped
+                // here, it says more than is true and never less, and the
+                // next start finishes the move
+                // ([`Workspace::reconcile_connector_accounts`]).
+                existing.auth.fields_set.sort_by_key(|f| f.as_str());
+                self.write_connector_account(&existing)?;
                 true
             }
             _ => false,
@@ -533,6 +567,86 @@ impl Workspace {
         existing.auth.fields_set.sort_by_key(|f| f.as_str());
         self.write_connector_account(&existing)?;
         Ok(moved)
+    }
+
+    /// Bring every account's record back in step with its connector's scheme
+    /// — what a refresh stopped half-way leaves behind, and what made an
+    /// account impossible to edit: a field the scheme no longer reads.
+    ///
+    /// A `token` under an `api_key` scheme (or the reverse) is the same
+    /// pasted secret under its old name: it is moved, unless the new field
+    /// already holds one, and the old value goes. Any other field the scheme
+    /// does not read leaves the record; its value stays in the keystore
+    /// until the account is removed. Answers how many secrets moved.
+    pub fn reconcile_connector_accounts(&self) -> Result<usize, StoreError> {
+        let mut moved = 0;
+        for def in self.list_connectors()? {
+            let fields = def.auth.fields();
+            for account in self.list_connector_accounts(&def.id)? {
+                let strays: Vec<SecretField> = account
+                    .auth
+                    .fields_set
+                    .iter()
+                    .copied()
+                    .filter(|f| !fields.contains(f))
+                    .collect();
+                for stray in strays {
+                    let heir = match (stray, &def.auth) {
+                        (SecretField::Token, AuthScheme::ApiKey { .. }) => {
+                            Some(SecretField::ApiKey)
+                        }
+                        (SecretField::ApiKey, AuthScheme::Bearer) => Some(SecretField::Token),
+                        _ => None,
+                    };
+                    match heir {
+                        Some(to) => {
+                            let held = self
+                                .identity
+                                .secret(&secret_name(&def.id, account.id, to))?
+                                .is_some_and(|v| !v.trim().is_empty());
+                            if held {
+                                self.drop_secret_field(&def.id, account.id, stray, Some(to))?;
+                            } else if self.move_connector_secret(&def.id, account.id, stray, to)? {
+                                moved += 1;
+                            }
+                        }
+                        None => self.drop_secret_field(&def.id, account.id, stray, None)?,
+                    }
+                    tracing::info!(
+                        target: "bisa_store::connectors",
+                        connector = %def.id,
+                        account = %account.id,
+                        field = stray.as_str(), // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
+                        "an account's record named a field its connector's scheme does not read; repaired"
+                    );
+                }
+            }
+        }
+        Ok(moved)
+    }
+
+    /// Take one field off an account's record. With an `heir` — the field
+    /// that already holds the same secret under the scheme's new name — the
+    /// old value leaves the keystore and the record names the heir.
+    fn drop_secret_field(
+        &self,
+        connector: &ConnectorId,
+        account: AccountId,
+        field: SecretField,
+        heir: Option<SecretField>,
+    ) -> Result<(), StoreError> {
+        let _one_writer = self.accounts_writer();
+        let mut existing = self.get_connector_account(connector, account)?;
+        if let Some(heir) = heir {
+            self.identity
+                .delete_secret(&secret_name(connector, account, field))?;
+            if !existing.auth.fields_set.contains(&heir) {
+                existing.auth.fields_set.push(heir);
+            }
+        }
+        existing.auth.fields_set.retain(|f| *f != field);
+        existing.auth.fields_set.sort_by_key(|f| f.as_str());
+        self.write_connector_account(&existing)
     }
 
     /// Record what an OAuth exchange or refresh produced: the tokens go to
@@ -551,7 +665,8 @@ impl Workspace {
         if let Some(refresh) = refresh_token {
             secrets.insert(SecretField::RefreshToken, refresh.to_string());
         }
-        let mut existing = self.set_connector_secrets(connector, account, &secrets)?;
+        let _one_writer = self.accounts_writer();
+        let mut existing = self.set_secrets_held(connector, account, &secrets)?;
         existing.auth.expires_at = expires_at;
         existing.auth.scope = scope;
         self.write_connector_account(&existing)?;
@@ -590,6 +705,17 @@ impl Workspace {
 
 /// An account's record must fit its connector: a label, and parameters the
 /// definition declares.
+/// The part of a secret that is kept: what a paste brought along with it — a
+/// line end, a space around a key — is not the secret, and sent it is a
+/// header no platform can read. A password keeps its own spaces and loses
+/// only the line end.
+fn kept_secret(field: SecretField, value: &str) -> &str {
+    match field {
+        SecretField::Password => value.trim_end_matches(['\r', '\n']),
+        _ => value.trim(),
+    }
+}
+
 fn refuse_account_problems(def: &Connector, account: &ConnectorAccount) -> Result<(), StoreError> {
     if let Some(p) = account.validate(def).first() {
         return Err(StoreError::Invalid(bisa_core::text!(
@@ -673,6 +799,159 @@ mod tests {
         );
     }
 
+    /// An account's record has two writers: the person's edit and the
+    /// engine's token save. Each reads the record and writes it whole, so
+    /// without one writer at a time an edit that read before a save and
+    /// wrote after it took the save back.
+    #[test]
+    fn an_edit_and_a_token_save_at_once_never_undo_each_other() {
+        let (_d, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        let mut oauth = def("example");
+        oauth.auth = serde_json::from_value(serde_json::json!({
+            "scheme": "oauth2",
+            "authorization_url": "https://a.example/auth",
+            "token_url": "https://a.example/token",
+            "scopes": []
+        }))
+        .unwrap();
+        let c = ws.create_connector(oauth).unwrap();
+        for round in 0..10u64 {
+            let a = ws
+                .create_connector_account(NewConnectorAccount {
+                    connector: c.id.clone(),
+                    label: format!("round {round}"),
+                    params: BTreeMap::new(),
+                    default: false,
+                })
+                .unwrap();
+            let saving = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let editor = {
+                let (ws, c, saving) = (ws.clone(), c.id.clone(), saving.clone());
+                std::thread::spawn(move || {
+                    let mut n = 0u64;
+                    while saving.load(std::sync::atomic::Ordering::SeqCst) {
+                        n += 1;
+                        ws.update_connector_account(&c, a.id, format!("edit {n}"), BTreeMap::new())
+                            .unwrap();
+                    }
+                })
+            };
+            for at in 1..=8u64 {
+                ws.set_connector_tokens(&c.id, a.id, "at", Some("rt"), Some(at), None)
+                    .unwrap();
+            }
+            saving.store(false, std::sync::atomic::Ordering::SeqCst);
+            editor.join().unwrap();
+            let kept = ws.get_connector_account(&c.id, a.id).unwrap();
+            assert_eq!(kept.auth.expires_at, Some(8), "round {round}: {kept:?}");
+            assert_eq!(
+                kept.auth.fields_set,
+                vec![SecretField::AccessToken, SecretField::RefreshToken],
+                "round {round}"
+            );
+        }
+        // A save for an account that is gone does not bring it back.
+        let gone = ws
+            .create_connector_account(NewConnectorAccount {
+                connector: c.id.clone(),
+                label: "gone".into(),
+                params: BTreeMap::new(),
+                default: false,
+            })
+            .unwrap();
+        ws.delete_connector_account(&c.id, gone.id).unwrap();
+        assert!(ws
+            .set_connector_tokens(&c.id, gone.id, "at", None, None, None)
+            .is_err());
+        assert!(ws.get_connector_account(&c.id, gone.id).is_err());
+        assert_eq!(
+            ws.connector_secret(&c.id, gone.id, SecretField::AccessToken)
+                .unwrap(),
+            None,
+            "and leaves no secret behind"
+        );
+    }
+
+    /// A refresh stopped half-way — the definition rewritten, the secret not
+    /// yet moved, or moved and not yet let go — is finished at the next
+    /// start, and an account is never left naming a field its scheme does
+    /// not read, which no edit could then pass.
+    #[test]
+    fn an_account_left_behind_by_a_scheme_change_is_repaired() {
+        let (_d, ws) = ws();
+        let c = ws.create_connector(def("example")).unwrap();
+        let account = |label: &str| {
+            ws.create_connector_account(NewConnectorAccount {
+                connector: c.id.clone(),
+                label: label.into(),
+                params: BTreeMap::new(),
+                default: false,
+            })
+            .unwrap()
+        };
+        let token = |v: &str| BTreeMap::from([(SecretField::Token, v.to_string())]);
+        let (before, midway) = (account("before the move"), account("mid-move"));
+        ws.set_connector_secrets(&c.id, before.id, &token("tok-a"))
+            .unwrap();
+        ws.set_connector_secrets(&c.id, midway.id, &token("tok-b"))
+            .unwrap();
+        assert_eq!(
+            ws.reconcile_connector_accounts().unwrap(),
+            0,
+            "nothing to do"
+        );
+        // The scheme moves to a key in a header; nothing else happened yet.
+        let mut keyed = c.clone();
+        keyed.auth = serde_json::from_value(serde_json::json!({
+            "scheme": "api_key", "place": {"in": "header", "name": "X-Key"}
+        }))
+        .unwrap();
+        ws.update_connector(keyed.clone()).unwrap();
+        // One account got as far as the copy: both names hold the value.
+        ws.identity
+            .set_secret(&secret_name(&c.id, midway.id, SecretField::ApiKey), "tok-b")
+            .unwrap();
+        assert!(
+            ws.update_connector_account(&c.id, before.id, "edited".into(), BTreeMap::new())
+                .is_err(),
+            "the record names a field the scheme does not read"
+        );
+        assert_eq!(ws.reconcile_connector_accounts().unwrap(), 1);
+        for (id, value) in [(before.id, "tok-a"), (midway.id, "tok-b")] {
+            let kept = ws.get_connector_account(&c.id, id).unwrap();
+            assert_eq!(kept.auth.fields_set, vec![SecretField::ApiKey]);
+            assert_eq!(
+                ws.connector_secret(&c.id, id, SecretField::ApiKey)
+                    .unwrap()
+                    .as_deref(),
+                Some(value)
+            );
+            assert_eq!(
+                ws.connector_secret(&c.id, id, SecretField::Token).unwrap(),
+                None
+            );
+            ws.update_connector_account(&c.id, id, "edited".into(), BTreeMap::new())
+                .unwrap();
+        }
+        // Back to a bearer token: the key is the token under its old name.
+        let mut bearer = keyed.clone();
+        bearer.auth = AuthScheme::Bearer;
+        ws.update_connector(bearer).unwrap();
+        assert_eq!(ws.reconcile_connector_accounts().unwrap(), 2);
+        let kept = ws.get_connector_account(&c.id, before.id).unwrap();
+        assert_eq!(kept.auth.fields_set, vec![SecretField::Token]);
+        // A scheme with no heir for the field: the record lets go of it.
+        let mut basic = keyed;
+        basic.auth = AuthScheme::Basic;
+        ws.update_connector(basic).unwrap();
+        assert_eq!(ws.reconcile_connector_accounts().unwrap(), 0);
+        let kept = ws.get_connector_account(&c.id, before.id).unwrap();
+        assert!(kept.auth.fields_set.is_empty());
+        ws.update_connector_account(&c.id, before.id, "again".into(), BTreeMap::new())
+            .unwrap();
+    }
+
     #[test]
     fn an_invalid_definition_is_refused_by_name() {
         let (_d, ws) = ws();
@@ -734,6 +1013,19 @@ mod tests {
             ws.set_connector_secrets(&c.id, a.id, &wrong).is_err(),
             "not a bearer field"
         );
+
+        // What a paste brings along — a line end, a space — is not the
+        // secret: kept, it is a header no platform reads.
+        let pasted = BTreeMap::from([(SecretField::Token, "  xoxb-pasted\r\n".to_string())]);
+        ws.set_connector_secrets(&c.id, a.id, &pasted).unwrap();
+        assert_eq!(
+            ws.connector_secret(&c.id, a.id, SecretField::Token)
+                .unwrap()
+                .as_deref(),
+            Some("xoxb-pasted")
+        );
+        assert_eq!(kept_secret(SecretField::Password, " p w \n"), " p w ");
+        assert_eq!(kept_secret(SecretField::ApiKey, "\tk\n"), "k");
 
         assert!(
             ws.remove_connector(&c.id).is_err(),

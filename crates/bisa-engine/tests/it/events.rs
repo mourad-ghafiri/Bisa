@@ -3516,6 +3516,7 @@ fn mail(inbox: &Inbox) -> bisa_store::NewConnector {
             expect: None,
             select: select.map(str::to_string),
             schema: None,
+            or_empty: false,
         },
         writes,
         timeout_secs: None,
@@ -3565,6 +3566,173 @@ fn polling(operation: &str) -> NewWorkflow {
     );
     draft.inputs = vec![input("subject", InputKind::Text, true)];
     draft
+}
+
+/// What a poll found and could not write down — the backlog was full, the
+/// minute's budget spent — is not remembered as seen: the next poll finds it
+/// again, so nothing is lost to a busy moment. An item too large to carry
+/// fires with its key and a word for its size, where it used to vanish.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_poll_loses_nothing_it_could_not_write_down() {
+    let dir = tempfile::tempdir().unwrap();
+    let inbox = Inbox::start(json!([{ "id": "m1", "subject": "old news" }])).await;
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    for (key, value) in [
+        ("security.content.screen", json!(false)),
+        ("events.backlog_per_listener", json!(1)),
+    ] {
+        set(&engine, SettingScope::Workspace, key, value);
+    }
+    ws.create_connector(mail(&inbox)).unwrap();
+    let (wf, host) = library(&engine, polling("list"));
+    let listener = key(host, "arrived");
+    turn_on(&engine, host);
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    engine.tick_listeners_at(t0 + 61).await; // the baseline
+    inbox.set(json!([
+        { "id": "m1", "subject": "old news" },
+        { "id": "m2", "subject": "second" },
+        { "id": "m3", "subject": "third" },
+        { "id": "m4", "subject": "x".repeat(70 * 1024) }
+    ]));
+    engine.tick_listeners_at(t0 + 122).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 1, "the backlog holds one: {}", queued.len());
+    assert_eq!(queued[0].signal.payload["id"], json!("m2"));
+    assert_eq!(
+        ws.listener_runtime(&listener).seen,
+        Some(vec!["m1".into(), "m2".into()]),
+        "what was not written down is not seen"
+    );
+    assert_eq!(engine.drain_signals().await, 1);
+    engine.tick_listeners_at(t0 + 183).await;
+    assert_eq!(engine.drain_signals().await, 1);
+    engine.tick_listeners_at(t0 + 244).await;
+    assert_eq!(engine.drain_signals().await, 1);
+    let all = signals(&engine, &host);
+    let ids: Vec<&Value> = all.iter().map(|q| &q.signal.payload["id"]).collect();
+    assert_eq!(ids, vec![&json!("m2"), &json!("m3"), &json!("m4")]);
+    let large = &all[2].signal.payload;
+    assert_eq!(large["item"], Value::Null, "too large to carry");
+    assert!(
+        large["oversize_bytes"]
+            .as_u64()
+            .is_some_and(|n| n > 70 * 1024),
+        "{}",
+        large["oversize_bytes"]
+    );
+    assert_eq!(
+        ws.listener_runtime(&listener).seen,
+        Some(vec!["m1".into(), "m2".into(), "m3".into(), "m4".into()])
+    );
+    // Quiet afterwards: nothing is new, nothing fires twice — and a key
+    // the length of a document is no key: skipped, never remembered.
+    inbox.set(json!([
+        { "id": "m4", "subject": "seen" },
+        { "id": "k".repeat(600), "subject": "no key at all" }
+    ]));
+    engine.tick_listeners_at(t0 + 305).await;
+    assert_eq!(signals(&engine, &host).len(), 3);
+    assert_eq!(
+        ws.listener_runtime(&listener).seen.map(|s| s.len()),
+        Some(4)
+    );
+    let _ = wf;
+    engine.shutdown().await;
+}
+
+/// Polls go out side by side: a platform that takes its time holds neither
+/// another listener's poll nor the tick behind it. The stub answers only
+/// once two requests are in at the same moment — polled one after the
+/// other, neither ever is.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_listeners_are_polled_at_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let in_flight = std::sync::Arc::new(AtomicUsize::new(0));
+    let together = std::sync::Arc::new(AtomicUsize::new(0));
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let app = {
+        let (in_flight, together, calls) = (in_flight.clone(), together.clone(), calls.clone());
+        axum::Router::new().route(
+            "/inbox",
+            axum::routing::get(move || {
+                let (in_flight, together, calls) =
+                    (in_flight.clone(), together.clone(), calls.clone());
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    in_flight.fetch_add(1, Ordering::SeqCst);
+                    for _ in 0..150 {
+                        if in_flight.load(Ordering::SeqCst) >= 2 {
+                            together.fetch_add(1, Ordering::SeqCst);
+                            // Hold on a moment so the other sees it too.
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    axum::Json(json!({ "messages": [] }))
+                }
+            }),
+        )
+    };
+    let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    let inbox = Inbox {
+        base_url: format!("http://{addr}"),
+        host: addr.to_string(),
+        items: Default::default(),
+        calls: calls.clone(),
+        served: tokio::spawn(async move {
+            let _served = axum::serve(socket, app).await;
+        }),
+    };
+    let engine = engine_on(&dir);
+    engine.workspace().create_connector(mail(&inbox)).unwrap();
+    for name in ["new mail", "more mail"] {
+        let mut draft = polling("list");
+        draft.name = name.into();
+        let (_wf, host) = library(&engine, draft);
+        turn_on(&engine, host);
+    }
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    engine.tick_listeners_at(t0 + 61).await;
+    assert_eq!(inbox.calls(), 2);
+    assert_eq!(
+        together.load(Ordering::SeqCst),
+        2,
+        "each was out while the other was"
+    );
+    inbox.stop();
+    engine.shutdown().await;
+}
+
+/// A `put` a definition calls a read passes the design's check and is found
+/// out at the poll: nothing is sent, and the listener says why.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_poll_never_sends_a_change_a_definition_calls_a_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let inbox = Inbox::start(json!([{ "id": "m1", "subject": "old news" }])).await;
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let made = ws.create_connector(mail(&inbox)).unwrap();
+    let mut wrong = made.clone();
+    wrong.operations[0].method = HttpMethod::Put;
+    ws.update_connector(wrong).unwrap();
+    let (_wf, host) = library(&engine, polling("list"));
+    let listener = key(host, "arrived");
+    turn_on(&engine, host);
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    engine.tick_listeners_at(t0 + 61).await;
+    assert_eq!(inbox.calls(), 0, "nothing was put");
+    let note = ws.listener_runtime(&listener).failed.unwrap_or_default();
+    assert!(note.contains("polls a read operation"), "{note}");
+    engine.shutdown().await;
 }
 
 /// The first poll learns what is there and fires on nothing; a later poll is
@@ -4460,11 +4628,15 @@ async fn a_polls_odd_answers_are_read_and_a_gone_connector_is_reported() {
         .collect();
     inbox.set(json!(many));
     engine.tick_listeners_at(t0 + 244).await;
+    // More than a minute's budget of new items at once: what was written
+    // down is remembered, in order, and the rest is found again at the next
+    // poll — never dropped (the memory's own bound is `remember`'s test).
     let kept = ws.listener_runtime(&listener).seen.unwrap_or_default();
-    assert_eq!(kept.len(), 1_000, "the oldest keys are forgotten");
-    assert!(!kept.contains(&"7".to_string()), "the first key went first");
-    assert!(!kept.contains(&"last".to_string()));
-    assert!(kept.contains(&"k1049".to_string()));
+    let written = signals(&engine, &host).len() - 1;
+    assert!(written > 0 && written < 1_050, "{written}");
+    assert_eq!(kept.len(), 2 + written);
+    assert_eq!(kept[..2], ["7".to_string(), "last".to_string()]);
+    assert_eq!(kept.last(), Some(&format!("k{}", written - 1)));
 
     // The platform goes away: the next poll fails, and the listener says so.
     inbox.stop();

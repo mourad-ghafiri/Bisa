@@ -155,10 +155,15 @@ pub fn step_deadline(inner: &Inner, step: &Step) -> Duration {
 }
 
 /// The key a step's write travels with: the same for every attempt of the
-/// same step of the same run, and for a restart's re-run — which is what
-/// lets the platform tell a resend from a second request.
-pub fn step_key(run: bisa_core::RunId, step: &bisa_core::StepId) -> String {
-    format!("bisa-{run}-{step}")
+/// same **entry** of the same step of the same run, and for a restart's
+/// re-run of it — which is what lets the platform tell a resend from a
+/// second request — and another for every other entry. `entered` is the
+/// run's `seq` at that entry (`StepRecord::entered`): a retry does not move
+/// it, a loop's next iteration and a revisit do. Without it, a keyed write
+/// in a `for_each` over ten items was one write to the platform: nine
+/// "replays" answered from the first and never done.
+pub fn step_key(run: bisa_core::RunId, step: &bisa_core::StepId, entered: u64) -> String {
+    format!("bisa-{run}-{step}-{entered}")
 }
 
 /// Whether a `connector` step's operation writes, and whether its write is
@@ -193,7 +198,32 @@ impl WriteShape {
                 )
             )
     }
+
+    /// Whether `e` says the platform **took** a write and this side then
+    /// could not use what it answered: the answer does not hold the selected
+    /// path, is past the size read, does not fit the step's schema — or was
+    /// a redirect, which some platforms send after doing the work. Keyed or
+    /// not, the step stops: a retry would send the write again (an unkeyed
+    /// one is done twice; a keyed one is answered the same and fails the
+    /// same). A read fails as any failure does.
+    pub fn landed(&self, e: &EngineError) -> bool {
+        self.writes
+            && match e {
+                EngineError::Connector(
+                    ConnectorError::SelectMissing { .. } | ConnectorError::TooLarge(_),
+                ) => true,
+                EngineError::Connector(ConnectorError::Refused { status, .. }) => {
+                    (300..400).contains(status)
+                }
+                EngineError::Invalid(text) => text.id == ANSWER_UNFIT,
+                _ => false,
+            }
+    }
 }
+
+/// The refusal a 2xx answer that does not fit the step's `output_schema`
+/// is said with — named, so [`WriteShape::landed`] knows it from any other.
+const ANSWER_UNFIT: &str = "error-engine-invalid-answer-does-not-fit-step-s-output";
 
 /// The write shape of a `connector` step, read from its definition; a step
 /// whose connector cannot be read is taken as safe — the call itself will
@@ -213,7 +243,7 @@ pub fn write_shape(inner: &Inner, step: &Step) -> WriteShape {
         .ok()
         .and_then(|def| {
             def.operation(operation).map(|op| WriteShape {
-                writes: op.writes,
+                writes: op.changes(),
                 keyed: op.idempotency.is_some(),
             })
         })
@@ -277,6 +307,43 @@ impl Caller {
             Caller::Check => "check",
             Caller::Agent => "agent",
         }
+    }
+}
+
+/// The skill that lets an agent through when `connectors.agents` says
+/// *assigned*.
+pub const CONNECTORS_SKILL: &str = "connectors";
+pub const NOBODY_MAY_CALL: &str =
+    "the workspace lets no agent call a connector (connectors.agents = nobody)";
+pub const NOT_ASSIGNED_TO_CALL: &str = "the workspace lets only assigned agents call a connector \
+(connectors.agents = assigned): this agent does not carry the Connectors skill — attach it, or set \
+connectors.agents to everyone";
+
+/// `connectors.agents`, as the project the call stands in says it — else
+/// the workspace: why this agent may not call a connector on its own word,
+/// or `None` when it may. A workflow's `connector` step is not an agent's
+/// call and never comes here.
+pub fn agent_refusal(
+    inner: &Inner,
+    project: Option<bisa_core::ProjectId>,
+    agent: &bisa_core::AgentId,
+) -> Option<&'static str> {
+    let policy = inner
+        .ws
+        .setting("connectors.agents", project)
+        .ok()
+        .and_then(|r| r.value.as_str().map(str::to_string));
+    match policy.as_deref() {
+        Some("nobody") => Some(NOBODY_MAY_CALL),
+        Some("assigned") if !agent.is_core_id() => {
+            let carries = inner
+                .ws
+                .get_agent(agent)
+                .map(|a| a.skills.iter().any(|s| s.as_str() == CONNECTORS_SKILL))
+                .unwrap_or(false);
+            (!carries).then_some(NOT_ASSIGNED_TO_CALL)
+        }
+        _ => None,
     }
 }
 
@@ -421,35 +488,59 @@ fn account_ref(account: &cx::AccountRef) -> Result<(ConnectorId, AccountId), cx:
     Ok((connector, id))
 }
 
+/// Read one account's fields from the keystore — a file, or the OS keyring,
+/// which may take its time: blocking work, kept off the async threads.
+fn load_stored(
+    ws: &Workspace,
+    connector: &ConnectorId,
+    id: AccountId,
+) -> Result<cx::Stored, cx::ConnectorError> {
+    let record = ws
+        .get_connector_account(connector, id)
+        // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
+        .map_err(|e| cx::ConnectorError::Store(e.to_string()))?;
+    // LCOV_EXCL_STOP
+    let mut stored = cx::Stored {
+        fields: BTreeMap::new(),
+        expires_at: record.auth.expires_at,
+    };
+    for field in &record.auth.fields_set {
+        let Some(name) = cx::Field::parse(field.as_str()) else {
+            continue;
+        };
+        if let Some(value) = ws
+            .connector_secret(connector, id, *field)
+            // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
+            .map_err(|e| cx::ConnectorError::Store(e.to_string()))?
+        // LCOV_EXCL_STOP
+        {
+            stored.fields.insert(name, cx::Secret::new(value));
+        }
+    }
+    Ok(stored)
+}
+
+/// Blocking keystore work on a thread that may block.
+async fn off_the_async_threads<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, cx::ConnectorError> + Send + 'static,
+) -> Result<T, cx::ConnectorError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        // LCOV_EXCL_START: the keystore's thread unwound, a panic no store raises
+        .unwrap_or_else(|lost| {
+            Err(cx::ConnectorError::Store(format!(
+                "the keystore did not answer ({lost})"
+            )))
+        })
+    // LCOV_EXCL_STOP
+}
+
 #[async_trait::async_trait]
 impl cx::Credentials for StoreCredentials {
     async fn load(&self, account: &cx::AccountRef) -> Result<cx::Stored, cx::ConnectorError> {
         let (connector, id) = account_ref(account)?;
-        let record = self
-            .ws
-            .get_connector_account(&connector, id)
-            // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
-            .map_err(|e| cx::ConnectorError::Store(e.to_string()))?;
-        // LCOV_EXCL_STOP
-        let mut stored = cx::Stored {
-            fields: BTreeMap::new(),
-            expires_at: record.auth.expires_at,
-        };
-        for field in &record.auth.fields_set {
-            let Some(name) = cx::Field::parse(field.as_str()) else {
-                continue;
-            };
-            if let Some(value) = self
-                .ws
-                .connector_secret(&connector, id, *field)
-                // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
-                .map_err(|e| cx::ConnectorError::Store(e.to_string()))?
-            // LCOV_EXCL_STOP
-            {
-                stored.fields.insert(name, cx::Secret::new(value));
-            }
-        }
-        Ok(stored)
+        let ws = Arc::clone(&self.ws);
+        off_the_async_threads(move || load_stored(&ws, &connector, id)).await
     }
 
     async fn save_tokens(
@@ -458,8 +549,9 @@ impl cx::Credentials for StoreCredentials {
         tokens: &cx::TokenSet,
     ) -> Result<(), cx::ConnectorError> {
         let (connector, id) = account_ref(account)?;
-        self.ws
-            .set_connector_tokens(
+        let (ws, tokens) = (Arc::clone(&self.ws), tokens.clone());
+        off_the_async_threads(move || {
+            ws.set_connector_tokens(
                 &connector,
                 id,
                 tokens.access_token.expose(),
@@ -468,8 +560,11 @@ impl cx::Credentials for StoreCredentials {
                 tokens.scope.clone(),
             )
             // LCOV_EXCL_START: the store's disk arm: a write that fails below the lock
-            .map_err(|e| cx::ConnectorError::Store(e.to_string()))?;
-        // LCOV_EXCL_STOP
+            .map_err(|e| cx::ConnectorError::Store(e.to_string()))
+            // LCOV_EXCL_STOP
+            .map(|_| ())
+        })
+        .await?;
         emit(&self.bus, ConnectorsChange::Accounts);
         Ok(())
     }
@@ -708,7 +803,10 @@ pub fn call_spec(connector: &Connector, op: &Operation, timeout: Duration) -> cx
             absent: e.absent,
             reason: e.reason.clone(),
         }),
-        writes: op.writes,
+        or_empty: op.output.or_empty,
+        // A `put`, a `patch` or a `delete` is sent as a write whatever the
+        // definition calls it: never blindly again.
+        writes: op.changes(),
         idempotency: op.idempotency.as_ref().map(|i| cx::Idempotency {
             header: i.header.clone(),
         }),
@@ -868,7 +966,10 @@ pub async fn call(
             params: &rendered,
             files: &files,
             judge: &judge,
-            key: op.idempotency.as_ref().map(|_| step_key(run.id, &step.id)),
+            key: op.idempotency.as_ref().map(|_| {
+                let entered = run.steps.get(&step.id).map_or(0, |r| r.entered);
+                step_key(run.id, &step.id, entered)
+            }),
             caller: Caller::Step,
         },
     )
@@ -1611,6 +1712,7 @@ mod tests {
                     expect: None,
                     select: Some("ts".into()),
                     schema: None,
+                    or_empty: false,
                 },
                 writes: true,
                 timeout_secs: None,

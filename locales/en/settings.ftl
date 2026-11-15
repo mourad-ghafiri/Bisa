@@ -466,6 +466,12 @@ setting-decisions-confidence-security = Confidence to call a command safe
 setting-connectors-concurrency = Calls in flight per connector
     .help = How many calls one connector may have in flight at once on this machine — a workflow fanning out over many items, a poll and an agent's read together. The next call waits for a permit; nothing is refused. A platform's own rate limit is still honoured call by call.
 
+setting-connectors-agents = Agents may call connectors
+    .help = Which agents may read an outside platform through a connector on their own (`call_connector`). Everyone: any agent — the default. Assigned: only agents that carry the Connectors skill — the platform's own agents always may. Nobody: the tool refuses. A workflow's connector step is not an agent's call and is not affected; a write is never an agent's call under any choice.
+    .choice-everyone = Everyone
+    .choice-assigned = Assigned
+    .choice-nobody = Nobody
+
 setting-connectors-oauth-port = OAuth callback port
     .help = The loopback port the browser is sent back to while a connector account is being connected. Bound only for the minutes a connection is pending; register `http://127.0.0.1:<port>/connectors/oauth/callback` at the platform.
 

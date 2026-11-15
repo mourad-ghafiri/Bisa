@@ -158,3 +158,86 @@ fn is_refusal_tells_the_callers_fault_from_the_networks() {
         assert!(!e.is_refusal(), "{e}");
     }
 }
+
+/// What a call **answers** never carries the secret it was made with
+/// either: a platform that echoes the key in a 200 — raw, percent-encoded
+/// as a query carries it, or as the Basic header carried it — hands the
+/// step a placeholder. This is the crate's own scrub of the exact secrets
+/// it sent, whatever shape they have and whatever the caller redacts later.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_never_carries_the_secret_the_call_was_made_with() {
+    const ODD: &str = "a+b/c=d e&f";
+    let encoded = "a%2Bb%2Fc%3Dd%20e%26f";
+    let formed = "a%2Bb%2Fc%3Dd+e%26f";
+    let stub = Stub::start(vec![Canned::json(
+        "GET",
+        "/v1/items/1",
+        200,
+        json!({
+            "item": {"echo": format!("you sent {ODD}"), "nested": [format!("url?key={encoded}"), format!("form key={formed}")]},
+            "debug": {"key": ODD},
+        }),
+    )])
+    .await;
+    let creds = MemoryCreds::with(&account(), Stored::default().with(Field::ApiKey, ODD));
+    let client = client(creds.clone());
+    let mut spec = spec(
+        &stub,
+        AuthSpec::ApiKey {
+            place: KeyPlace::Query { name: "key".into() },
+            prefix: None,
+        },
+    );
+    spec.select = Some("item".into());
+    let out = client
+        .call(
+            &spec,
+            Some(&account()),
+            &no_account_params(),
+            &params(&[("id", "1")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    let text = format!("{} / {}", out.selected, out.body);
+    for form in [ODD, encoded, formed] {
+        assert!(!text.contains(form), "{form} in {text}");
+    }
+    assert_eq!(text.matches("«redacted»").count(), 7, "{text}");
+
+    // And an error whose text carries an encoded form.
+    let stub = Stub::start(vec![Canned::json(
+        "GET",
+        "/v1/items/1",
+        400,
+        json!({"message": format!("bad request for /v1/items/1?key={encoded}")}),
+    )])
+    .await;
+    let mut spec = spec_for_error(&stub);
+    spec.select = None;
+    let err = client
+        .call(
+            &spec,
+            Some(&account()),
+            &no_account_params(),
+            &params(&[("id", "1")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap_err();
+    let text = format!("{err} / {err:?}");
+    assert!(
+        !text.contains(encoded) && text.contains("«redacted»"),
+        "{text}"
+    );
+}
+
+fn spec_for_error(stub: &Stub) -> bisa_connectors::spec::CallSpec {
+    spec(
+        stub,
+        AuthSpec::ApiKey {
+            place: KeyPlace::Query { name: "key".into() },
+            prefix: None,
+        },
+    )
+}

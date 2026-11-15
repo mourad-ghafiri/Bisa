@@ -30,7 +30,10 @@ test("the five cards and the two hand-written editors together cover every proje
     "the browser card takes the browser keys, who may drive a device, who may draw and who follows the design skill",
   );
   assert.ok(PROJECT_KEYS_ELSEWHERE.includes("workstreams.script.run"), "the run command is the scripts card's fourth text");
-  assert.ok(PROJECT_AGENT_KEYS.every((k) => k.startsWith("agents.") || k.startsWith("decisions.")), "the agents card takes how agents start and what the Decision-Making Agent decides");
+  assert.ok(
+    PROJECT_AGENT_KEYS.every((k) => k.startsWith("agents.") || k.startsWith("decisions.") || k === "connectors.agents"),
+    "the agents card takes how agents start, who may call a connector and what the Decision-Making Agent decides",
+  );
   assert.deepEqual(PROJECT_AGENT_KEYS.slice(0, 2), ["agents.conversation.mode", "agents.effort"], "how hard a model works sits beside the other agent key");
   const view = readFileSync(new URL("./ProjectSettingsView.tsx", import.meta.url), "utf8");
   for (const list of ["PROJECT_GIT_KEYS", "PROJECT_WORKSTREAM_KEYS", "PROJECT_BROWSER_KEYS", "PROJECT_AGENT_KEYS", "PROJECT_EDITOR_KEYS"]) {

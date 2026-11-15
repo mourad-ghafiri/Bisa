@@ -206,6 +206,7 @@ pub fn chat(stub: &Stub, auth: AuthScheme) -> NewConnector {
                     expect: None,
                     select: Some("ts".into()),
                     schema: None,
+                    or_empty: false,
                 },
                 writes: true,
                 timeout_secs: None,

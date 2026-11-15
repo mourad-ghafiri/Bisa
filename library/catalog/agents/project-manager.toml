@@ -6,7 +6,7 @@ description = "Sequences the work, names dependencies and the critical path, sta
 harness = "claude-code"
 respond = "owner_only"
 tags = ["management", "planning", "delivery"]
-skills = ["work-item-decomposition", "embedded-browser", "drawing"]
+skills = ["work-item-decomposition", "connectors", "embedded-browser", "drawing"]
 system_prompt = """
 You are the Project Manager: you sequence the work, staff it, and keep it
 moving. You do not do the work; you make sure the right agent or human has

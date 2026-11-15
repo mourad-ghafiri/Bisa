@@ -1397,7 +1397,7 @@ wherever a host is judged) and `jwt { alg: ES256 | RS256, claims,
 header, ttl_secs }` — a token the platform signs at each request with the account's `private_key`,
 its claims and header templates over the account's parameters, `iat` and `exp` the clock's; its
 `params` are the account-level values a person fills once (a Jira `site`); each `Operation { id,
-name, description, method, path, query, headers, body, params, output: { select, schema, expect },
+name, description, method, path, query, headers, body, params, output: { select, schema, expect, or_empty },
 writes, timeout_secs?, idempotency?: { header }, page?: { cursor_param, next_cursor, max_pages } }`
 is one thing the platform can be asked to do — with, when the platform's documentation names them,
 its own deadline (1–600 s), the header a write's key travels in (a writing operation only, never a
@@ -1480,8 +1480,12 @@ the bus (`ConnectorChecked { connector, account, ok }`, topic `connectors.checke
 forgotten wherever the way in changes — secrets set, a parameter edited, connected again, the
 definition changed or refreshed, the account gone. An agent's read is bounded as a poll's: the
 operation's deadline plus the engine's overhead, the permit's wait included. **A write is keyed or
-stopped:** a step whose operation names an `idempotency` header sends `step_key(run, step)` on
-every attempt, so a retry, a re-run and a restart do the thing once; a step whose write has no key
+stopped:** a step whose operation names an `idempotency` header sends `step_key(run, step, entered)` on
+every attempt of one visit — `entered` is the run's sequence when the step was entered, the same
+through a retry and a restart and new at each loop iteration and revisit — so the thing is done
+once per visit; a write that landed (a 2xx or a 3xx) whose answer could not be used is stopped
+with `WRITE_LANDED` (`WriteShape::landed`); `Operation::changes()` — `writes`, or a `put`, `patch`
+or `delete` — is what the resend rule, the stop, the agent's gate and the poll's gate read; a step whose write has no key
 and fails ambiguously — a timeout, a connection lost after it was made, a 5xx after sending — is
 **stopped** (`RunEvent::StepStopped`: the step fails whatever its `retries`, `on_fail` decides,
 `AMBIGUOUS_WRITE` is the reason), and a restart finding such a write running stops it too instead

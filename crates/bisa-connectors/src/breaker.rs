@@ -39,14 +39,16 @@ pub struct Breaker {
 
 impl Breaker {
     /// May a call go to `host` now? Closed: yes. Open and the pause not over,
-    /// or a probe already out: no. Pause over: this call is the probe.
-    pub fn admit(&self, host: &str, now: u64) -> Result<(), ConnectorError> {
+    /// or a probe already out: no. Pause over: this call is the probe — and
+    /// the answer says so (`true`), since only the probe, dropped before it
+    /// answers, may give the probe back ([`Self::abandon`]).
+    pub fn admit(&self, host: &str, now: u64) -> Result<bool, ConnectorError> {
         let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
         let Some(state) = hosts.get_mut(host) else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(until) = state.open_until else {
-            return Ok(());
+            return Ok(false);
         };
         if now < until || state.probing {
             return Err(ConnectorError::Open {
@@ -55,7 +57,7 @@ impl Breaker {
             });
         }
         state.probing = true;
-        Ok(())
+        Ok(true)
     }
 
     /// What `host` answered: a success closes the circuit and forgets the
@@ -178,5 +180,26 @@ mod tests {
             b.record("h", false, 0);
         }
         assert!(b.admit("h", 0).is_ok());
+    }
+
+    /// Only the probe gives the probe back: a call admitted while the
+    /// circuit was closed, and dropped later, must not hand a second call
+    /// the probe's place while the first probe is still out.
+    #[test]
+    fn admit_says_which_call_is_the_probe() {
+        let b = Breaker::default();
+        assert!(
+            matches!(b.admit("h", 100), Ok(false)),
+            "closed: nobody is a probe"
+        );
+        for _ in 0..OPEN_AFTER {
+            b.record("h", false, 100);
+        }
+        assert!(b.admit("h", 100).is_err());
+        assert!(
+            matches!(b.admit("h", 100 + COOLDOWN_SECS), Ok(true)),
+            "the one probe"
+        );
+        assert!(b.admit("h", 100 + COOLDOWN_SECS).is_err(), "and only one");
     }
 }

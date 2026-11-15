@@ -453,6 +453,25 @@ pub struct ParamDef {
 }
 
 impl ParamKind {
+    /// Whether an **account's** value can stand for a parameter of this
+    /// kind. Wider than [`ParamKind::accepts`]: a form sends text, so a
+    /// number or a bool may come spelled out; what is refused is what no
+    /// template could write — a list or an object where one value goes.
+    pub fn admits(self, v: &serde_json::Value) -> bool {
+        use serde_json::Value;
+        match (self, v) {
+            (ParamKind::Json, _) => true,
+            (_, Value::Null | Value::Array(_) | Value::Object(_)) => false,
+            (ParamKind::Number, Value::String(s)) => {
+                s.trim().parse::<f64>().is_ok_and(f64::is_finite)
+            }
+            (ParamKind::Number, other) => other.is_number(),
+            (ParamKind::Bool, Value::String(s)) => matches!(s.trim(), "true" | "false"),
+            (ParamKind::Bool, other) => other.is_boolean(),
+            (ParamKind::Text | ParamKind::Path | ParamKind::File, _) => true,
+        }
+    }
+
     /// Whether a default is a value of this kind: text and a path are
     /// strings, a number a number, a bool a bool, `json` anything but null,
     /// and a file never — a file is read from the run's checkout, not from
@@ -465,6 +484,43 @@ impl ParamKind {
             ParamKind::Json => !v.is_null(),
             ParamKind::File => false,
         }
+    }
+}
+
+impl Operation {
+    /// Whether any template of the operation — its path, a query pair, a
+    /// header, its body — carries `{params.<name>}`, or a raw body is read
+    /// from it.
+    pub fn carries_param(&self, name: &ParamName) -> bool {
+        let placeholder = format!("{{params.{name}}}");
+        let in_body = match &self.body {
+            None => false,
+            Some(OperationBody::Raw { from, .. }) => from == name,
+            Some(OperationBody::Json { value }) => value.to_string().contains(&placeholder),
+            Some(OperationBody::Form { fields }) => {
+                fields.values().any(|v| v.contains(&placeholder))
+            }
+            Some(OperationBody::Multipart { parts }) => {
+                serde_json::to_string(parts).is_ok_and(|text| text.contains(&placeholder))
+            }
+        };
+        in_body
+            || self.path.contains(&placeholder)
+            || self.query.values().any(|v| v.contains(&placeholder))
+            || self.headers.values().any(|v| v.contains(&placeholder))
+    }
+
+    /// Whether a call of this operation is **held to the write rules** when
+    /// it is sent — never blindly resent, stopped when its answer is lost:
+    /// what the definition says (`writes`), and any `put`, `patch` or
+    /// `delete` whatever it says. A definition that calls a `delete` a read
+    /// is wrong about the platform, and the platform is who would be hurt.
+    pub fn changes(&self) -> bool {
+        self.writes
+            || matches!(
+                self.method,
+                HttpMethod::Put | HttpMethod::Patch | HttpMethod::Delete
+            )
     }
 }
 
@@ -487,6 +543,13 @@ pub struct OutputSpec {
     /// platforms that answer a failure with a 200: read before `select`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Expect>,
+    /// A `select` the answer does not hold is an empty list rather than a
+    /// fault — for a platform that leaves a list out of an answer with
+    /// nothing in it. Needs a `select`. Unset, it is
+    /// not written, so a definition that never names it is byte for byte
+    /// what it was.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub or_empty: bool,
 }
 
 /// What a 2xx answer must say for the call to count — Slack's `ok`, a
@@ -759,6 +822,22 @@ pub struct UrlHead<'a> {
     pub authority: &'a str,
 }
 
+/// The parameters an OAuth2 authorization request carries by the flow's own
+/// hand; a definition's `extra` may add to them, never restate them.
+pub const OAUTH_FLOW_PARAMS: &[&str] = &[
+    "response_type",
+    "redirect_uri",
+    "state",
+    "scope",
+    "code_challenge",
+    "code_challenge_method",
+];
+
+/// A byte of an HTTP token — a header's name (RFC 9110 §5.6.2).
+fn is_token_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)
+}
+
 /// Split `scheme://authority/rest` into its head. `None` when there is no
 /// `://`, the authority is empty, or it carries userinfo (`user@host`) —
 /// a credential in a URL is refused, not parsed.
@@ -978,6 +1057,23 @@ impl Connector {
                         ),
                     ),
                 }
+                // A default port is dropped by every URL reader, so the host
+                // a call is judged by never carries it: named here, a
+                // definition would pass and every call be refused.
+                let default_port = match head.scheme {
+                    "https" => ":443",
+                    "http" => ":80",
+                    _ => "",
+                };
+                if !default_port.is_empty() && head.authority.ends_with(default_port) {
+                    push(
+                        "base_url",
+                        crate::text!(
+                            "problem-connector-base-url-default-port",
+                            port = default_port[1..].to_string()
+                        ),
+                    );
+                }
                 // A malformed pattern is refused above and vouches for nothing.
                 if !base_is_template
                     && !self
@@ -1000,6 +1096,16 @@ impl Connector {
         // Connector params.
         let mut seen = BTreeSet::new();
         for p in &self.params {
+            // An address built from a value nobody has to give has no host.
+            if !p.required && self.base_url.contains(&format!("{{account.{}}}", p.name)) {
+                push(
+                    "params",
+                    crate::text!(
+                        "problem-connector-base-url-parameter-required",
+                        a0 = p.name.to_string()
+                    ),
+                );
+            }
             if !seen.insert(p.name.as_str()) {
                 push(
                     "params",
@@ -1097,7 +1203,26 @@ impl Connector {
                     }
                 }
             }
+            // A `?` or a `#` in a path is percent-encoded with the rest of
+            // it, never read as the start of a query: a query pair is `query`'s.
+            if op.path.contains(['?', '#']) {
+                push(
+                    &at("path"),
+                    crate::text!("problem-connector-path-no-query-or-fragment"),
+                );
+            }
             for name in op.headers.keys() {
+                // A header's name is a token (RFC 9110 §5.1): anything else
+                // cannot be sent, and was found out only at the first call.
+                if name.is_empty() || !name.bytes().all(is_token_byte) {
+                    push(
+                        &at("headers"),
+                        crate::text!(
+                            "problem-connector-header-name-not-token",
+                            name = format!("{name:?}")
+                        ),
+                    );
+                }
                 if bisa_netrules::is_reserved_header(name) {
                     push(
                         &at("headers"),
@@ -1115,6 +1240,12 @@ impl Connector {
                         crate::text!("problem-connector-select-dotted-path-with-no-empty-segment"),
                     );
                 }
+            }
+            if op.output.or_empty && op.output.select.is_none() {
+                push(
+                    &at("output.or_empty"),
+                    crate::text!("problem-connector-or-empty-needs-select"),
+                );
             }
             if let Some(schema) = &op.output.schema {
                 if !schema.is_object() {
@@ -1228,6 +1359,15 @@ impl Connector {
                         &at("page.cursor_param"),
                         crate::text!(
                             "problem-connector-must-be-optional-first-page-has-no",
+                            a0 = (paging.cursor_param).to_string()
+                        ),
+                    ),
+                    // A cursor no template carries never reaches the
+                    // platform: every "next page" would be the first again.
+                    Some(_) if !op.carries_param(&paging.cursor_param) => push(
+                        &at("page.cursor_param"),
+                        crate::text!(
+                            "problem-connector-cursor-param-carried-nowhere",
                             a0 = (paging.cursor_param).to_string()
                         ),
                     ),
@@ -1432,6 +1572,7 @@ impl Connector {
             authorization_url,
             token_url,
             client_id_param,
+            extra,
             ..
         } = &self.auth
         {
@@ -1448,6 +1589,25 @@ impl Connector {
                         crate::text!("problem-connector-oauth-url-https-http-loopback-host"),
                     ),
                 }
+            }
+            // What the flow itself writes on the consent URL is not a
+            // definition's to write again, and `token_auth` has one word.
+            for key in extra.keys() {
+                if OAUTH_FLOW_PARAMS.contains(&key.as_str()) || key == client_id_param {
+                    push(
+                        "auth.extra",
+                        crate::text!(
+                            "problem-connector-oauth-extra-reserved",
+                            key = key.to_string()
+                        ),
+                    );
+                }
+            }
+            if extra.get("token_auth").is_some_and(|v| v != "basic") {
+                push(
+                    "auth.extra",
+                    crate::text!("problem-connector-oauth-token-auth-basic"),
+                );
             }
             if client_id_param.is_empty()
                 || !client_id_param
@@ -1636,11 +1796,27 @@ impl ConnectorAccount {
             }
         }
         for p in &connector.params {
-            if p.required && !self.params.contains_key(p.name.as_str()) {
-                out.push(ConnectorProblem::at(
+            // Nothing given, a null, a blank text: all three are no value.
+            let given = self.params.get(p.name.as_str()).filter(|v| match v {
+                serde_json::Value::Null => false,
+                serde_json::Value::String(s) => !s.trim().is_empty(),
+                _ => true,
+            });
+            match given {
+                None if p.required => out.push(ConnectorProblem::at(
                     "params",
                     crate::text!("problem-connector-required", a0 = (p.name).to_string()),
-                ));
+                )),
+                None => {}
+                Some(value) if !p.kind.admits(value) => out.push(ConnectorProblem::at(
+                    "params",
+                    crate::text!(
+                        "problem-connector-account-value-not-kind",
+                        a0 = (p.name).to_string(),
+                        kind = p.kind.as_str().to_string()
+                    ),
+                )),
+                Some(_) => {}
             }
         }
         for f in &self.auth.fields_set {
@@ -1886,7 +2062,7 @@ mod tests {
     fn a_parameter_default_is_parsed_and_held_to_its_kind() {
         let mut c = connector();
         let mut read = op("list");
-        read.path = "/list?max={params.max}&all={params.all}".into();
+        read.path = "/list/{params.max}/{params.all}".into();
         read.params = vec![
             ParamDef {
                 name: ParamName::new("max").unwrap(),
@@ -2184,6 +2360,173 @@ mod tests {
             .validate()
             .iter()
             .any(|p| p.text.to_string().contains("`post` writes")));
+    }
+
+    /// What a definition could say and no call could ever do — found out,
+    /// before, at the first call or never.
+    #[test]
+    fn a_definition_no_call_could_keep_is_refused_when_it_is_written() {
+        let texts = |c: &Connector| -> Vec<String> {
+            c.validate().iter().map(|p| p.text.to_string()).collect()
+        };
+        // A path carries no query and no fragment.
+        for path in ["/things?state=open", "/things#top"] {
+            let mut c = connector();
+            c.operations[0].path = path.into();
+            assert_eq!(
+                fields(&c.validate()),
+                vec!["operations.list.path"],
+                "{path}"
+            );
+        }
+        // A header's name is a token.
+        for name in ["X Site", "X-Site:", "", "X-Sit\u{e9}"] {
+            let mut c = connector();
+            c.operations[0].headers.insert(name.into(), "v".into());
+            assert_eq!(
+                fields(&c.validate()),
+                vec!["operations.list.headers"],
+                "{name:?}"
+            );
+        }
+        let mut c = connector();
+        c.operations[0]
+            .headers
+            .insert("X-Api_Version.2".into(), "v".into());
+        assert_eq!(c.validate(), vec![]);
+        // The scheme's own port is not part of a host.
+        for (base, host) in [
+            ("https://api.acme.example:443", "api.acme.example:443"),
+            ("http://localhost:80", "localhost:80"),
+        ] {
+            let mut c = connector();
+            c.base_url = base.into();
+            c.hosts = vec![host.into()];
+            assert!(
+                texts(&c)
+                    .iter()
+                    .any(|t| t.contains("the scheme's own port")),
+                "{base}: {:?}",
+                texts(&c)
+            );
+        }
+        let mut c = connector();
+        c.base_url = "https://api.acme.example:8443".into();
+        c.hosts = vec!["api.acme.example:8443".into()];
+        assert_eq!(c.validate(), vec![], "any other port is the host's");
+        // An address is built from values that must be there.
+        let mut c = connector();
+        c.base_url = "https://{account.site}.acme.example".into();
+        c.hosts = vec!["*.acme.example".into()];
+        c.params = vec![param("site", ParamKind::Text, false)];
+        assert_eq!(fields(&c.validate()), vec!["params"]);
+        c.params = vec![param("site", ParamKind::Text, true)];
+        assert_eq!(c.validate(), vec![]);
+        // A cursor that reaches no template never reaches the platform.
+        let mut c = connector();
+        c.operations[0].output.select = Some("items".into());
+        c.operations[0].params = vec![param("cursor", ParamKind::Text, false)];
+        c.operations[0].page = Some(Paging {
+            cursor_param: ParamName::new("cursor").unwrap(),
+            next_cursor: "meta.next".into(),
+            max_pages: 2,
+        });
+        assert_eq!(
+            fields(&c.validate()),
+            vec!["operations.list.page.cursor_param"]
+        );
+        c.operations[0].body = Some(OperationBody::Json {
+            value: json!({"page": {"after": "{params.cursor}"}}),
+        });
+        c.operations[0].method = HttpMethod::Post;
+        assert_eq!(c.validate(), vec![], "carried in a body is carried");
+        // …of any kind: a form's field, a part's text, a raw body's own.
+        let cursor = ParamName::new("cursor").unwrap();
+        let mut o = op("x");
+        assert!(!o.carries_param(&cursor));
+        o.body = Some(OperationBody::Form {
+            fields: BTreeMap::from([("after".to_string(), "{params.cursor}".to_string())]),
+        });
+        assert!(o.carries_param(&cursor));
+        o.body = Some(OperationBody::Multipart {
+            parts: vec![Part {
+                name: "after".into(),
+                source: PartSource::Text {
+                    text: "{params.cursor}".into(),
+                },
+                filename: None,
+                content_type: None,
+            }],
+        });
+        assert!(o.carries_param(&cursor));
+        o.body = Some(OperationBody::Raw {
+            content_type: "text/plain".into(),
+            from: cursor.clone(),
+        });
+        assert!(o.carries_param(&cursor));
+        // An empty list for a missing field needs a field to miss.
+        let mut c = connector();
+        c.operations[0].output.or_empty = true;
+        assert_eq!(
+            fields(&c.validate()),
+            vec!["operations.list.output.or_empty"]
+        );
+        c.operations[0].output.select = Some("items".into());
+        assert_eq!(c.validate(), vec![]);
+    }
+
+    #[test]
+    fn an_oauth_extra_never_restates_what_the_flow_writes() {
+        let with = |extra: &[(&str, &str)]| {
+            let mut c = connector();
+            c.auth = AuthScheme::OAuth2 {
+                authorization_url: "https://auth.acme.example/o".into(),
+                token_url: "https://auth.acme.example/t".into(),
+                scopes: vec!["read".into()],
+                pkce: true,
+                extra: extra
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+                client_id_param: DEFAULT_CLIENT_ID_PARAM.into(),
+                scope_join: ScopeJoin::Space,
+                code_challenge: ChallengeEncoding::Base64url,
+            };
+            c.validate()
+        };
+        assert_eq!(
+            with(&[("access_type", "offline"), ("token_auth", "basic")]),
+            vec![]
+        );
+        for key in [
+            "state",
+            "redirect_uri",
+            "response_type",
+            "scope",
+            "code_challenge",
+            "code_challenge_method",
+            DEFAULT_CLIENT_ID_PARAM,
+        ] {
+            assert_eq!(fields(&with(&[(key, "x")])), vec!["auth.extra"], "{key}");
+        }
+        assert_eq!(fields(&with(&[("token_auth", "post")])), vec!["auth.extra"]);
+    }
+
+    /// `put`, `patch` and `delete` change something whatever a definition
+    /// calls them.
+    #[test]
+    fn an_operation_that_changes_something_is_held_to_the_write_rules() {
+        let mut o = op("x");
+        assert!(!o.changes(), "a get that says it reads, reads");
+        o.method = HttpMethod::Post;
+        assert!(!o.changes(), "a post may be a search");
+        o.writes = true;
+        assert!(o.changes());
+        for method in [HttpMethod::Put, HttpMethod::Patch, HttpMethod::Delete] {
+            let mut o = op("x");
+            o.method = method;
+            assert!(o.changes(), "{method:?}");
+        }
     }
 
     #[test]
@@ -2773,6 +3116,55 @@ mod tests {
             2,
             "the connector's parameter and the operation's each need a label"
         );
+    }
+
+    /// An account's value is what its parameter's kind says, and a required
+    /// one is not blank: an address or a path is built from it.
+    #[test]
+    fn an_account_value_is_held_to_its_parameters_kind() {
+        let mut c = connector();
+        c.params = vec![
+            param("site", ParamKind::Text, true),
+            param("port", ParamKind::Number, false),
+            param("beta", ParamKind::Bool, false),
+            param("extra", ParamKind::Json, false),
+        ];
+        let with = |pairs: serde_json::Value| {
+            let account = ConnectorAccount {
+                id: AccountId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+                connector: c.id.clone(),
+                label: "Mine".into(),
+                params: serde_json::from_value(pairs).unwrap(),
+                default: false,
+                auth: AccountAuth::default(),
+                created_at: 0,
+            };
+            account
+                .validate(&c)
+                .iter()
+                .map(|p| p.text.id.to_string())
+                .collect::<Vec<_>>()
+        };
+        let none: Vec<String> = vec![];
+        assert_eq!(
+            with(json!({"site": "acme", "port": 8443, "beta": true, "extra": {"a": [1]}})),
+            none
+        );
+        assert_eq!(
+            with(json!({"site": "acme", "port": "8443", "beta": "false"})),
+            none,
+            "a form's text is read as the kind it spells"
+        );
+        for bad in [
+            json!({"site": "  "}),
+            json!({"site": null}),
+            json!({"site": {"a": 1}}),
+            json!({"site": "acme", "port": "eighty"}),
+            json!({"site": "acme", "port": [80]}),
+            json!({"site": "acme", "beta": "yes"}),
+        ] {
+            assert_eq!(with(bad.clone()).len(), 1, "{bad}: {:?}", with(bad.clone()));
+        }
     }
 
     #[test]

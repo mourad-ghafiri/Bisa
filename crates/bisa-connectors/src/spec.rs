@@ -316,6 +316,10 @@ pub struct CallSpec {
     /// What a 2xx answer must say to count as a success; read before `select`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect: Option<Expect>,
+    /// A `select` the answer does not hold is an empty list, not a fault: for
+    /// a platform that leaves a list out of an answer that has nothing in it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub or_empty: bool,
     /// Whether the operation changes something on the platform — a write is
     /// retried only where the platform promises the retry is safe.
     #[serde(default)]

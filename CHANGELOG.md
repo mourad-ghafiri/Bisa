@@ -10,6 +10,17 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **`connectors.agents`** — who may read an outside platform through a connector on their own
+  word (`call_connector`): *everyone* (the default, so nothing changes until it is set),
+  *assigned* — agents carrying the new **Connectors** skill, and the platform's own — or *nobody*.
+  A workspace's word, or a project's; refused in a sentence before anything is read. A workflow's
+  connector step is not an agent's call and is not affected. The Connectors skill ships in the
+  catalog (27 skills) and is carried by the Project Manager, the SRE and the Data Analyst.
+
+- **`output.or_empty = true`** on a connector operation: a list the platform leaves out of an
+  empty answer is read as an empty list instead of failing the step on a missing field. Off
+  unless a definition says it; no built-in sets it.
+
 - **Addon windows come forward, answer the keyboard, and are no trap for it.** Pressing a window —
   its bar or anything inside it — brings it in front of the others. With its grip focused the
   arrow keys move it, with its corner focused they resize it (`Shift` for a longer step). From
@@ -47,6 +58,16 @@ notes (`docs/contributing/release.md`).
 
 ### Security
 
+- **A connector call to this machine never goes through a proxy**, however the address is
+  spelled. `localhost` and `127.0.0.1` already bypassed a proxy the person set; `0.0.0.0`, the
+  rest of `127/8` and the IPv6 spellings did not, and with a proxy named only in the environment
+  nothing did — the call, credential header and all, was handed to the proxy.
+
+- **A connector's answer never carries the secret the call was made with.** A platform that
+  echoes a token, a key or a password back has it replaced before the answer reaches a step's
+  output, an agent or a log — in the client itself, whatever the redaction settings; error text
+  is scrubbed of the percent- and form-encoded spellings too.
+
 - **A drawing's links are ones a person may follow.** A link on an element is `http`, `https`,
   `mailto`, the app's own, or relative; `javascript:`, `data:`, `file:` and the rest are refused
   when the scene is saved and when an agent hands a skeleton, as is a link holding a control
@@ -75,6 +96,58 @@ notes (`docs/contributing/release.md`).
   cannot take a built-in's id.
 
 ### Fixed
+
+- **A poll loses nothing.** An item a connector poll found and could not write down — the
+  listener's backlog was full, the minute's budget spent — was remembered as seen and never fired.
+  It is now remembered only once written down, so the next poll finds it again, in order; an
+  occurrence already written down costs none of the budget when it is heard twice; and an item
+  over 64 KiB fires with its key and `oversize_bytes` where it used to vanish. Polls run on a
+  ticker of their own, four at a time: a platform that hangs no longer holds every schedule and
+  check behind it.
+- **A connector account has one writer at a time.** A person's edit that read the record before
+  a token refresh and wrote after it took the refresh back — the account read *not connected*
+  with its tokens in the keystore. An edit, a secret, the default mark and a token save now each
+  read and write under one lock, and a save for an account that was removed no longer fails
+  half-way.
+- **A credential move stopped half-way is finished at the next start.** When a built-in's scheme
+  moves between a bearer token and a key, the record now names both fields before the old value
+  goes, and every start repairs an account whose record names a field its scheme does not read —
+  which no edit could pass, so the account could not be saved again.
+- Reading a connector account's secrets and saving its tokens run off the async threads: a slow
+  keyring no longer stalls the engine.
+
+- **A connector write is never sent twice by accident.** A keyed write inside a loop now carries a
+  key of its own on every iteration and every revisit (the key was `bisa-<run>-<step>`, so a
+  platform that honours keys took a whole loop for one write); a retry of the same visit keeps
+  the key. A write with no key, and a token request, are no longer sent again on a `502` or a
+  `504` — a gateway's error says nothing of whether the write landed. A write the platform took
+  (`2xx`, or a `3xx`) whose answer could then not be used — the selected field missing, an answer
+  too large, one that does not fit the step's output — **stops** the step for a person instead
+  of failing it into its retries, which sent it again. A `put`, a `patch` or a `delete` is held to
+  the same rules whatever its definition calls it, is refused to an agent's `call_connector`, and
+  is never polled by a start.
+- **A refresh outlives the call that asked for it.** A platform that rotates its refresh token
+  spent the old one the moment it answered; a run stopped or a deadline passed in that moment
+  dropped the answer, and the account had to be connected again. The exchange now runs to its
+  end and is kept, and whoever asks next waits for it.
+- **A pasted line end no longer pauses a platform for everyone.** A credential a header cannot
+  carry read *could not connect* and counted against the host's circuit, for every account. It
+  is now said as what it is, counts against nothing, and a secret is stored without the spaces
+  and line ends a paste brings (a password keeps its own spaces).
+- **Connector definitions**: a `?` or `#` in a path, a header name that is not a token, the
+  scheme's own port in `base_url` (`:443`), a base-URL account parameter that is not required, a
+  `page.cursor_param` no template carries, and an OAuth `extra` that restates what the connection
+  writes (`state`, `redirect_uri`, `scope`, …) or a `token_auth` other than `basic` are refused
+  when the definition is written — each was found out at the first call, or never. Stored
+  definitions load as before.
+- **Connector accounts**: a value is held to its parameter's kind (a number, `true`/`false`), and
+  a required one may not be blank.
+- **Paging** stops on an empty page and on a cursor it already followed, where a platform that
+  repeats its cursor was read to the page limit. A signed (`jwt`) call signs each page with the
+  time it is sent. A dated `Retry-After` before 1970 and an `expires_in` near the top of its type
+  no longer overflow.
+- **The OAuth callback listener** stays up as long as any connection waits for its browser; it
+  used to stop a fixed time after the *first* one began, under a second account being connected.
 
 - **Notes pulled from another machine appear.** A pull that moved now indexes what arrived, what
   was rewritten and what was deleted, and says each, so the list, `bisa note list` and an open

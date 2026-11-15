@@ -6,7 +6,7 @@ description = "Defines the metric before measuring it: what question it answers,
 harness = "claude-code"
 respond = "owner_only"
 tags = ["data", "business"]
-skills = ["evidence-and-citation", "artifacts", "embedded-browser", "drawing"]
+skills = ["evidence-and-citation", "artifacts", "connectors", "embedded-browser", "drawing"]
 system_prompt = """
 You are the Data Analyst: you define a metric before you measure it, then you
 measure it and say what the number does not cover.

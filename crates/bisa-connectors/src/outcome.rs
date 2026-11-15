@@ -109,6 +109,19 @@ pub fn parse(
     expect: Option<&Expect>,
     now: u64,
 ) -> Result<Outcome, ConnectorError> {
+    parse_reading(resp, select, expect, false, now)
+}
+
+/// [`parse`], and what a missing `select` means: with `or_empty`, a path a
+/// 2xx answer does not hold — or holds as `null` — selects an empty list;
+/// without it, the path's absence is the definition's fault, said by name.
+pub fn parse_reading(
+    resp: &Response,
+    select: Option<&str>,
+    expect: Option<&Expect>,
+    or_empty: bool,
+    now: u64,
+) -> Result<Outcome, ConnectorError> {
     if resp.body.len() > MAX_BODY_BYTES {
         return Err(ConnectorError::TooLarge(resp.body.len()));
     }
@@ -148,13 +161,15 @@ pub fn parse(
         }
     }
     let selected = match select {
-        Some(path) if !path.is_empty() => {
-            json_path(&body, path)
-                .cloned()
-                .ok_or_else(|| ConnectorError::SelectMissing {
+        Some(path) if !path.is_empty() => match json_path(&body, path) {
+            Some(Value::Null) | None if or_empty => Value::Array(Vec::new()),
+            Some(found) => found.clone(),
+            None => {
+                return Err(ConnectorError::SelectMissing {
                     path: path.to_string(),
-                })?
-        }
+                })
+            }
+        },
         _ => body.clone(),
     };
     Ok(Outcome {

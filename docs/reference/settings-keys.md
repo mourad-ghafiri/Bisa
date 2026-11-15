@@ -203,6 +203,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 | Key | Kind | Default | Scopes | What it does |
 |---|---|---|---|---|
 | `connectors.concurrency` | integer 1–32 | `4` | M | **Calls in flight per connector** — How many calls one connector may have in flight at once on this machine — a workflow fanning out over many items, a poll and an agent's read together. The next call waits for a permit; nothing is refused. A platform's own rate limit is still honoured call by call. |
+| `connectors.agents` | `everyone` (Everyone) \| `assigned` (Assigned) \| `nobody` (Nobody) | `"everyone"` | P W | **Agents may call connectors** — Which agents may read an outside platform through a connector on their own (`call_connector`). Everyone: any agent — the default. Assigned: only agents that carry the Connectors skill — the platform's own agents always may. Nobody: the tool refuses. A workflow's connector step is not an agent's call and is not affected; a write is never an agent's call under any choice. |
 | `connectors.oauth.port` | integer 1024–65535 | `4478` | M | **OAuth callback port** — The loopback port the browser is sent back to while a connector account is being connected. Bound only for the minutes a connection is pending; register `http://127.0.0.1:<port>/connectors/oauth/callback` at the platform. |
 
 ## `diagrams.*`

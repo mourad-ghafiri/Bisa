@@ -263,6 +263,10 @@ async fn the_transports_edges() {
         "cannot read the answer: cut"
     );
     assert_eq!(TransportError::Timeout.to_string(), "timed out");
+    assert_eq!(
+        TransportError::Unsendable("a header's value".into()).to_string(),
+        "the request could not be built: a header's value"
+    );
     let _strict = ReqwestTransport::default();
 
     let nobody = bisa_connectors::spec::CallSpec {
@@ -463,4 +467,286 @@ async fn a_paged_read_shares_one_deadline_across_its_pages() {
         2,
         "the second page met the deadline; a third was never asked for"
     );
+}
+
+// --- the hardening pass (2026-11) ---
+
+/// A platform that hands back the cursor it was given — its last page, on
+/// some — or a page with nothing on it, has nothing more: the read stops
+/// there instead of asking for the same page up to the cap and handing the
+/// step every item several times over.
+#[tokio::test(start_paused = true)]
+async fn a_paged_read_stops_on_a_cursor_it_already_followed_and_on_an_empty_page() {
+    let transport = ScriptedTransport::with(vec![
+        ok(200, json!({"items": [1], "next": "c2"})),
+        ok(200, json!({"items": [2], "next": "c2"})),
+        ok(200, json!({"items": ["never"], "next": "c2"})),
+    ]);
+    let client = scripted(
+        transport.clone(),
+        MemoryCreds::with(&account(), Default::default()),
+        FixedClock::at(0),
+    );
+    let out = client
+        .call(
+            &paged_spec(),
+            None,
+            &no_account_params(),
+            &params(&[]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        out.selected,
+        json!([1, 2]),
+        "the repeated cursor is the end"
+    );
+    assert_eq!(transport.sent().len(), 2);
+
+    let transport = ScriptedTransport::with(vec![
+        ok(200, json!({"items": [1], "next": "c2"})),
+        ok(200, json!({"items": [], "next": "c3"})),
+        ok(200, json!({"items": ["never"], "next": "c4"})),
+    ]);
+    let client = scripted(
+        transport.clone(),
+        MemoryCreds::with(&account(), Default::default()),
+        FixedClock::at(0),
+    );
+    let out = client
+        .call(
+            &paged_spec(),
+            None,
+            &no_account_params(),
+            &params(&[]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.selected, json!([1]), "an empty page is the end");
+    assert_eq!(transport.sent().len(), 2);
+}
+
+/// A list the platform leaves out of an empty answer is an empty list, where
+/// the operation says so (`or_empty`): a poll on a quiet inbox finds nothing
+/// new instead of failing on every tick. Without the word a missing path is
+/// still the definition's fault, said by name.
+#[tokio::test(start_paused = true)]
+async fn a_list_left_out_of_an_empty_answer_is_empty_where_the_operation_says_so() {
+    let answer = || ScriptedTransport::with(vec![ok(200, json!({"resultSizeEstimate": 0}))]);
+    let mut spec = offline_spec(AuthSpec::None);
+    spec.select = Some("messages".into());
+    let client = scripted(
+        answer(),
+        MemoryCreds::with(&account(), Default::default()),
+        FixedClock::at(0),
+    );
+    let strict = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await;
+    assert!(
+        matches!(&strict, Err(bisa_connectors::ConnectorError::SelectMissing { path }) if path == "messages"),
+        "{strict:?}"
+    );
+    spec.or_empty = true;
+    let client = scripted(
+        answer(),
+        MemoryCreds::with(&account(), Default::default()),
+        FixedClock::at(0),
+    );
+    let out = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap();
+    assert_eq!(out.selected, json!([]));
+    assert_eq!(out.body, json!({"resultSizeEstimate": 0}));
+}
+
+/// A token pasted with a line break at its end cannot be a header: the
+/// request is never built, and that is said as what it is — never as *could
+/// not connect*, never tried again, and never counted against the host. Five
+/// of them used to open the host's circuit for every account that calls it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_credential_a_header_cannot_carry_is_said_and_never_counted_against_the_host() {
+    use bisa_connectors::creds::{Field, Stored};
+    let stub = Stub::start(
+        (0..2)
+            .map(|_| Canned::json("GET", "/v1/items/1", 200, json!({"ok": true})))
+            .collect(),
+    )
+    .await;
+    let bad = bisa_connectors::creds::AccountRef::new("stubby", "pasted");
+    let creds = MemoryCreds::with(&bad, Stored::default().with(Field::Token, "tok\nen"));
+    creds.stored.lock().unwrap().insert(
+        account().key(),
+        Stored::default().with(Field::Token, "a-good-token"),
+    );
+    let client = client(creds.clone());
+    let spec = spec(&stub, AuthSpec::Bearer);
+    for round in 0..bisa_connectors::breaker::OPEN_AFTER + 1 {
+        let err = client
+            .call(
+                &spec,
+                Some(&bad),
+                &no_account_params(),
+                &params(&[("id", "1")]),
+                &AllowAll,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, bisa_connectors::ConnectorError::BadDefinition(why) if why.contains("could not be built")),
+            "round {round}: {err:?}"
+        );
+        assert!(
+            !format!("{err}").contains("tok"),
+            "the secret is not said: {err}"
+        );
+    }
+    assert!(stub.calls().is_empty(), "nothing was sent");
+    // The host's circuit is closed: the account beside it is answered.
+    let out = client
+        .call(
+            &spec,
+            Some(&account()),
+            &no_account_params(),
+            &params(&[("id", "1")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.body, json!({"ok": true}));
+}
+
+/// Refuses its first calls, never answers the next, then answers.
+struct RefusesThenHangs {
+    sent: std::sync::atomic::AtomicU32,
+}
+
+#[async_trait::async_trait]
+impl bisa_connectors::http::HttpTransport for RefusesThenHangs {
+    async fn send(
+        &self,
+        _req: &bisa_connectors::http::Request,
+        _insecure_loopback: bool,
+    ) -> Result<bisa_connectors::http::Response, TransportError> {
+        let n = self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if n < OPEN_AFTER {
+            return Err(TransportError::Connect("connection refused".into()));
+        }
+        if n == OPEN_AFTER {
+            std::future::pending::<()>().await;
+        }
+        ok(200, json!({"ok": true}))
+    }
+}
+
+/// The probe let through after a pause may be dropped before it answers — a
+/// stopped run, a deadline above it. It gives the probe back: the next call
+/// goes out instead of waiting on a probe nobody is making.
+#[tokio::test(start_paused = true)]
+async fn a_probe_dropped_before_it_answers_lets_the_next_call_probe() {
+    let transport = std::sync::Arc::new(RefusesThenHangs {
+        sent: std::sync::atomic::AtomicU32::new(0),
+    });
+    let clock = FixedClock::at(100);
+    let client = bisa_connectors::Client::new(
+        transport.clone(),
+        MemoryCreds::with(&account(), Default::default()),
+        clock.clone(),
+        CountingEntropy::from(1),
+    );
+    let mut spec = offline_spec(AuthSpec::None);
+    spec.writes = true;
+    for _ in 0..OPEN_AFTER {
+        client
+            .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+            .await
+            .unwrap_err();
+    }
+    *clock.0.lock().unwrap() = 100 + COOLDOWN_SECS;
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        client.call(&spec, None, &no_account_params(), &params(&[]), &AllowAll),
+    )
+    .await;
+    assert!(dropped.is_err(), "the probe was let go mid-flight");
+    let out = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap();
+    assert_eq!(out.body, json!({"ok": true}));
+}
+
+/// A call to this machine never goes to a proxy, however the address is
+/// spelled: the person's proxy leaves `localhost` and `127.0.0.1` alone by
+/// name, and `0.0.0.0` — the same machine — was handed to it, credential
+/// and all. The proxy here answers on no port: only a direct call arrives.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_this_machine_never_goes_through_a_proxy() {
+    use bisa_connectors::http::{HttpTransport, Request, ReqwestTransport};
+    use bisa_connectors::spec::Method;
+    let stub = Stub::start(vec![Canned::json(
+        "GET",
+        "/v1/items/1",
+        200,
+        json!({"ok": 1}),
+    )])
+    .await;
+    let nobody = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead = nobody.local_addr().unwrap().port();
+    drop(nobody);
+    let policy = bisa_http::HttpPolicy {
+        proxy: bisa_http::ProxyPolicy::Manual {
+            http: Some(format!("http://127.0.0.1:{dead}").parse().unwrap()),
+            https: None,
+            no_proxy: vec![],
+        },
+        http1_only: false,
+    };
+    let transport = ReqwestTransport::with_http(std::sync::Arc::new(
+        bisa_http::Clients::new(&policy).unwrap(),
+    ));
+    let port = stub.host().rsplit(':').next().unwrap().to_string();
+    let answer = transport
+        .send(
+            &Request {
+                method: Method::Get,
+                url: format!("http://0.0.0.0:{port}/v1/items/1").parse().unwrap(),
+                headers: vec![("Authorization".into(), "Bearer t".into())],
+                body: None,
+                timeout: std::time::Duration::from_secs(5),
+                hidden_headers: vec![],
+                secret_query: None,
+            },
+            false,
+        )
+        .await
+        .expect("answered directly");
+    assert_eq!(answer.status, 200);
+    assert_eq!(stub.calls().len(), 1);
+}
+
+/// A platform out in the world is asked through the shared client — the
+/// person's proxy, their HTTP version — and one nobody can find is said to
+/// be unreachable, in words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_platform_nobody_can_find_is_unreachable() {
+    use bisa_connectors::http::{HttpTransport, Request, ReqwestTransport};
+    let answer = ReqwestTransport::new()
+        .send(
+            &Request {
+                method: bisa_connectors::spec::Method::Get,
+                url: "http://nobody.invalid/".parse().unwrap(),
+                headers: vec![],
+                body: None,
+                timeout: std::time::Duration::from_secs(5),
+                hidden_headers: vec![],
+                secret_query: None,
+            },
+            false,
+        )
+        .await;
+    assert!(answer.is_err(), "{:?}", answer.map(|r| r.status));
 }

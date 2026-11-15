@@ -948,6 +948,15 @@ fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<()
                             &step,
                             format!("{reason}; {}", bisa_core::run::AMBIGUOUS_WRITE),
                         );
+                    } else if shape.landed(&e) {
+                        // The platform took the write; only its answer was
+                        // unusable here. A retry would be a second write.
+                        stop_step(
+                            &inner,
+                            run_id,
+                            &step,
+                            format!("{reason}; {}", bisa_core::run::WRITE_LANDED),
+                        );
                     } else {
                         fail_step(&inner, run_id, &step, reason);
                     }

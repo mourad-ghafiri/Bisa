@@ -11,7 +11,7 @@ use crate::hosts::{self, HostJudge};
 use crate::http::{HttpTransport, Request, Response, TransportError};
 use crate::outcome::{self, Outcome};
 use crate::request;
-use crate::retry::{self, Next, RetryPolicy};
+use crate::retry::{self, Next, Resend, RetryPolicy};
 use crate::spec::{AuthSpec, CallSpec, ParamKind};
 use crate::template::Values;
 use serde_json::Value;
@@ -22,7 +22,23 @@ use std::time::{Duration, Instant};
 /// A token endpoint's deadline, which is not the operation's.
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The client: one shared core, so a clone is the same client — the same
+/// circuits, the same refresh locks — and a piece of work that must outlive
+/// its caller (a token exchange, [`crate::oauth`]) can hold one.
+#[derive(Clone)]
 pub struct Client {
+    core: Arc<Core>,
+}
+
+impl std::ops::Deref for Client {
+    type Target = Core;
+    fn deref(&self) -> &Core {
+        &self.core
+    }
+}
+
+/// What every clone of a [`Client`] shares.
+pub struct Core {
     transport: Arc<dyn HttpTransport>,
     creds: Arc<dyn Credentials>,
     clock: Arc<dyn Clock>,
@@ -41,13 +57,15 @@ impl Client {
         entropy: Arc<dyn Entropy>,
     ) -> Self {
         Self {
-            transport,
-            creds,
-            clock,
-            entropy,
-            retry: RetryPolicy::default(),
-            refresh_locks: Mutex::new(HashMap::new()),
-            breaker: Breaker::default(),
+            core: Arc::new(Core {
+                transport,
+                creds,
+                clock,
+                entropy,
+                retry: RetryPolicy::default(),
+                refresh_locks: Mutex::new(HashMap::new()),
+                breaker: Breaker::default(),
+            }),
         }
     }
 
@@ -89,17 +107,24 @@ impl Client {
     pub(crate) async fn send_judged(
         &self,
         req: &Request,
-        writes: bool,
+        resend: Resend,
         insecure_loopback: bool,
         host: &str,
     ) -> Result<Response, ConnectorError> {
-        self.breaker.admit(host, self.clock.now())?;
+        let probe = self.breaker.admit(host, self.clock.now())?;
         let admission = Admission {
             breaker: &self.breaker,
             host,
+            probe,
             settled: false,
         };
-        let result = self.send_with_retry(req, writes, insecure_loopback).await;
+        let result = self.send_with_retry(req, resend, insecure_loopback).await;
+        // A request that could not be built was never the host's to answer:
+        // it settles nothing about the host, as a dropped call does not.
+        if matches!(&result, Err(ConnectorError::BadDefinition(_))) {
+            drop(admission);
+            return result;
+        }
         let ok = matches!(&result, Ok(resp) if resp.status < 500);
         admission.settle(ok, self.clock.now());
         result
@@ -110,7 +135,7 @@ impl Client {
     pub(crate) async fn send_with_retry(
         &self,
         req: &Request,
-        writes: bool,
+        resend: Resend,
         insecure_loopback: bool,
     ) -> Result<Response, ConnectorError> {
         let started = Instant::now();
@@ -136,7 +161,7 @@ impl Client {
                 &self.retry,
                 attempt,
                 &result,
-                writes,
+                resend,
                 retry_after,
                 f64::from(jitter[0]) / 255.0,
             );
@@ -212,7 +237,18 @@ impl Client {
             )
             .await;
         let refs: Vec<&str> = exposed.iter().map(String::as_str).collect();
-        result.map_err(|e| e.scrubbed(&refs))
+        // The answer is scrubbed of the very secrets this call sent, as its
+        // error would be: a platform that echoes the key it was given — in a
+        // debug block, a signed URL, a "you sent …" — hands the step a
+        // placeholder, whatever the key looks like and whatever the caller
+        // redacts later.
+        result
+            .map(|mut outcome| {
+                crate::error::scrub_value(&mut outcome.body, &refs);
+                crate::error::scrub_value(&mut outcome.selected, &refs);
+                outcome
+            })
+            .map_err(|e| e.scrubbed(&refs))
     }
 
     /// The bytes of every `file` parameter the step set, by name; a path the
@@ -297,9 +333,12 @@ impl Client {
             bearer = Some(token.clone());
             credential = Credential::OAuth2(token);
         }
-        let sign = SignContext {
-            now: self.clock.now(),
-            account: account_params,
+        // A write the platform can deduplicate — it carries a key — may be
+        // sent again where an unkeyed one may not (`retry::Resend`).
+        let resend = match (spec.writes, &spec.idempotency, &spec.idempotency_key) {
+            (false, _, _) => Resend::Read,
+            (true, Some(_), Some(_)) => Resend::KeyedWrite,
+            (true, _, _) => Resend::Write,
         };
 
         // One request per page; the first carries no cursor, the rest carry
@@ -307,8 +346,16 @@ impl Client {
         // one page.
         let mut pages: Vec<Value> = Vec::new();
         let mut cursor: Option<String> = None;
+        // The cursors already followed: one handed back again is the end.
+        let mut followed: Vec<String> = Vec::new();
         let mut read: u8 = 0;
         loop {
+            // Signed with the time of this page, not of the first: a short-lived
+            // token over a long paged read would lapse on its later pages.
+            let sign = SignContext {
+                now: self.clock.now(),
+                account: account_params,
+            };
             let mut bound_page = bound.clone();
             if let (Some(paging), Some(c)) = (&spec.page, &cursor) {
                 bound_page.insert(paging.cursor_param.clone(), Value::String(c.clone()));
@@ -333,7 +380,7 @@ impl Client {
             exposed.extend(applied.secrets);
 
             let mut resp = self
-                .send_judged(&req, spec.writes, insecure, &host)
+                .send_judged(&req, resend, insecure, &host)
                 .await
                 .map_err(|e| whole_deadline(e, spec.timeout))?;
             // A 401 under OAuth2 with a refresh token: the token died before its
@@ -365,16 +412,17 @@ impl Client {
                         let applied = auth::apply(&spec.auth, &credential, &mut again, &sign)?;
                         exposed.extend(applied.secrets);
                         resp = self
-                            .send_judged(&again, spec.writes, insecure, &host)
+                            .send_judged(&again, resend, insecure, &host)
                             .await
                             .map_err(|e| whole_deadline(e, spec.timeout))?;
                     }
                 }
             }
-            let outcome = outcome::parse(
+            let outcome = outcome::parse_reading(
                 &resp,
                 spec.select.as_deref(),
                 spec.expect.as_ref(),
+                spec.or_empty,
                 self.clock.now(),
             )?;
             let Some(paging) = &spec.page else {
@@ -387,10 +435,19 @@ impl Client {
                     spec.operation
                 )));
             };
+            // A page with nothing on it, and a cursor already followed, are
+            // each the end: a platform that hands back the cursor it was
+            // given would otherwise be read up to the cap, every item of its
+            // last page handed over again each time.
+            let empty = items.is_empty();
             pages.extend(items);
-            let next = outcome::next_cursor(&outcome.body, &paging.next_cursor);
+            let next = outcome::next_cursor(&outcome.body, &paging.next_cursor)
+                .filter(|c| !empty && !followed.contains(c));
             match next {
-                Some(c) if read < paging.max_pages => cursor = Some(c),
+                Some(c) if read < paging.max_pages => {
+                    followed.push(c.clone());
+                    cursor = Some(c)
+                }
                 _ => {
                     return Ok(Outcome {
                         status: outcome.status,
@@ -410,6 +467,9 @@ impl Client {
 struct Admission<'a> {
     breaker: &'a Breaker,
     host: &'a str,
+    /// Whether this call is the one probe let through after the pause: only
+    /// the probe, dropped, gives the probe back.
+    probe: bool,
     settled: bool,
 }
 
@@ -422,7 +482,7 @@ impl Admission<'_> {
 
 impl Drop for Admission<'_> {
     fn drop(&mut self) {
-        if !self.settled {
+        if !self.settled && self.probe {
             self.breaker.abandon(self.host);
         }
     }
@@ -435,6 +495,11 @@ fn transport_error(e: TransportError, timeout: Duration) -> ConnectorError {
     match e {
         TransportError::Timeout => ConnectorError::Timeout(timeout),
         TransportError::Connect(why) => ConnectorError::Unreachable(why),
+        // Never built, so never the network's: the definition's, or the
+        // credential's — a secret with a line break in it cannot be a header.
+        TransportError::Unsendable(why) => ConnectorError::BadDefinition(format!(
+            "the request could not be built ({why}); a header or a credential holds a character it cannot carry"
+        )),
         other => ConnectorError::Transport(other.to_string()),
     }
 }

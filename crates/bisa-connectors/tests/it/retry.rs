@@ -272,3 +272,62 @@ async fn the_last_attempt_says_what_it_met() {
     assert!(matches!(err, ConnectorError::Timeout(_)), "{err}");
     assert_eq!(slow.sent().len(), 3, "every attempt was made");
 }
+
+// --- the hardening pass (2026-11) ---
+
+/// A 502 or a 504 does not say the platform never had the request — a
+/// gateway that timed out waiting may sit in front of a server that did the
+/// work. So an unkeyed write is not sent again on one (the engine stops the
+/// step for a person to look); a write that carries an idempotency key is,
+/// since the platform can tell the resend from a second write; a read always.
+/// A 429 and a 503 are the platform saying it did nothing: resent for all.
+#[tokio::test(start_paused = true)]
+async fn a_gateway_error_never_sends_an_unkeyed_write_again() {
+    let run = |status: u16, writes: bool, keyed: bool| async move {
+        let transport = ScriptedTransport::with(vec![
+            ok(status, json!({"message": "upstream"})),
+            ok(200, json!({"done": true})),
+        ]);
+        let client = scripted(
+            transport.clone(),
+            MemoryCreds::with(&account(), Default::default()),
+            FixedClock::at(0),
+        );
+        let mut spec = offline_spec(AuthSpec::None);
+        spec.writes = writes;
+        if keyed {
+            spec.idempotency = Some(bisa_connectors::spec::Idempotency {
+                header: "Idempotency-Key".into(),
+            });
+            spec.idempotency_key = Some("bisa-run-step".into());
+        }
+        let result = client
+            .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+            .await;
+        (transport.sent().len(), result.is_ok())
+    };
+    for status in [502, 504] {
+        assert_eq!(
+            run(status, true, false).await,
+            (1, false),
+            "{status}: an unkeyed write is sent once and its error stands"
+        );
+        assert_eq!(
+            run(status, true, true).await,
+            (2, true),
+            "{status}: a keyed write is the platform's to deduplicate"
+        );
+        assert_eq!(
+            run(status, false, false).await,
+            (2, true),
+            "{status}: a read"
+        );
+    }
+    for status in [429, 503] {
+        assert_eq!(
+            run(status, true, false).await,
+            (2, true),
+            "{status}: the platform says it did nothing"
+        );
+    }
+}

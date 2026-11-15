@@ -1,7 +1,11 @@
 //! One retry policy for every call. A read is retried on what the network
-//! and the service may recover from; a write only where the platform says a
-//! retry is safe — a rate limit, a gateway that never saw the request — so
-//! a message is never posted twice because the first answer was lost.
+//! and the service may recover from; a write only where the platform says it
+//! did nothing — a rate limit (429), a service that is not taking requests
+//! (503) — so a message is never posted twice because the first answer was
+//! lost. A gateway's 502 or 504 is **not** that: the gateway gave up, and
+//! the server behind it may have done the work. Only a write the platform
+//! can deduplicate — one carrying an idempotency key — is sent again on
+//! those ([`Resend::KeyedWrite`]).
 
 use crate::http::{Response, TransportError};
 use std::time::Duration;
@@ -39,6 +43,24 @@ impl RetryPolicy {
     }
 }
 
+/// What kind of request is being sent, as far as sending it twice goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resend {
+    /// Changes nothing on the platform: asked again freely.
+    Read,
+    /// Changes something, and the platform cannot tell a resend from a
+    /// second write — a token exchange or refresh is one of these too.
+    Write,
+    /// Changes something under an idempotency key the platform honours.
+    KeyedWrite,
+}
+
+impl Resend {
+    fn writes(self) -> bool {
+        !matches!(self, Resend::Read)
+    }
+}
+
 /// What to do after one attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Next {
@@ -53,20 +75,26 @@ pub fn decide(
     policy: &RetryPolicy,
     attempt: u8,
     result: &Result<Response, TransportError>,
-    writes: bool,
+    resend: Resend,
     retry_after: Option<Duration>,
     jitter: f64,
 ) -> Next {
     if attempt + 1 >= policy.attempts {
         return Next::Done;
     }
+    let writes = resend.writes();
     let again = match result {
         Err(TransportError::Connect(_)) | Err(TransportError::Timeout) => !writes,
         // The request went out: a read may ask again, a write never.
         Err(TransportError::Lost(_)) => !writes,
-        Err(TransportError::Body(_)) => false,
+        // An answer cut short, or a request this machine could not even
+        // build: asking again changes neither.
+        Err(TransportError::Body(_)) | Err(TransportError::Unsendable(_)) => false,
         Ok(r) => match r.status {
-            429 | 502 | 503 | 504 => true,
+            // The platform's own word that it did nothing.
+            429 | 503 => true,
+            // A gateway that gave up: the server behind it may have done it.
+            502 | 504 => resend != Resend::Write,
             500 => !writes,
             _ => false,
         },
@@ -125,7 +153,16 @@ pub fn http_date(text: &str) -> Option<u64> {
     let h: u64 = hms.next()?.parse().ok()?;
     let m: u64 = hms.next()?.parse().ok()?;
     let s: u64 = hms.next()?.parse().ok()?;
-    if parts.next()? != "GMT" || day == 0 || day > 31 || h > 23 || m > 59 || s > 60 {
+    // Before the epoch there are no unix seconds to answer, and past the
+    // fourth digit no HTTP date: either is no date, never an underflow.
+    if parts.next()? != "GMT"
+        || day == 0
+        || day > 31
+        || h > 23
+        || m > 59
+        || s > 60
+        || !(1970..=9999).contains(&year)
+    {
         return None;
     }
     Some(days_from_civil(year, month, day) * 86_400 + h * 3600 + m * 60 + s)
@@ -158,24 +195,73 @@ mod tests {
     fn reads_retry_on_more_than_writes_do() {
         let p = RetryPolicy::default();
         assert!(matches!(
-            decide(&p, 0, &resp(429), true, None, 0.5),
+            decide(&p, 0, &resp(429), Resend::Write, None, 0.5),
             Next::RetryAfter(_)
         ));
         assert!(matches!(
-            decide(&p, 0, &resp(503), true, None, 0.5),
+            decide(&p, 0, &resp(503), Resend::Write, None, 0.5),
             Next::RetryAfter(_)
         ));
         assert!(matches!(
-            decide(&p, 0, &resp(500), false, None, 0.5),
-            Next::RetryAfter(_)
-        ));
-        assert_eq!(decide(&p, 0, &resp(500), true, None, 0.5), Next::Done);
-        assert!(matches!(
-            decide(&p, 0, &Err(TransportError::Timeout), false, None, 0.5),
+            decide(&p, 0, &resp(500), Resend::Read, None, 0.5),
             Next::RetryAfter(_)
         ));
         assert_eq!(
-            decide(&p, 0, &Err(TransportError::Timeout), true, None, 0.5),
+            decide(&p, 0, &resp(500), Resend::Write, None, 0.5),
+            Next::Done
+        );
+        // A gateway's 502 or 504: a read and a keyed write ask again, an
+        // unkeyed write never — the server behind the gateway may have done it.
+        for status in [502, 504] {
+            assert_eq!(
+                decide(&p, 0, &resp(status), Resend::Write, None, 0.5),
+                Next::Done,
+                "{status}"
+            );
+            for resend in [Resend::Read, Resend::KeyedWrite] {
+                assert!(matches!(
+                    decide(&p, 0, &resp(status), resend, None, 0.5),
+                    Next::RetryAfter(_)
+                ));
+            }
+        }
+        assert_eq!(
+            decide(&p, 0, &resp(500), Resend::KeyedWrite, None, 0.5),
+            Next::Done,
+            "a 500 says nothing of what was done: the engine decides, key in hand"
+        );
+        assert_eq!(
+            decide(
+                &p,
+                0,
+                &Err(TransportError::Unsendable("bad header".into())),
+                Resend::Read,
+                None,
+                0.5
+            ),
+            Next::Done,
+            "a request that cannot be built is not built better a second time"
+        );
+        assert!(matches!(
+            decide(
+                &p,
+                0,
+                &Err(TransportError::Timeout),
+                Resend::Read,
+                None,
+                0.5
+            ),
+            Next::RetryAfter(_)
+        ));
+        assert_eq!(
+            decide(
+                &p,
+                0,
+                &Err(TransportError::Timeout),
+                Resend::Write,
+                None,
+                0.5
+            ),
             Next::Done
         );
         assert!(
@@ -184,7 +270,7 @@ mod tests {
                     &p,
                     0,
                     &Err(TransportError::Lost("closed".into())),
-                    false,
+                    Resend::Read,
                     None,
                     0.5
                 ),
@@ -197,17 +283,23 @@ mod tests {
                 &p,
                 0,
                 &Err(TransportError::Lost("closed".into())),
-                true,
+                Resend::Write,
                 None,
                 0.5
             ),
             Next::Done,
             "a write whose answer never came may have been done"
         );
-        assert_eq!(decide(&p, 0, &resp(400), false, None, 0.5), Next::Done);
-        assert_eq!(decide(&p, 0, &resp(200), false, None, 0.5), Next::Done);
         assert_eq!(
-            decide(&p, 2, &resp(429), false, None, 0.5),
+            decide(&p, 0, &resp(400), Resend::Read, None, 0.5),
+            Next::Done
+        );
+        assert_eq!(
+            decide(&p, 0, &resp(200), Resend::Read, None, 0.5),
+            Next::Done
+        );
+        assert_eq!(
+            decide(&p, 2, &resp(429), Resend::Read, None, 0.5),
             Next::Done,
             "the last attempt is the last"
         );
@@ -217,7 +309,14 @@ mod tests {
     fn the_wait_honours_retry_after_within_its_cap_and_backs_off_with_jitter() {
         let p = RetryPolicy::default();
         assert_eq!(
-            decide(&p, 0, &resp(429), false, Some(Duration::from_secs(3)), 0.0),
+            decide(
+                &p,
+                0,
+                &resp(429),
+                Resend::Read,
+                Some(Duration::from_secs(3)),
+                0.0
+            ),
             Next::RetryAfter(Duration::from_secs(3))
         );
         assert_eq!(
@@ -225,18 +324,18 @@ mod tests {
                 &p,
                 0,
                 &resp(429),
-                false,
+                Resend::Read,
                 Some(Duration::from_secs(3600)),
                 0.0
             ),
             Next::RetryAfter(Duration::from_secs(30))
         );
         assert_eq!(
-            decide(&p, 0, &resp(503), false, None, 0.5),
+            decide(&p, 0, &resp(503), Resend::Read, None, 0.5),
             Next::RetryAfter(Duration::from_millis(500))
         );
         assert_eq!(
-            decide(&p, 1, &resp(503), false, None, 0.0),
+            decide(&p, 1, &resp(503), Resend::Read, None, 0.0),
             Next::RetryAfter(Duration::from_millis(750))
         );
         let capped = RetryPolicy {
@@ -244,7 +343,7 @@ mod tests {
             ..RetryPolicy::default()
         };
         assert_eq!(
-            decide(&capped, 8, &resp(503), false, None, 0.5),
+            decide(&capped, 8, &resp(503), Resend::Read, None, 0.5),
             Next::RetryAfter(Duration::from_secs(8))
         );
     }
@@ -275,6 +374,22 @@ mod tests {
         assert_eq!(http_date("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
     }
 
+    /// A date before the epoch — a platform's clock at zero, a header made
+    /// up — is no date, never an underflow: read as nothing, so the wait is
+    /// the policy's own.
+    #[test]
+    fn a_date_before_the_epoch_is_no_date() {
+        assert_eq!(http_date("Mon, 01 Jan 1900 00:00:00 GMT"), None);
+        assert_eq!(http_date("Sat, 01 Jan 0000 00:00:00 GMT"), None);
+        assert_eq!(http_date("Wed, 31 Dec 1969 23:59:59 GMT"), None);
+        let dated = vec![(
+            "retry-after".to_string(),
+            "Mon, 01 Jan 1900 00:00:00 GMT".to_string(),
+        )];
+        assert_eq!(retry_after(&dated, 0), None);
+        assert!(http_date("Fri, 31 Dec 9999 23:59:59 GMT").is_some());
+    }
+
     // added by the coverage pass: retry.rs
 
     /// A policy of none tries once; an answer that could not be read is
@@ -289,7 +404,7 @@ mod tests {
                 &p,
                 0,
                 &Err(TransportError::Body("cut".into())),
-                false,
+                Resend::Read,
                 None,
                 0.5
             ),

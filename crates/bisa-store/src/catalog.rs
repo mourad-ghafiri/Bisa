@@ -344,6 +344,10 @@ const CATALOG_SKILLS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/skills/code-review-checklist.toml"),
     ),
     (
+        "connectors",
+        include_str!("../../../library/catalog/skills/connectors.toml"),
+    ),
+    (
         "critical-review",
         include_str!("../../../library/catalog/skills/critical-review.toml"),
     ),
@@ -2047,6 +2051,9 @@ impl Workspace {
             );
             out.definitions.push(slug.clone());
         }
+        // What an earlier refresh stopped half-way left behind is finished
+        // here, every start, whether or not anything was refreshed now.
+        out.accounts_moved += self.reconcile_connector_accounts()?;
         Ok(out)
     }
 

@@ -626,6 +626,7 @@ pub(crate) fn media(stub: &Stub) -> NewConnector {
                 expect: None,
                 select: Some("id".into()),
                 schema: None,
+                or_empty: false,
             },
             writes: true,
             timeout_secs: None,
@@ -811,7 +812,8 @@ async fn a_keyed_write_is_sent_again_with_the_same_key() {
     assert_eq!(done.steps[&sid("say")].output, Some(json!("9.9")));
     let calls = stub.calls();
     assert_eq!(calls.len(), 2, "the 503 was retried");
-    let expected = connectors::step_key(run.id, &sid("say"));
+    // The key names the entry the write was sent for (`StepRecord::entered`).
+    let expected = connectors::step_key(run.id, &sid("say"), done.steps[&sid("say")].entered);
     for call in &calls {
         assert_eq!(
             call.idempotency_key.as_deref(),
@@ -860,15 +862,14 @@ async fn a_secret_the_platform_echoes_never_reaches_the_steps_output() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_reads_through_a_connector_and_is_refused_a_write() {
     let dir = tempfile::tempdir().unwrap();
-    let stub = Stub::start(vec![canned(
-        "GET",
-        "/whoami",
-        200,
-        json!({"user": "stub", "team": "T1"}),
-    )])
+    let stub = Stub::start(
+        (0..2)
+            .map(|_| canned("GET", "/whoami", 200, json!({"user": "stub", "team": "T1"})))
+            .collect(),
+    )
     .await;
     let engine = engine_with(&dir, vec![MockAdapter::default()]);
-    install_chat(&engine, &stub, Some(TOKEN));
+    let account = install_chat(&engine, &stub, Some(TOKEN)).expect("an account");
     // Any agent lists the connectors; the roster carries no secret.
     let listed = intake_roundtrip(
         engine.socket_path(),
@@ -910,6 +911,147 @@ async fn an_agent_reads_through_a_connector_and_is_refused_a_write() {
         "{refused}"
     );
     assert_eq!(stub.calls().len(), 1, "nothing was posted");
+    // An operation the connector does not have is named with the ones it
+    // has; an account is an id, and a named one is the one that is used.
+    let said = |reply: &serde_json::Value| reply["errors"][0].as_str().unwrap_or("").to_string();
+    let unknown = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "chat", "operation": "nope", "agent": "researcher"}),
+    )
+    .await;
+    assert!(
+        said(&unknown).contains("has no operation `nope` (it has ")
+            && said(&unknown).contains("whoami"),
+        "{unknown}"
+    );
+    let bad_account = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "chat", "operation": "whoami", "account": "mine", "agent": "researcher"}),
+    )
+    .await;
+    assert_eq!(said(&bad_account), "`account` is not an account id");
+    assert_eq!(stub.calls().len(), 1);
+    let named = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "chat", "operation": "whoami", "account": account.to_string(), "agent": "researcher"}),
+    )
+    .await;
+    assert_eq!(named["ok"], json!(true), "{named}");
+    assert_eq!(stub.calls().len(), 2);
+    engine.shutdown().await;
+}
+
+/// `connectors.agents` is the workspace's word on who may call a connector
+/// on their own: everyone unless it says otherwise; with *assigned*, an
+/// agent carrying the Connectors skill and the platform's own; with
+/// *nobody*, no one — refused in a sentence, before anything is read.
+#[tokio::test(flavor = "multi_thread")]
+async fn who_may_call_a_connector_is_the_workspaces_word() {
+    use bisa_engine::connectors::{CONNECTORS_SKILL, NOBODY_MAY_CALL, NOT_ASSIGNED_TO_CALL};
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(
+        (0..3)
+            .map(|_| canned("GET", "/whoami", 200, json!({"user": "stub"})))
+            .collect(),
+    )
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat(&engine, &stub, Some(TOKEN));
+    let ws = engine.workspace();
+    let read = |agent: &str| json!({"op": "call_connector", "connector": "chat", "operation": "whoami", "agent": agent});
+    let policy = |word: &str| {
+        ws.set_setting(
+            bisa_core::SettingScope::Workspace,
+            None,
+            "connectors.agents",
+            json!(word),
+        )
+        .unwrap();
+    };
+    let said = |reply: &serde_json::Value| reply["errors"][0].as_str().unwrap_or("").to_string();
+    let bare = ws.add_agent(crate::browser::scout(vec![])).unwrap();
+    // Unset: everyone, as before the setting existed.
+    let reply = intake_roundtrip(engine.socket_path(), read(bare.id.as_str())).await;
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(stub.calls().len(), 1);
+
+    policy("nobody");
+    for agent in [bare.id.as_str(), "general-agent"] {
+        let reply = intake_roundtrip(engine.socket_path(), read(agent)).await;
+        assert_eq!(said(&reply), NOBODY_MAY_CALL, "{agent}: {reply}");
+    }
+    // Refused before anything is read: a connector nobody installed is not
+    // even looked for.
+    let reply = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "absent", "operation": "x", "agent": bare.id.as_str()}),
+    )
+    .await;
+    assert_eq!(said(&reply), NOBODY_MAY_CALL);
+
+    policy("assigned");
+    let reply = intake_roundtrip(engine.socket_path(), read(bare.id.as_str())).await;
+    assert_eq!(said(&reply), NOT_ASSIGNED_TO_CALL);
+    assert_eq!(stub.calls().len(), 1, "nothing went out under a refusal");
+    ws.install(bisa_store::CatalogKind::Skill, CONNECTORS_SKILL)
+        .unwrap();
+    let skilled = ws
+        .add_agent(crate::browser::scout(vec![bisa_core::SkillId::new(
+            CONNECTORS_SKILL,
+        )
+        .unwrap()]))
+        .unwrap();
+    for agent in [skilled.id.as_str(), "general-agent"] {
+        let reply = intake_roundtrip(engine.socket_path(), read(agent)).await;
+        assert_eq!(reply["ok"], json!(true), "{agent}: {reply}");
+    }
+    assert_eq!(stub.calls().len(), 3);
+    engine.shutdown().await;
+}
+
+/// A `patch` a definition calls a read is still a change to the platform:
+/// it is sent once and never blindly again, and no session makes it on its
+/// own word.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_a_definition_calls_a_read_is_held_to_the_write_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(
+        (0..3)
+            .map(|_| canned("PATCH", "/post", 502, json!({})))
+            .collect(),
+    )
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat_shaped(&engine, &stub, Some(TOKEN), |post| {
+        post.method = HttpMethod::Patch;
+        post.writes = false;
+    });
+    let refused = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "chat", "operation": "post", "params": {"text": "hi"}, "agent": "researcher"}),
+    )
+    .await;
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    assert!(
+        refused["errors"][0]
+            .as_str()
+            .unwrap_or("")
+            .contains("writes"),
+        "{refused}"
+    );
+    assert!(stub.calls().is_empty(), "a session patched nothing");
+    let (goal, _) = run_on(
+        &engine,
+        "the launch",
+        new_workflow("patches", vec![post_step("say", None, None)]),
+    );
+    let failed = finished_run(&engine, goal.id).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed));
+    assert_eq!(
+        stub.calls().len(),
+        1,
+        "a gateway's error says nothing of whether the change landed"
+    );
     engine.shutdown().await;
 }
 
@@ -1353,6 +1495,7 @@ async fn every_method_and_body_reaches_the_wire_and_a_paged_read_follows_the_cur
             expect: None,
             select: select.map(str::to_string),
             schema: None,
+            or_empty: false,
         },
         writes: !matches!(method, HttpMethod::Get | HttpMethod::Head),
         timeout_secs: None,
@@ -1785,4 +1928,118 @@ async fn an_agents_read_waiting_at_a_full_permit_pool_is_timed_out_in_the_operat
         "never sent"
     );
     engine.shutdown().await;
+}
+
+// --- the hardening pass (2026-11) ---
+
+/// A keyed write inside a loop is one write **per iteration**: the key
+/// names the entry it was sent for, so the platform does not read the
+/// second item's write as a replay of the first and answer it without
+/// doing it. Within one entry — a retry, a restart — the key stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_keyed_write_in_a_loop_carries_a_key_of_its_own_each_iteration() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        canned("POST", "/post", 200, json!({"ok": true, "ts": "1"})),
+        // The second item's first try is turned away: its retry carries the same key.
+        canned("POST", "/post", 503, json!({"message": "busy"})),
+        canned("POST", "/post", 200, json!({"ok": true, "ts": "2"})),
+        canned("POST", "/post", 200, json!({"ok": true, "ts": "3"})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat_shaped(&engine, &stub, Some(TOKEN), |post| {
+        post.idempotency = Some(bisa_core::Idempotency {
+            header: "Idempotency-Key".into(),
+        })
+    });
+    let mut each = step(
+        "each",
+        StepKind::ForEach {
+            items: "[\"a\", \"b\", \"c\"]".into(),
+            max_iterations: 10,
+        },
+    );
+    each.then = [("say", "each"), ("after", "done")]
+        .iter()
+        .map(|(to, branch)| Flow::branch(sid(to), bisa_core::Branch::new(*branch).unwrap()))
+        .collect();
+    let mut say = post_step("say", None, None);
+    say.then = vec![Flow::to(sid("each"))];
+    let (goal, _) = run_on(
+        &engine,
+        "the launch",
+        new_workflow(
+            "posts",
+            vec![
+                each,
+                say,
+                step(
+                    "after",
+                    StepKind::End {
+                        finish: Finish::Done,
+                    },
+                ),
+            ],
+        ),
+    );
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{:?}", done.steps);
+    let keys: Vec<String> = stub
+        .calls()
+        .iter()
+        .map(|c| c.idempotency_key.clone().unwrap_or_default())
+        .collect();
+    assert_eq!(keys.len(), 4, "three writes and one retry: {keys:?}");
+    assert_eq!(keys[1], keys[2], "a retry is the same write: {keys:?}");
+    let distinct: std::collections::BTreeSet<&String> = keys.iter().collect();
+    assert_eq!(distinct.len(), 3, "one key per iteration: {keys:?}");
+    assert!(keys.iter().all(|k| k.starts_with("bisa-")), "{keys:?}");
+    engine.shutdown().await;
+}
+
+/// A write the platform **took** — it answered 2xx, or redirected after
+/// doing it — whose answer this side then could not use (the selected field
+/// is not there, the answer does not fit the step's schema) is not sent
+/// again by the step's retries: each resend would be another message
+/// posted. The step stops with the cause, for a person to look.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_the_platform_took_is_never_sent_again_because_its_answer_was_unusable() {
+    for (case, answer, status, schema) in [
+        ("no selected field", json!({"ok": true}), 200, None),
+        (
+            "an answer that does not fit",
+            json!({"ok": true, "ts": "text"}),
+            200,
+            Some(json!({"type": "number"})),
+        ),
+        ("a redirect after the work", json!({}), 302, None),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = Stub::start(
+            (0..3)
+                .map(|_| canned("POST", "/post", status, answer.clone()))
+                .collect(),
+        )
+        .await;
+        let engine = engine_with(&dir, vec![MockAdapter::default()]);
+        install_chat(&engine, &stub, Some(TOKEN));
+        let mut say = post_step("say", None, None);
+        say.retries = 2;
+        if let StepKind::Connector { output_schema, .. } = &mut say.kind {
+            *output_schema = schema.clone();
+        }
+        let (goal, _) = run_on(&engine, "the launch", new_workflow("posts", vec![say]));
+        let failed = finished_run(&engine, goal.id).await;
+        assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{case}");
+        let record = &failed.steps[&sid("say")];
+        assert_eq!(stub.calls().len(), 1, "{case}: sent once, never again");
+        assert_eq!(record.attempts, 1, "{case}: no retry was spent on it");
+        let why = record.error.clone().unwrap_or_default();
+        assert!(
+            why.contains("check there before running this step again"),
+            "{case}: {why}"
+        );
+        engine.shutdown().await;
+    }
 }

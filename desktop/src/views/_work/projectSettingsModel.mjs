@@ -27,10 +27,11 @@ export const PROJECT_EDITOR_KEYS = Object.freeze(["editor.tab_size", "editor.ins
 /**
  * About — *Agents & decisions*: the mode a conversation about one of this
  * project's checkouts starts in (ide/20), how hard a model works here when
- * nobody said otherwise (06 §Effort), and whether — and where, and how sure
- * — the Decision-Making Agent decides for this project (15).
+ * nobody said otherwise (06 §Effort), who may read an outside platform
+ * through a connector on their own word, and whether — and where, and how
+ * sure — the Decision-Making Agent decides for this project (15).
  */
-export const PROJECT_AGENT_KEYS = Object.freeze(["agents.conversation.mode", "agents.effort", "decisions.enabled", "decisions.points_off", "decisions.confidence.act"]);
+export const PROJECT_AGENT_KEYS = Object.freeze(["agents.conversation.mode", "agents.effort", "connectors.agents", "decisions.enabled", "decisions.points_off", "decisions.confidence.act"]);
 
 /**
  * Project-scope keys with a hand-written editor of their own: the agent pane's

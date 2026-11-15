@@ -43,6 +43,8 @@ use std::time::Duration;
 /// How many item keys a connector poll remembers per listener: the newest
 /// stay, the oldest go.
 pub const SEEN_KEYS: usize = 1_000;
+/// The longest key an item is known by.
+const MAX_ITEM_KEY_BYTES: usize = 512;
 /// The commits and paths a branch's move carries at most.
 const MOVE_COMMITS: usize = 20;
 const MOVE_PATHS: usize = 200;
@@ -53,7 +55,91 @@ pub async fn run_ticker(inner: Arc<Inner>) {
     loop {
         tokio::time::sleep(inner.listen.settings().tick()).await;
         inner.pause.wait_running().await;
-        crate::survive("event sources", tick(&inner, now_secs())).await;
+        crate::survive("event sources", tick_but_polls(&inner, now_secs())).await;
+    }
+}
+
+/// The connector polls' own ticker, beside [`run_ticker`]: a poll waits on
+/// a platform for as long as its operation's deadline, and a platform that
+/// hangs must hold neither a schedule nor a check nor another round of
+/// anything but polls. One round ends before the next begins, so a listener
+/// is never polled twice at once.
+pub async fn run_poller(inner: Arc<Inner>) {
+    loop {
+        tokio::time::sleep(inner.listen.settings().tick()).await;
+        inner.pause.wait_running().await;
+        crate::survive("connector polls", tick_polls(&inner, now_secs())).await;
+    }
+}
+
+/// How many polls are out at once.
+const POLLS_AT_ONCE: usize = 4;
+
+/// Every connector poll that is due, [`POLLS_AT_ONCE`] at a time, then what
+/// they made ready.
+async fn polls(inner: &Arc<Inner>, registry: &super::registry::Registry, now: u64) {
+    use futures::StreamExt;
+    let due: Vec<futures::future::BoxFuture<'static, ()>> = registry
+        .armed
+        .iter()
+        .filter(|l| matches!(l.on, StartOn::Connector { .. }))
+        .map(|listener| {
+            let (inner, listener) = (Arc::clone(inner), listener.clone());
+            Box::pin(async move { poll(&inner, &listener, now).await })
+                as futures::future::BoxFuture<'static, ()>
+        })
+        .collect();
+    futures::stream::iter(due)
+        .buffer_unordered(POLLS_AT_ONCE)
+        .collect::<()>()
+        .await;
+}
+
+async fn tick_polls(inner: &Arc<Inner>, now: u64) {
+    if !inner.listen.settings().enabled {
+        return; // LCOV_EXCL_LINE: `events.enabled` switched off under the background poller; the same switch on the test door is `tick`'s, and tested there
+    }
+    let registry = armed(inner);
+    polls(inner, &registry, now).await;
+    for listener in &registry.armed {
+        if matches!(listener.on, StartOn::Connector { .. }) {
+            super::dispatch::release_ready(inner, &listener.key);
+        }
+    }
+}
+
+/// Everything a tick does but the polls — what the background ticker runs.
+async fn tick_but_polls(inner: &Arc<Inner>, now: u64) {
+    if !inner.listen.settings().enabled {
+        return; // LCOV_EXCL_LINE: `events.enabled` switched off under the background ticker; the same switch on the test door is `tick`'s, and tested there
+    }
+    super::invalidate(inner);
+    let registry = armed(inner);
+    cadences(inner, &registry, now).await;
+    projects(inner, &registry.armed, now).await;
+    for listener in &registry.armed {
+        super::dispatch::release_ready(inner, &listener.key);
+    }
+}
+
+/// The schedules and the checks that came due.
+async fn cadences(inner: &Arc<Inner>, registry: &super::registry::Registry, now: u64) {
+    for listener in &registry.armed {
+        match &listener.on {
+            StartOn::Schedule { .. } => schedule(inner, listener, now),
+            StartOn::Check { .. } => check(inner, listener, now).await,
+            StartOn::Connector { .. }
+            | StartOn::Manual
+            | StartOn::Hook { .. }
+            | StartOn::Message { .. }
+            | StartOn::Signal { .. }
+            | StartOn::Project { .. }
+            | StartOn::Run { .. }
+            | StartOn::Platform { .. }
+            | StartOn::Goal { .. }
+            | StartOn::Workflow { .. }
+            | StartOn::Agent { .. } => {}
+        }
     }
 }
 
@@ -68,23 +154,8 @@ pub async fn tick(inner: &Arc<Inner>, now: u64) {
     // afresh from the records.
     super::invalidate(inner);
     let registry = armed(inner);
-    for listener in &registry.armed {
-        match &listener.on {
-            StartOn::Schedule { .. } => schedule(inner, listener, now),
-            StartOn::Connector { .. } => poll(inner, listener, now).await,
-            StartOn::Check { .. } => check(inner, listener, now).await,
-            StartOn::Manual
-            | StartOn::Hook { .. }
-            | StartOn::Message { .. }
-            | StartOn::Signal { .. }
-            | StartOn::Project { .. }
-            | StartOn::Run { .. }
-            | StartOn::Platform { .. }
-            | StartOn::Goal { .. }
-            | StartOn::Workflow { .. }
-            | StartOn::Agent { .. } => {}
-        }
-    }
+    cadences(inner, &registry, now).await;
+    polls(inner, &registry, now).await;
     projects(inner, &registry.armed, now).await;
     for listener in &registry.armed {
         super::dispatch::release_ready(inner, &listener.key);
@@ -174,13 +245,36 @@ async fn poll(inner: &Arc<Inner>, listener: &Armed, now: u64) {
         Ok(items) => {
             for (id, item) in items {
                 let text = item.to_string();
-                if let Some(signal) = super::ear::occur(
+                let mut payload = json!({ "id": id, "item": item });
+                let bytes = payload.to_string().len();
+                if bytes > bisa_core::signal::MAX_SIGNAL_PAYLOAD_BYTES {
+                    // Too large to carry: it fires all the same, by its key,
+                    // and whoever starts from it reads the item itself.
+                    payload = json!({ "id": id, "item": null, "oversize_bytes": bytes });
+                    report_once(
+                        inner,
+                        &listener.key,
+                        None,
+                        format!(
+                            "item `{id}` is {bytes} bytes, over what an occurrence carries; it fired with its key alone"
+                        ),
+                    );
+                }
+                let written = super::ear::occur(
                     inner,
                     listener,
-                    json!({ "id": id, "item": item }),
+                    payload,
                     &format!("poll:{id}"),
                     screen_note(inner),
-                ) {
+                );
+                let Some(signal) = written else {
+                    // Not written down — the backlog is full, the minute's
+                    // budget spent: it is not seen, and neither is what
+                    // follows it, so the next poll finds them again in order.
+                    break;
+                };
+                remember(&mut rt, id);
+                {
                     if screen_note(inner).is_some() {
                         // LCOV_EXCL_START the content screen's hold of a poll; out by decision
                         super::hooks::screen_held(
@@ -244,12 +338,12 @@ async fn poll_items(
     let op = def
         .operation(operation)
         .ok_or_else(|| format!("connector {connector} has no operation `{operation}`"))?;
-    if op.writes {
-        // LCOV_EXCL_START: a start that polls a write is a problem at design (BadPoll, a_connector_start_learns_then_fires_once_per_new_item) and never armed
+    // A write is a problem at design (BadPoll) and never armed; a `put`, a
+    // `patch` or a `delete` a definition calls a read is found out here.
+    if op.changes() {
         return Err(format!(
             "`{connector}.{operation}` writes; a start polls a read operation and never writes"
         ));
-        // LCOV_EXCL_STOP
     }
     let account = match account {
         Some(ValueRef::Fixed(a)) => Some(*a), // LCOV_EXCL_LINE a poll naming a fixed account, which no stub connector of the tests holds; out by decision
@@ -304,18 +398,22 @@ async fn poll_items(
             keyless += 1;
             continue;
         };
-        if seen.contains(&id) {
+        // A key is a name, not a document: one this long is no key.
+        if id.len() > MAX_ITEM_KEY_BYTES {
+            keyless += 1;
             continue;
         }
-        seen.push(id.clone());
-        if !baseline {
+        if seen.contains(&id) || new.iter().any(|(known, _)| *known == id) {
+            continue;
+        }
+        if baseline {
+            seen.push(id);
+        } else {
+            // Seen once it is written down ([`remember`]), never before.
             new.push((id, item));
         }
     }
-    if seen.len() > SEEN_KEYS {
-        let drop = seen.len() - SEEN_KEYS;
-        seen.drain(..drop);
-    }
+    trim_seen(&mut seen);
     rt.seen = Some(seen);
     if keyless > 0 {
         report_once(
@@ -326,6 +424,21 @@ async fn poll_items(
         );
     }
     Ok(new)
+}
+
+/// An item's key is remembered: it was written down, and is not new again.
+fn remember(rt: &mut ListenerRuntime, id: String) {
+    let seen = rt.seen.get_or_insert_with(Vec::new);
+    seen.push(id);
+    trim_seen(seen);
+}
+
+/// The newest [`SEEN_KEYS`] stay.
+fn trim_seen(seen: &mut Vec<String>) {
+    if seen.len() > SEEN_KEYS {
+        let drop = seen.len() - SEEN_KEYS;
+        seen.drain(..drop);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1183,23 @@ async fn project_waits(inner: &Arc<Inner>, project: &bisa_core::Project, view: &
 mod tests {
     use super::*;
     use bisa_core::FireOn;
+
+    /// A poll's memory is bounded: the newest keys stay, the oldest go.
+    #[test]
+    fn a_polls_memory_keeps_the_newest_keys() {
+        let mut rt = ListenerRuntime::default();
+        for i in 0..SEEN_KEYS + 50 {
+            remember(&mut rt, format!("k{i}"));
+        }
+        let seen = rt.seen.unwrap();
+        assert_eq!(seen.len(), SEEN_KEYS);
+        assert_eq!(seen.first().map(String::as_str), Some("k50"));
+        assert_eq!(
+            seen.last(),
+            Some(&format!("k{}", SEEN_KEYS + 49)),
+            "the newest stay"
+        );
+    }
 
     fn refs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs

@@ -6501,6 +6501,14 @@ export interface ConnectorOutputSpec {
    * platforms that answer a failure with a 200: read before `select`.
    */
   expect?: Expect | null;
+  /**
+   * A `select` the answer does not hold is an empty list rather than a
+   * fault — for a platform that leaves a list out of an answer with
+   * nothing in it. Needs a `select`. Unset, it is
+   * not written, so a definition that never names it is byte for byte
+   * what it was.
+   */
+  or_empty?: boolean;
 }
 /**
  * What a 2xx answer must say for the call to count — Slack's `ok`, a

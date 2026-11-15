@@ -276,6 +276,11 @@ pub struct Workspace {
     /// checking the hash and writing. Held across the three steps, so two
     /// writes at once never each write the body as it was before the other.
     pub(crate) notes_writes: Mutex<()>,
+    /// A connector account's record is written whole by the person's edit,
+    /// by a secret set, by the default mark moving and by the engine's
+    /// token save after a refresh — each reading it first. Held across the
+    /// read and the write, so an edit never takes a token save back.
+    pub(crate) accounts_writes: Mutex<()>,
     /// The same for a drawing: the canvas's autosave and the bridge's save
     /// each read, compare the hash and write under it.
     pub(crate) drawings_writes: Mutex<()>,
@@ -419,6 +424,7 @@ impl Workspace {
             settings_writes: Mutex::new(()),
             held_writes: Mutex::new(()),
             notes_writes: Mutex::new(()),
+            accounts_writes: Mutex::new(()),
             drawings_writes: Mutex::new(()),
             addons_writes: Mutex::new(()),
             roster_writes: Mutex::new(()),

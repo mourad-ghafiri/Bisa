@@ -510,6 +510,11 @@ pub const UNSETTLED: &str = "the run did not settle";
 /// with, instead of being sent again: on a retry, and at a restart.
 pub const AMBIGUOUS_WRITE: &str = "the platform may have received it — check there before running this step again; an operation with an idempotency header would be sent again safely";
 
+/// The reason a `connector` write fails with when the platform **took** it —
+/// a 2xx, or a redirect after the work — and its answer could not be used on
+/// this side: stopped, never retried, since every resend is another write.
+pub const WRITE_LANDED: &str = "the platform took the write — check there before running this step again; what it answered could not be used, and sending it again would do it twice";
+
 /// Which kinds run *in the engine's process* — a session, a command, a call,
 /// a post, a spawn — and so die with it, which is what a restart interrupts.
 /// The other kinds wait on the world and are re-armed or rebuilt instead.

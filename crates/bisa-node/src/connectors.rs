@@ -629,6 +629,15 @@ async fn oauth_callback(
 // The callback listener
 // ---------------------------------------------------------------------------
 
+/// Whether the callback listener has nothing left to wait for: no flow is
+/// pending — a flow past its lifetime is not — and it has been up long
+/// enough for the flow that started it to be counted. It lives as long as
+/// the **newest** pending flow, never a fixed time from its own start: a
+/// second account connected nine minutes after the first is waited for too.
+fn listener_done(pending: usize, up: Duration) -> bool {
+    pending == 0 && up >= Duration::from_secs(30)
+}
+
 struct Live {
     stop: tokio::sync::watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
@@ -675,15 +684,12 @@ impl CallbackListener {
         let watchdog_state = Arc::clone(&state);
         let task = tokio::spawn(async move {
             let serve = axum::serve(listener, router).with_graceful_shutdown(crate::stopped(rx));
-            let deadline = Duration::from_secs(eng::PENDING_TTL_SECS + 30);
             let watchdog = async move {
                 let started = tokio::time::Instant::now();
                 loop {
                     tokio::time::sleep(Duration::from_secs(10)).await;
-                    let idle = eng::oauth_pending(watchdog_state.engine.inner()) == 0;
-                    if (idle && started.elapsed() >= Duration::from_secs(30))
-                        || started.elapsed() >= deadline
-                    {
+                    let pending = eng::oauth_pending(watchdog_state.engine.inner());
+                    if listener_done(pending, started.elapsed()) {
                         // LCOV_EXCL_START: the watchdog wakes every 10 s and stops an idle listener after 30 s; no test waits for it
                         let _listener_gone = watchdog_stop.send(true);
                         break;
@@ -804,3 +810,19 @@ pub const ROUTES: &[RouteDoc] = &[
         summary: "Finish a started connection with a code the person pasted (`{code}`), for a platform that cannot send the browser back to loopback.",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_callback_listener_lives_as_long_as_a_flow_waits() {
+        let secs = Duration::from_secs;
+        assert!(!listener_done(1, secs(2 * 60 * 60)), "a flow still waits");
+        assert!(
+            !listener_done(0, secs(29)),
+            "its own flow may not be counted yet"
+        );
+        assert!(listener_done(0, secs(30)));
+    }
+}

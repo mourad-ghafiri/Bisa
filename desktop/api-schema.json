@@ -12618,6 +12618,10 @@
             }
           ],
           "description": "What a 2xx answer must say for the call to have succeeded, for the\nplatforms that answer a failure with a 200: read before `select`."
+        },
+        "or_empty": {
+          "type": "boolean",
+          "description": "A `select` the answer does not hold is an empty list rather than a\nfault — for a platform that leaves a list out of an answer with\nnothing in it. Needs a `select`. Unset, it is\nnot written, so a definition that never names it is byte for byte\nwhat it was."
         }
       },
       "description": "What of the response becomes the step's output."

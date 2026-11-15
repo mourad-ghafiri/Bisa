@@ -190,6 +190,10 @@ expect = { path = "ok", equals = true, reason = "error" }      # Slack: `ok` mus
 # expect = { path = "errors", absent = true, reason = "errors.0.message" }   # GraphQL: no errors
 ```
 
+`or_empty = true` beside `select` reads a list the platform leaves out of an empty answer as an
+empty list, where a missing field is otherwise a failure; say it only where the platform's
+documentation says the field can be absent.
+
 `expect` names a dotted path and one rule — `equals = <value>` or `absent = true` (nothing, `null`
 or an empty list) — and, optionally, the dotted path of the platform's own sentence. It is read
 before `select`; a miss is a refusal in the platform's words, never a stop, and a check that
@@ -326,12 +330,17 @@ door, and holds up the same way:
   attempt, every wait, every page, and the token refresh a call needs on its way.
 - **Retries, by what is safe.** A read is tried three times on a 429, a 500–504, a lost connection
   or a timeout, backing off from half a second to eight with jitter and honouring `Retry-After` up
-  to thirty seconds. A **write** is retried only on a 429 or a 502–504 — an answer that says the
-  request was not taken — never on a 500, a timeout or a lost connection, where the platform may
-  have done the thing.
+  to thirty seconds. A **write** is retried only on a 429 or a 503 — an answer that says the
+  request was not taken — and, when it carries a key, on a 502 or a 504 too; never on a 500, a
+  timeout or a lost connection, where the platform may have done the thing. A `put`, a `patch` or
+  a `delete` is held to the write rules whatever its definition calls it.
 - **A write is keyed or stopped.** An operation with an `idempotency` header sends the same key on
-  every attempt of the same step of the same run — a retry, the step's own `retries`, a restart —
-  so the platform does it once. A write **without** one that fails ambiguously (a timeout, a
+  every attempt of the same visit of the same step of the same run — a retry, the step's own
+  `retries`, a restart — so the platform does it once; each iteration of a loop, and each time a
+  run comes back to the step, is a write of its own with a key of its own. A write the platform
+  **took** whose answer could not be used — the selected field is missing, the answer is too
+  large or does not fit the step's output — is stopped too, and says *the platform took the
+  write*: sending it again would do it twice. A write **without** a key that fails ambiguously (a timeout, a
   connection lost after it was made, a 5xx after sending) is **stopped**: the step fails whatever
   `retries` it had, `on_fail` decides, and the reason says *the platform may have received it —
   check there before running this step again*. A restart that finds such a write running stops it
@@ -349,6 +358,13 @@ door, and holds up the same way:
 - **A check has a budget.** *Check* waits twenty seconds for the platform (1 to 60 at the caller's
   word), the wait for a permit included, and says *unreachable* when it runs out; a check already
   running for the account is joined, not doubled.
+- **A poll loses nothing.** A start that polls remembers an item only once it wrote the
+  occurrence down: one that met a full backlog or a spent minute's budget is found again at the
+  next poll, in order. An item over 64 KiB fires with its key and `oversize_bytes` in place of
+  the item. Polls run four at a time on a ticker of their own, so one slow platform holds neither
+  another poll nor a schedule.
+- **Never a proxy on the way to this machine.** A call to a loopback address — however it is
+  spelled — goes direct, whatever proxy the environment or Settings › Network names.
 - **A cap per connector.** `connectors.concurrency` (4 by default, a machine setting) is how many
   calls one connector has in flight at once; the next waits for a permit. A `for_each` fanning out
   twenty calls does not hammer the platform, and the platform's own rate limit is still honoured
@@ -359,6 +375,12 @@ door, and holds up the same way:
   nobody reads any more.
 
 ## Agents
+
+**Who may call** is the workspace's word, `connectors.agents` — a project may say its own:
+*everyone* (the default), *assigned* — agents that carry the **Connectors** skill, and the
+platform's own agents always — or *nobody*. A refusal is a sentence, said before a definition, an
+account or a secret is read. A workflow's `connector` step is not an agent's call: the setting
+does not touch it.
 
 An agent — any session, not only the Workflow Agent — **lists** the connectors installed here
 (`list_connectors`: each platform's operations, which read and which write, whether an account is

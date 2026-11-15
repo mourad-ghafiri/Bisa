@@ -984,6 +984,9 @@ impl Engine {
             listen_tasks.push(tokio::spawn(listen::sources::run_ticker(Arc::clone(
                 &inner,
             ))));
+            listen_tasks.push(tokio::spawn(listen::sources::run_poller(Arc::clone(
+                &inner,
+            ))));
             listen_tasks.push(tokio::spawn(listen::dispatch::run_worker(Arc::clone(
                 &inner,
             ))));

@@ -1919,44 +1919,8 @@ async fn call_connector(
     goal: Option<GoalCandidate>,
     scope: Option<String>,
 ) -> serde_json::Value {
-    let Ok(connector) = bisa_core::ConnectorId::new(&connector) else {
-        return err(format!("{connector:?} is not a connector slug"));
-    };
-    let Ok(operation) = bisa_core::OperationId::new(&operation) else {
-        return err(format!("{operation:?} is not an operation id"));
-    };
-    let def = match inner.ws.get_connector(&connector) {
-        Ok(d) => d,
-        Err(e) => return err(e.to_string()),
-    };
-    let Some(op) = def.operation(&operation) else {
-        // LCOV_EXCL_START an arm no intake journey stages; out by decision
-        return err(format!(
-            "connector {connector} has no operation `{operation}` (it has {})",
-            def.operations
-                .iter()
-                .map(|o| o.id.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-        // LCOV_EXCL_STOP
-    };
-    if op.writes {
-        return err(format!(
-            "{connector}.{operation} writes to the platform; a write is a `connector` step of a workflow, behind an approval — not a call a session makes on its own"
-        ));
-    }
-    let wanted = match account.as_deref().map(str::parse::<bisa_core::AccountId>) {
-        None => None,
-        // LCOV_EXCL_START an arm no intake journey stages; out by decision
-        Some(Ok(id)) => Some(id),
-        Some(Err(_)) => return err("`account` is not an account id"),
-        // LCOV_EXCL_STOP
-    };
-    let acct = match crate::connectors::resolve_account(&inner.ws, &def, wanted) {
-        Ok(a) => a,
-        Err(e) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
-    };
+    // Who may ask at all is the workspace's word, heard before anything is
+    // read — a definition, an account, a secret.
     let facts = scope
         .as_deref()
         .map(|s| crate::conversation::scope_facts(inner, s))
@@ -1970,6 +1934,45 @@ async fn call_connector(
         work_item,
         goal_named,
     );
+    let project = crate::browser::project_of(inner, &facts, work_item);
+    if let Some(why) = crate::connectors::agent_refusal(inner, project, &screening.agent) {
+        tracing::info!(agent = %screening.agent, why, "connector call refused by policy");
+        return err(why);
+    }
+    let Ok(connector) = bisa_core::ConnectorId::new(&connector) else {
+        return err(format!("{connector:?} is not a connector slug"));
+    };
+    let Ok(operation) = bisa_core::OperationId::new(&operation) else {
+        return err(format!("{operation:?} is not an operation id"));
+    };
+    let def = match inner.ws.get_connector(&connector) {
+        Ok(d) => d,
+        Err(e) => return err(e.to_string()),
+    };
+    let Some(op) = def.operation(&operation) else {
+        return err(format!(
+            "connector {connector} has no operation `{operation}` (it has {})",
+            def.operations
+                .iter()
+                .map(|o| o.id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    if op.changes() {
+        return err(format!(
+            "{connector}.{operation} writes to the platform; a write is a `connector` step of a workflow, behind an approval — not a call a session makes on its own"
+        ));
+    }
+    let wanted = match account.as_deref().map(str::parse::<bisa_core::AccountId>) {
+        None => None,
+        Some(Ok(id)) => Some(id),
+        Some(Err(_)) => return err("`account` is not an account id"),
+    };
+    let acct = match crate::connectors::resolve_account(&inner.ws, &def, wanted) {
+        Ok(a) => a,
+        Err(e) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
+    };
     // The hosts a call may reach: the declared ones and, for an OAuth2
     // scheme, the consent page's and the token endpoint's.
     let declared = def.declared_hosts();

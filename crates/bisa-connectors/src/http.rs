@@ -118,6 +118,11 @@ pub enum TransportError {
     Timeout,
     Body(String),
     Lost(String),
+    /// The request could not be built on this machine — a header value with
+    /// a line break in it, say, from a secret pasted with one. Nothing was
+    /// sent and no host was asked: not the host's failure, and not worth a
+    /// second try.
+    Unsendable(String),
 }
 
 impl fmt::Display for TransportError {
@@ -127,6 +132,7 @@ impl fmt::Display for TransportError {
             TransportError::Timeout => f.write_str("timed out"),
             TransportError::Body(why) => write!(f, "cannot read the answer: {why}"),
             TransportError::Lost(why) => write!(f, "the answer never came: {why}"),
+            TransportError::Unsendable(why) => write!(f, "the request could not be built: {why}"),
         }
     }
 }
@@ -148,10 +154,14 @@ pub trait HttpTransport: Send + Sync {
 /// host — for every outside platform, under the proxy and the HTTP version
 /// the person chose, swapped under every call when they change; and a
 /// second client, built once, for a loopback service with its own
-/// certificate — never a proxy on the way to this machine.
+/// certificate; and a third for any other service on this machine — never
+/// a proxy on the way to this machine, whichever way the address is
+/// spelled and whatever the environment or the person's proxy says: a
+/// call to `127.0.0.1` handed to a proxy is a credential handed to it.
 pub struct ReqwestTransport {
     http: Arc<Clients>,
     insecure: OnceLock<Arc<reqwest::Client>>,
+    direct: OnceLock<Arc<reqwest::Client>>,
 }
 
 impl Default for ReqwestTransport {
@@ -172,10 +182,29 @@ impl ReqwestTransport {
         Self {
             http,
             insecure: OnceLock::new(),
+            direct: OnceLock::new(),
         }
     }
 
-    fn client(&self, insecure_loopback: bool) -> Arc<reqwest::Client> {
+    fn client(&self, insecure_loopback: bool, to_this_machine: bool) -> Arc<reqwest::Client> {
+        if to_this_machine && !insecure_loopback {
+            return Arc::clone(self.direct.get_or_init(|| {
+                match Clients::loopback_builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                {
+                    Ok(client) => Arc::new(client),
+                    // LCOV_EXCL_START: the same builder built the shared clients at boot; a failure here cannot be staged
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            "the direct loopback client could not be built; the strict client stands in"
+                        );
+                        self.http.strict()
+                    } // LCOV_EXCL_STOP
+                }
+            }));
+        }
         if insecure_loopback {
             Arc::clone(self.insecure.get_or_init(|| {
                 match Clients::loopback_builder()
@@ -214,8 +243,14 @@ impl HttpTransport for ReqwestTransport {
             // LCOV_EXCL_START: Method::as_str is always a token reqwest accepts; the arm keeps the Result total
             .map_err(|e| TransportError::Connect(e.to_string()))?;
         // LCOV_EXCL_STOP
+        let to_this_machine = match req.url.host() {
+            Some(url::Host::Domain(name)) => crate::hosts::is_loopback(name),
+            Some(url::Host::Ipv4(a)) => crate::hosts::is_loopback(&a.to_string()),
+            Some(url::Host::Ipv6(a)) => crate::hosts::is_loopback(&a.to_string()),
+            None => false, // LCOV_EXCL_LINE: a request's URL is http(s), which always has a host
+        };
         let mut builder = self
-            .client(insecure_loopback)
+            .client(insecure_loopback, to_this_machine)
             .request(method, req.url.clone())
             .timeout(req.timeout);
         for (k, v) in &req.headers {
@@ -229,7 +264,13 @@ impl HttpTransport for ReqwestTransport {
             // credential in its query; the error names the cause only.
             if e.is_timeout() {
                 TransportError::Timeout
-            } else if e.is_connect() || e.is_builder() {
+            } else if e.is_builder() {
+                // Never built, never sent: the definition's or the
+                // credential's fault, said as such — read as a connection
+                // failure it was retried and counted against the host, and
+                // five of them opened the circuit for every account.
+                TransportError::Unsendable(cause_of(&e))
+            } else if e.is_connect() {
                 // Never left this machine: safe to send again.
                 TransportError::Connect(cause_of(&e))
             } else {

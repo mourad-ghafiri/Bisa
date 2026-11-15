@@ -702,3 +702,129 @@ async fn two_401s_at_once_refresh_once_and_both_resend_on_the_new_token() {
         "{bearers:?}"
     );
 }
+
+/// A token endpoint that takes its time, and rotates the refresh token.
+struct SlowTokens {
+    token_requests: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl bisa_connectors::http::HttpTransport for SlowTokens {
+    async fn send(
+        &self,
+        req: &bisa_connectors::http::Request,
+        _insecure_loopback: bool,
+    ) -> Result<bisa_connectors::http::Response, bisa_connectors::http::TransportError> {
+        if req.url.path() == "/oauth/token" {
+            self.token_requests.lock().unwrap().push(
+                String::from_utf8_lossy(req.body.as_deref().unwrap_or_default()).into_owned(),
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            return ok(
+                200,
+                json!({"access_token": "at-new", "refresh_token": "rt-new", "expires_in": 3600}),
+            );
+        }
+        ok(200, json!({"ok": 1}))
+    }
+}
+
+/// A platform that rotates its refresh token spent the old one the moment it
+/// answered. The call that asked may be gone by then — its run stopped, its
+/// deadline passed — and the answer is kept all the same; whoever asks next
+/// waits for it rather than spending the dead token again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refresh_outlives_the_call_that_asked_for_it() {
+    let transport = Arc::new(SlowTokens {
+        token_requests: std::sync::Mutex::new(Vec::new()),
+    });
+    let creds = MemoryCreds::with(
+        &account(),
+        Stored {
+            expires_at: Some(1_000_000 + 30),
+            ..Stored::default()
+                .with(Field::ClientId, "cid")
+                .with(Field::AccessToken, "at-old")
+                .with(Field::RefreshToken, "rt-old")
+        },
+    );
+    let client = bisa_connectors::Client::new(
+        transport.clone(),
+        creds.clone(),
+        FixedClock::at(1_000_000),
+        CountingEntropy::from(1),
+    );
+    let spec = offline_spec(oauth("https://auth.example.com", BTreeMap::new()));
+    let (acct, none, ps) = (account(), no_account_params(), BTreeMap::new());
+    let gone = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        client.call(&spec, Some(&acct), &none, &ps, &AllowAll),
+    )
+    .await;
+    assert!(gone.is_err(), "the caller left while the endpoint thought");
+    // Asked while the first exchange is still out: it waits for that one.
+    let next = client
+        .call(&spec, Some(&acct), &none, &ps, &AllowAll)
+        .await
+        .unwrap();
+    assert_eq!(next.body, json!({"ok": 1}));
+    assert_eq!(creds.saves(), 1, "the answer was kept");
+    let kept = creds.get(&account());
+    assert_eq!(
+        kept.field(Field::RefreshToken).map(|s| s.expose()),
+        Some("rt-new")
+    );
+    assert_eq!(
+        kept.field(Field::AccessToken).map(|s| s.expose()),
+        Some("at-new")
+    );
+    let asked = transport.token_requests.lock().unwrap().clone();
+    assert_eq!(
+        asked.len(),
+        1,
+        "the spent token was never sent again: {asked:?}"
+    );
+}
+
+/// The caller waits for the exchange only as long as its own call has left;
+/// the exchange goes on to its end and is kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_with_less_time_than_the_exchange_takes_says_so_and_the_answer_is_kept() {
+    let transport = Arc::new(SlowTokens {
+        token_requests: std::sync::Mutex::new(Vec::new()),
+    });
+    let creds = MemoryCreds::with(
+        &account(),
+        Stored {
+            expires_at: Some(1_000_000 + 30),
+            ..Stored::default()
+                .with(Field::ClientId, "cid")
+                .with(Field::AccessToken, "at-old")
+                .with(Field::RefreshToken, "rt-old")
+        },
+    );
+    let client = bisa_connectors::Client::new(
+        transport.clone(),
+        creds.clone(),
+        FixedClock::at(1_000_000),
+        CountingEntropy::from(1),
+    );
+    let mut spec = offline_spec(oauth("https://auth.example.com", BTreeMap::new()));
+    spec.timeout = std::time::Duration::from_millis(60);
+    let (acct, none, ps) = (account(), no_account_params(), BTreeMap::new());
+    let err = client
+        .call(&spec, Some(&acct), &none, &ps, &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Timeout(_)), "{err:?}");
+    assert_eq!(creds.saves(), 0, "still out");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(creds.saves(), 1, "and kept when it came");
+    assert_eq!(
+        creds
+            .get(&account())
+            .field(Field::RefreshToken)
+            .map(|s| s.expose()),
+        Some("rt-new")
+    );
+}

@@ -252,7 +252,8 @@ fn read_tokens(
             v.as_u64()
                 .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         })
-        .map(|secs| now + secs);
+        // A platform that answers a number no clock holds does not overflow ours.
+        .map(|secs: u64| now.saturating_add(secs));
     Ok(TokenSet {
         access_token: Secret::new(access),
         refresh_token: refresh,
@@ -314,11 +315,28 @@ pub async fn refresh(
     stored: &Stored,
     judge: &dyn HostJudge,
 ) -> Result<TokenSet, ConnectorError> {
-    refresh_within(client, auth, account, stored, judge, client.oauth_timeout()).await
+    refresh_within(
+        client,
+        auth,
+        account,
+        stored,
+        judge,
+        client.oauth_timeout(),
+        None,
+    )
+    .await
 }
 
-/// The refresh, under `timeout` — what is left of the call that needs the
-/// token, when one is on its way; never more than the endpoint's own.
+/// The account's refresh lock, held by whoever is exchanging its token.
+type RefreshTurn = tokio::sync::OwnedMutexGuard<()>;
+
+/// The refresh. The caller waits `timeout` for it — what is left of the call
+/// that needs the token, never more than the endpoint's own deadline — but
+/// the exchange is **not the caller's to cut short**: a platform that
+/// rotates its refresh token spent the old one the moment it answered, so
+/// the request and the save run on a task of their own, under the
+/// endpoint's deadline and holding the account's `turn`, and what the
+/// platform answered is kept whether or not anybody still waits for it.
 async fn refresh_within(
     client: &Client,
     auth: &AuthSpec,
@@ -326,6 +344,7 @@ async fn refresh_within(
     stored: &Stored,
     judge: &dyn HostJudge,
     timeout: Duration,
+    turn: Option<RefreshTurn>,
 ) -> Result<TokenSet, ConnectorError> {
     let OAuthParts {
         token_url,
@@ -354,24 +373,40 @@ async fn refresh_within(
         client_id_param,
         stored,
         pairs,
-        timeout.min(client.oauth_timeout()),
+        client.oauth_timeout(),
     )?;
-    let body = match token_body(client, &req, &secrets).await {
-        Ok(body) => body,
-        Err(ConnectorError::Refused {
-            status: 400,
-            reason,
-        }) if reason.contains("invalid_grant") => {
-            return Err(ConnectorError::NotAuthenticated(
-                "the refresh token was revoked; connect the account again".into(),
-            ))
-        }
-        Err(e) => return Err(e),
+    let wait = timeout.min(client.oauth_timeout());
+    let flight = {
+        let (client, account, kept) = (client.clone(), account.clone(), refresh_token.clone());
+        tokio::spawn(async move {
+            let _turn = turn;
+            let body = match token_body(&client, &req, &secrets).await {
+                Ok(body) => body,
+                Err(ConnectorError::Refused {
+                    status: 400,
+                    reason,
+                }) if reason.contains("invalid_grant") => {
+                    return Err(ConnectorError::NotAuthenticated(
+                        "the refresh token was revoked; connect the account again".into(),
+                    ))
+                }
+                Err(e) => return Err(e),
+            };
+            let tokens = read_tokens(&body, client.now(), Some(&kept))
+                .map_err(|e| e.scrubbed(&refs(&secrets)))?;
+            client.creds().save_tokens(&account, &tokens).await?;
+            Ok(tokens)
+        })
     };
-    let tokens = read_tokens(&body, client.now(), Some(refresh_token))
-        .map_err(|e| e.scrubbed(&refs(&secrets)))?;
-    client.creds().save_tokens(account, &tokens).await?;
-    Ok(tokens)
+    match tokio::time::timeout(wait, flight).await {
+        Ok(Ok(settled)) => settled,
+        // LCOV_EXCL_START the exchange's task unwound: a panic in the transport, which no fake raises
+        Ok(Err(lost)) => Err(ConnectorError::Transport(format!(
+            "the token exchange did not finish ({lost})"
+        ))),
+        // LCOV_EXCL_STOP
+        Err(_) => Err(ConnectorError::Timeout(wait)),
+    }
 }
 
 /// A usable access token: the stored one while it is not about to expire,
@@ -396,14 +431,13 @@ pub(crate) async fn ensure_fresh(
     if let Some(token) = fresh(stored) {
         return Ok(token);
     }
-    let lock = client.refresh_lock(account);
-    let _held = lock.lock().await;
+    let turn = client.refresh_lock(account).lock_owned().await;
     // Another flight may have refreshed while this one waited for the lock.
     let again = client.creds().load(account).await?;
     if let Some(token) = fresh(&again) {
         return Ok(token);
     }
-    let tokens = refresh_within(client, auth, account, &again, judge, budget).await?;
+    let tokens = refresh_within(client, auth, account, &again, judge, budget, Some(turn)).await?;
     Ok(tokens.access_token)
 }
 
@@ -419,8 +453,7 @@ pub(crate) async fn force_refresh(
     judge: &dyn HostJudge,
     budget: Duration,
 ) -> Result<Secret, ConnectorError> {
-    let lock = client.refresh_lock(account);
-    let _held = lock.lock().await;
+    let turn = client.refresh_lock(account).lock_owned().await;
     let stored = client.creds().load(account).await?;
     let replaced = stored
         .field(crate::creds::Field::AccessToken)
@@ -428,7 +461,7 @@ pub(crate) async fn force_refresh(
     if let Some(now) = replaced {
         return Ok(now.clone());
     }
-    let tokens = refresh_within(client, auth, account, &stored, judge, budget).await?;
+    let tokens = refresh_within(client, auth, account, &stored, judge, budget, Some(turn)).await?;
     Ok(tokens.access_token)
 }
 
@@ -439,7 +472,9 @@ async fn token_body(
 ) -> Result<Value, ConnectorError> {
     let host = crate::hosts::host_of(&req.url).unwrap_or_default();
     let resp = client
-        .send_judged(req, true, false, &host)
+        // A token request is a write nobody can deduplicate: a refresh sent
+        // twice spends a one-time refresh token twice.
+        .send_judged(req, crate::retry::Resend::Write, false, &host)
         .await
         .map_err(|e| e.scrubbed(&refs(secrets)))?;
     match crate::outcome::parse(&resp, None, None, client.now()) {

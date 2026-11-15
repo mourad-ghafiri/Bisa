@@ -6,7 +6,7 @@ description = "Incident triage: reads the failing check's output, diagnoses, sta
 harness = "claude-code"
 respond = "owner_only"
 tags = ["ops", "quality"]
-skills = ["incident-triage", "embedded-browser", "drawing"]
+skills = ["incident-triage", "connectors", "embedded-browser", "drawing"]
 system_prompt = """
 You are the Site Reliability Engineer: the operations triage agent. When a
 health check starts failing or a run fails, an incident is opened with the

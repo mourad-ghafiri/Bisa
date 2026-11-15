@@ -85,6 +85,12 @@ pub(crate) fn enqueue_for(
         tracing::debug!(target: "bisa_engine::listen", listener = %armed.key, ?refusal, "the causal chain refused an occurrence");
         return None;
     }
+    // An occurrence already written down is answered with what was written:
+    // heard twice, it spends none of the minute's budget and is never
+    // refused by a backlog it is already in.
+    if let Some(held) = dedupe.and_then(|d| inner.ws.signal_held_under(&armed.key, d).ok()?) {
+        return Some(held.signal.id);
+    }
     let now = now_secs();
     let mut state = SignalState::Queued;
     let mut note: Option<String> = None;
@@ -141,11 +147,14 @@ pub(crate) fn enqueue_for(
     };
     match inner.ws.enqueue_signal_as(&signal, state, note.as_deref()) {
         Ok((queued, fresh)) => {
-            if fresh {
-                announce_received(inner, &queued.signal);
-                if queued.state == SignalState::Queued {
-                    inner.listen.wake();
-                }
+            if !fresh {
+                // LCOV_EXCL_START: a duplicate is answered above, before the budget; the store finding one here is two hearings of one occurrence racing each other
+                return Some(queued.signal.id);
+                // LCOV_EXCL_STOP
+            }
+            announce_received(inner, &queued.signal);
+            if queued.state == SignalState::Queued {
+                inner.listen.wake();
             }
             Some(queued.signal.id)
         }

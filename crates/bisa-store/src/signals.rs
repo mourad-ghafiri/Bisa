@@ -249,19 +249,31 @@ impl Workspace {
         Ok((queued_of(&row), true))
     }
 
+    /// The signal a listener already holds under a dedupe key — what an
+    /// occurrence heard twice is answered with, before it costs anything.
+    pub fn signal_held_under(
+        &self,
+        key: &ListenerKey,
+        dedupe: &str,
+    ) -> Result<Option<QueuedSignal>, StoreError> {
+        Ok(self
+            .idx()
+            .signal_by_dedupe(key.host.kind(), &key.host.id(), key.step.as_str(), dedupe)?
+            .map(|row| queued_of(&row)))
+    }
+
     /// The signal this workspace already holds for the same occurrence: the
     /// same id, or the same listener and dedupe key.
     fn signal_already_held(&self, signal: &Signal) -> Result<Option<QueuedSignal>, StoreError> {
-        let idx = self.idx();
-        if let Some(row) = idx.get_signal(&signal.id)? {
+        // Bound first: the index guard goes before the arms run.
+        let by_id = self.idx().get_signal(&signal.id)?;
+        if let Some(row) = by_id {
             return Ok(Some(queued_of(&row)));
         }
         let (Some(key), Some(dedupe)) = (&signal.listener, &signal.dedupe_key) else {
             return Ok(None);
         };
-        Ok(idx
-            .signal_by_dedupe(key.host.kind(), &key.host.id(), key.step.as_str(), dedupe)?
-            .map(|row| queued_of(&row)))
+        self.signal_held_under(key, dedupe)
     }
 
     /// Take the oldest ready signal, marking it `running` atomically. The

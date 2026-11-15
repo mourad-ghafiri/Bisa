@@ -947,6 +947,14 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
             json!(4),
             S::M
         ),
+        // Who may read an outside platform through a connector on their own
+        // word: the workspace's, per project where a project says so.
+        def!(
+            "connectors.agents",
+            Choice(&["everyone", "assigned", "nobody"]),
+            json!("everyone"),
+            S::WP
+        ),
         def!(
             "connectors.oauth.port",
             Integer {
