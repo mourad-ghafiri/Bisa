@@ -91,3 +91,16 @@ test("any other drawing that cannot be read is said", () => {
   assert.equal(goneQuietly("d1", "d1", 0), false, "no answer at all");
   assert.equal(goneQuietly(null, null, 404), false);
 });
+
+
+test("the title cap is the store's, and a copy's title stays within it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { MAX_DRAWING_TITLE_CHARS, copyTitle } = await import("./drawModel.mjs");
+  const core = readFileSync(new URL("../../../crates/bisa-core/src/draw.rs", import.meta.url), "utf8");
+  assert.equal(Number(/pub const MAX_DRAWING_TITLE_CHARS: usize = (\d+);/.exec(core)?.[1]), MAX_DRAWING_TITLE_CHARS, "one cap, said in two places and held equal here");
+  assert.equal(copyTitle("Orders ", " (mine)"), "Orders (mine)");
+  assert.equal(copyTitle("Orders (mine)", " (mine)"), "Orders (mine)", "a copy of a copy says it once");
+  const long = copyTitle("é".repeat(200), " (mine)");
+  assert.equal([...long].length, MAX_DRAWING_TITLE_CHARS);
+  assert.ok(long.endsWith(" (mine)"));
+});

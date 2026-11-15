@@ -9,6 +9,12 @@ export interface Autosave {
   heard: string | null;
   /** A reload the canvas could not perform yet — not loaded — done at its first change. */
   owed: boolean;
+  /** The node refused this very scene: not sent again until the canvas changes. */
+  refused: boolean;
+  /** Saves the node could not take, in a row. */
+  failures: number;
+  /** The drawing was deleted elsewhere. */
+  gone: boolean;
 }
 export declare function opened(hash: string): Autosave;
 /** The canvas at the hash the store last gave through it, whoever saved; `null` leaves the hash it opened at. */
@@ -19,7 +25,12 @@ export declare function changed(s: Autosave): Autosave;
 export declare function saveAsked(s: Autosave): { run: boolean; next: Autosave };
 export declare function saveLanded(s: Autosave, hash: string): Autosave;
 export declare function saveConflicted(s: Autosave): Autosave;
-export declare function saveFailed(s: Autosave): Autosave;
+export declare function saveFailed(s: Autosave, kind?: "refused" | "retry"): Autosave;
+export declare function failureKind(status: number | null | undefined): "conflict" | "gone" | "refused" | "retry";
+export declare function rearms(s: Autosave): boolean;
+export declare function retryDelay(base: number, failures: number): number;
+export declare function saveGone(s: Autosave): Autosave;
+export declare function adoptDecision(explicit: boolean, strokesAtAsk: number, strokesNow: number): "replace" | "conflict";
 export declare function adopted(s: Autosave, hash: string): Autosave;
 export declare function abandoned(s: Autosave): Autosave;
 /** What a `drawing_changed` frame means for the open canvas — `wait` while a save is in the air. */

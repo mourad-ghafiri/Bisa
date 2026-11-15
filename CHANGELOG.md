@@ -111,6 +111,28 @@ notes (`docs/contributing/release.md`).
 
 - **An agent's append with no text is refused** instead of adding a header with nothing under it.
 
+- **A drawing is never saved as an empty canvas on the way out.** The save that flushes when the
+  canvas closes ran after the canvas had unmounted, when it reads as empty — and an empty scene
+  at the right hash is a save the store takes. A save now sends the scene the canvas last
+  reported, and nothing is armed once the editor is gone.
+
+- **A save conflict no longer loses strokes quietly.** After *Somebody drew here meanwhile*, the
+  canvas counts as unsaved, so leaving or quitting asks; and beside *Take theirs* there is *Keep
+  mine as a new drawing*, which files what is on the canvas as its own drawing. A reload a frame
+  asked for no longer replaces a canvas drawn on while its read was out. A drawing deleted
+  elsewhere while open says so and keeps its canvas, to be saved as a new drawing.
+
+- **A save the node refuses is said once, not sent for ever.** A scene the store will not keep —
+  too large, an element it refuses — was sent again at every tick for as long as the drawing was
+  open; it is now said in the node's sentence and sent again only when the canvas changes. With
+  the node away, saves wait longer each time, up to half a minute. The canvas no longer offers a
+  web embed, which the store refuses, and a title past 120 characters cannot be typed.
+
+- **The New drawing dialog keeps what you type.** It reset its title, template and place whenever
+  a goal, project or channel moved; and a drawing that could not be made left the dialog closed
+  with the title gone. A drawing that cannot be opened says so with a retry that opens it, and a
+  canvas whose code failed to load is asked for again instead of failing for the session.
+
 - **An agent's drawing request ends with the agent.** A request waiting on the canvas is withdrawn
   when the session that made it hangs up — an agent stopped mid-drawing used to leave it for the
   desktop to perform up to a minute later, for nobody. A request the canvas performs is sent

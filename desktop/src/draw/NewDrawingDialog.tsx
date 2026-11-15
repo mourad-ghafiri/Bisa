@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Dialog, Field, Select, TextInput, Tile } from "../ui";
 import type { DrawTarget, OwnerScope } from "./drawModel.mjs";
 import { canCreate, defaultTitle, firstTarget, targetKey, titleFollowsTemplate } from "./newDrawingModel.mjs";
+import { MAX_DRAWING_TITLE_CHARS } from "./drawModel.mjs";
 import { TEMPLATES, templateOf } from "./templates/index.mjs";
 import { TemplatePreview } from "./TemplatePreview";
 import { t } from "../i18n/l10n.mjs";
@@ -21,8 +22,11 @@ export function NewDrawingDialog({
   onClose,
   targets,
   onCreate,
+  busy = false,
 }: {
   open: boolean;
+  /** A drawing is being made: Create waits, so one press makes one drawing. */
+  busy?: boolean;
   onClose: () => void;
   /** Where a new drawing may be filed under the current tab, the *here* one first. */
   targets: readonly DrawTarget[];
@@ -34,14 +38,19 @@ export function NewDrawingDialog({
   const [where, setWhere] = useState<string>("");
   const titleBox = useRef<HTMLInputElement>(null);
 
-  // Every opening starts afresh: *Empty*, its title, the place you stand on.
+  // Every **opening** starts afresh: *Empty*, its title, the place you stand
+  // on. Keyed on the opening alone — `targets` is rebuilt whenever a goal, a
+  // project or a channel's last message moves, and following it wiped the
+  // title being typed.
+  const targetsNow = useRef(targets);
+  targetsNow.current = targets;
   useEffect(() => {
     if (!open) return;
     setTemplate("empty");
     setTitle(untitled);
-    const first = firstTarget(targets);
+    const first = firstTarget(targetsNow.current);
     setWhere(first ? targetKey(first.scope) : "");
-  }, [open, targets, untitled]);
+  }, [open, untitled]);
 
   const pick = (id: string) => {
     const previous = defaultTitle(templateOf(template), untitled);
@@ -49,7 +58,7 @@ export function NewDrawingDialog({
     if (titleFollowsTemplate(title, previous)) setTitle(defaultTitle(templateOf(id), untitled));
   };
   const target = targets.find((x) => targetKey(x.scope) === where) ?? firstTarget(targets);
-  const ready = canCreate(title) && target !== null;
+  const ready = canCreate(title) && target !== null && !busy;
   const submit = () => {
     if (!ready || !target) return;
     onCreate(target.scope, template, title.trim());
@@ -94,6 +103,7 @@ export function NewDrawingDialog({
             id="new-drawing-title"
             ref={titleBox}
             value={title}
+            maxLength={MAX_DRAWING_TITLE_CHARS}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {

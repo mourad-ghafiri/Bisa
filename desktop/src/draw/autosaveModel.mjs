@@ -2,8 +2,11 @@
  * How the canvas saves (19 — Drawings), as a state machine with no React in
  * it: one PATCH in flight at a time, a stroke during a save re-arms one
  * after it lands, a 409 freezes saving until the person adopts what is
- * there, and a `drawing_changed` frame from elsewhere is a reload when the
- * canvas is clean and a conflict when it is not. Lifted from the note
+ * there — their strokes still unsaved, so leaving asks — a save the node
+ * refuses is not sent again until the canvas changes, one it could not take
+ * is tried again at growing waits, and a `drawing_changed` frame from
+ * elsewhere is a reload when the canvas is clean and a conflict when it is
+ * not. Lifted from the note
  * editor's live-ref loop so the rules can be read and tested here.
  *
  * Plain `.mjs`, so `node --test` reads it.
@@ -18,12 +21,15 @@
  *   savedHash: string,
  *   heard: string | null,
  *   owed: boolean,
+ *   refused: boolean,
+ *   failures: number,
+ *   gone: boolean,
  * }} Autosave
  */
 
 /** A canvas that just opened on a drawing: clean, at the hash it read, with no frame waiting to be judged and no reload owed. @param {string} hash */
 export function opened(hash) {
-  return { inFlight: false, again: false, conflicted: false, dirty: false, savedHash: hash, heard: null, owed: false };
+  return { inFlight: false, again: false, conflicted: false, dirty: false, savedHash: hash, heard: null, owed: false, refused: false, failures: 0, gone: false };
 }
 
 /**
@@ -50,10 +56,10 @@ export function reloadOwed(s) {
   return s.owed ? s : { ...s, owed: true };
 }
 
-/** A stroke landed: the scene is dirty. A conflicted canvas stays conflicted. @param {Autosave} s */
+/** A stroke landed: the scene is dirty — and a save the node refused may be asked again, since the scene is another one now. A conflicted canvas stays conflicted. @param {Autosave} s */
 export function changed(s) {
-  if (s.dirty) return s;
-  return { ...s, dirty: true };
+  if (s.dirty && !s.refused) return s;
+  return { ...s, dirty: true, refused: false };
 }
 
 /**
@@ -71,17 +77,89 @@ export function saveAsked(s) {
 
 /** The PATCH landed with the store's new hash. @param {Autosave} s @param {string} hash */
 export function saveLanded(s, hash) {
-  return { ...s, inFlight: false, savedHash: hash, again: false, dirty: s.dirty || s.again };
+  return { ...s, inFlight: false, savedHash: hash, again: false, dirty: s.dirty || s.again, refused: false, failures: 0 };
 }
 
-/** The PATCH was refused with a 409: saving stops until the person adopts theirs — and a frame heard meanwhile has nothing more to say. @param {Autosave} s */
+/**
+ * The PATCH was refused with a 409: saving stops until the person adopts
+ * theirs — and a frame heard meanwhile has nothing more to say. What was
+ * drawn is on the canvas and in no store: the scene stays **dirty**, so the
+ * leave guard asks before it is lost.
+ * @param {Autosave} s
+ */
 export function saveConflicted(s) {
-  return { ...s, inFlight: false, again: false, conflicted: true, heard: null };
+  return { ...s, inFlight: false, again: false, conflicted: true, heard: null, dirty: true };
 }
 
-/** The PATCH failed for another reason: the strokes stay dirty and the next timer tries again. @param {Autosave} s */
-export function saveFailed(s) {
-  return { ...s, inFlight: false, again: false, dirty: true };
+/**
+ * What the node's refusal of a save means, by its **status**: a `409` lost
+ * to another writer; a `404` is a drawing that is no longer there; another
+ * `4xx` is this scene refused for what it holds (too large, an element the
+ * store does not keep) — sent again it is refused again; anything else — no
+ * answer, a `5xx`, a `408`, a `429` — the node could not take it now.
+ * @param {number | null | undefined} status
+ * @returns {"conflict" | "gone" | "refused" | "retry"}
+ */
+export function failureKind(status) {
+  if (status === 409) return "conflict";
+  if (status === 404) return "gone";
+  if (typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429) return "refused";
+  return "retry";
+}
+
+/**
+ * The PATCH failed for another reason: the strokes stay dirty. *Refused* —
+ * the scene itself is what the node will not keep — is not sent again until
+ * the canvas changes (`changed`); *retry* is, after a longer wait each time
+ * (`retryDelay`).
+ * @param {Autosave} s
+ * @param {"refused" | "retry"} [kind]
+ */
+export function saveFailed(s, kind = "retry") {
+  const base = { ...s, inFlight: false, again: false, dirty: true };
+  return kind === "refused" ? { ...base, refused: true, failures: 0 } : { ...base, refused: false, failures: s.failures + 1 };
+}
+
+/** Whether the timer is armed again once a save answered: something to save, no conflict, and not a scene the node just refused. @param {Autosave} s */
+export function rearms(s) {
+  return s.dirty && !s.conflicted && !s.refused;
+}
+
+/** The longest a failed save waits before it is tried again. */
+const RETRY_MAX_MS = 30000;
+
+/**
+ * How long the next save waits: the person's delay, doubled for each failure
+ * in a row, never past half a minute — a node that is down is not sent the
+ * whole scene every few hundred milliseconds.
+ * @param {number} base the save delay @param {number} failures failures in a row
+ */
+export function retryDelay(base, failures) {
+  return Math.min(RETRY_MAX_MS, base * 2 ** Math.min(Math.max(failures, 0), 16));
+}
+
+/**
+ * The drawing was deleted elsewhere: nothing more is saved to it, and it
+ * holds nobody back — there is nothing a save could write to. The canvas
+ * keeps what is on it for the person to keep as a new drawing.
+ * @param {Autosave} s
+ */
+export function saveGone(s) {
+  return { ...abandoned(s), gone: true };
+}
+
+/**
+ * What a read of the store's scene does to the canvas once it is back: it
+ * replaces it — unless a stroke landed while the read was out and nobody
+ * asked for theirs, which is a conflict for the person to settle. No read
+ * ever swaps the canvas under the pen.
+ * @param {boolean} explicit the person pressed *Take theirs*
+ * @param {number} strokesAtAsk the strokes counted when the read began
+ * @param {number} strokesNow the strokes counted when it answered
+ * @returns {"replace" | "conflict"}
+ */
+export function adoptDecision(explicit, strokesAtAsk, strokesNow) {
+  return explicit || strokesAtAsk === strokesNow ? "replace" : "conflict";
 }
 
 /** The person adopted what is there: clean again, at that hash. @param {Autosave} s @param {string} hash */

@@ -144,6 +144,21 @@ export function clampSaveDelay(raw) {
   return Math.min(SAVE_MAX_MS, Math.max(SAVE_MIN_MS, Math.round(n / SAVE_STEP_MS) * SAVE_STEP_MS));
 }
 
+/** Longest title a drawing may have, in characters — the store's cap (`MAX_DRAWING_TITLE_CHARS`, `bisa-core/src/draw.rs`), held equal by a test: a title past it cannot be typed, where it used to be refused at the save. */
+export const MAX_DRAWING_TITLE_CHARS = 120;
+
+/**
+ * The title a copy of a drawing is made under — *Keep mine as a new
+ * drawing* — within the cap whatever the original's length.
+ * @param {string} title the original's title @param {string} suffix the catalogue's word for *mine*, with its space
+ */
+export function copyTitle(title, suffix) {
+  // A copy of a copy is still *mine*, said once.
+  const base = title.trim().endsWith(suffix.trim()) ? title.trim().slice(0, -suffix.trim().length) : title;
+  const room = Math.max(0, MAX_DRAWING_TITLE_CHARS - [...suffix].length);
+  return [...base.trim()].slice(0, room).join("").trimEnd() + suffix;
+}
+
 /** What the header's status says, in one word or none. */
 export function drawStatusWords({ conflict, error, saving, dirty }) {
   if (conflict) return conflict;

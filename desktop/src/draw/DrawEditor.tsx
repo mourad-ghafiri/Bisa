@@ -31,6 +31,17 @@
  * first `onChange` is the load, and the record is made from it — never from
  * the empty canvas the API arrived on, which read every drawing as moved. A
  * reload asked before the canvas was there is owed to that first change.
+ *
+ * **What is saved is what the canvas last reported** (`latest`), never what
+ * the canvas's API answers at the moment of the save: the save that flushes
+ * on the way out runs after the canvas has unmounted, when its API reads as
+ * an empty scene — and an empty scene at the right hash is a save the store
+ * takes. Nothing is armed once the editor is gone.
+ *
+ * A save the node refuses for what the scene holds is said and not sent
+ * again until the canvas changes; one the node could not take is tried
+ * again at growing waits. A drawing deleted elsewhere is said as gone: the
+ * canvas keeps what is on it, to be kept as a new drawing.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -42,9 +53,9 @@ import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
 import { loadExcalidraw } from "../ui/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI, OrderedExcalidrawElement } from "../ui/excalidraw";
-import { abandoned, adopted, atStore, changed, frameHeard, heardAfterSave, opened, reloadDecision, reloadOwed, saveAsked, saveConflicted, saveFailed, saveLanded } from "./autosaveModel.mjs";
+import { abandoned, adoptDecision, adopted, atStore, changed, failureKind, frameHeard, heardAfterSave, opened, rearms, reloadDecision, reloadOwed, retryDelay, saveAsked, saveConflicted, saveFailed, saveGone, saveLanded } from "./autosaveModel.mjs";
 import type { Autosave } from "./autosaveModel.mjs";
-import { canvasAppState, drawStatusWords, drawnElements, persistedAppState, sceneMoved } from "./drawModel.mjs";
+import { MAX_DRAWING_TITLE_CHARS, canvasAppState, copyTitle, drawStatusWords, drawnElements, persistedAppState, sceneMoved } from "./drawModel.mjs";
 import { ExcalidrawCanvas } from "./ExcalidrawCanvas";
 import { ConversationDrawer } from "../views/_studio/ConversationDrawer";
 import { lastSaved, noteSaved, registerLiveScene, unregisterLiveScene } from "./liveScene";
@@ -61,6 +72,7 @@ export function DrawEditor({
   onSaved,
   onBack,
   onDeleted,
+  onCopied,
   onApi,
   heard,
 }: {
@@ -70,6 +82,8 @@ export function DrawEditor({
   onSaved: (next: DrawingDetail) => void;
   onBack: () => void;
   onDeleted: () => void;
+  /** What is on the canvas was kept as a new drawing — this one is left for it; `gone` when this one no longer exists. */
+  onCopied: (copy: DrawingDetail, gone: boolean) => void;
   /** The canvas's API as it mounts, for the panel's Escape rule. */
   onApi: (api: ExcalidrawImperativeAPI | null) => void;
   /**
@@ -77,7 +91,7 @@ export function DrawEditor({
    * hash — judged here (`reloadDecision`): the overlay is the one subscriber,
    * so a frame heard before this editor mounted is judged on its mount.
    */
-  heard: { drawing: string; hash: string } | null;
+  heard: { drawing: string; hash: string; removed?: boolean } | null;
 }) {
   const { saveDelay, maximized, askOpen } = useDrawOverlay();
   // Read at arm time, through a ref: `save` is made once and re-arms
@@ -91,6 +105,9 @@ export function DrawEditor({
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The drawing was deleted elsewhere: nothing more is saved to it; the canvas keeps what is on it. */
+  const [gone, setGone] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const canvas = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -100,7 +117,15 @@ export function DrawEditor({
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
   /** *Take theirs*, for the save that finds somebody else's scene once it answered — set below, where it is defined. */
-  const adoptRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const adoptRef = useRef<(explicit?: boolean) => Promise<void>>(() => Promise.resolve());
+  /** Whether there are unsaved strokes, as the leave guard reads it between renders. */
+  const dirtyRef = useRef(false);
+  /** The scene as the canvas last reported it — what a save sends. Never read back from the canvas, which reads as empty once it has unmounted. */
+  const latest = useRef<{ elements: readonly OrderedExcalidrawElement[]; app: ReturnType<typeof persistedAppState> } | null>(null);
+  /** Strokes counted, so a read that comes back knows whether the pen moved while it was out. */
+  const strokes = useRef(0);
+  /** The editor has unmounted: a save still in the air lands, and arms nothing after it. */
+  const unmounted = useRef(false);
   const live = useRef<{ id: string; auto: Autosave; lastAppState: ReturnType<typeof persistedAppState> }>({
     id: detail.id,
     auto: opened(detail.hash),
@@ -125,13 +150,14 @@ export function DrawEditor({
   const save = useCallback(async (): Promise<boolean> => {
     const s = live.current;
     const api_ = canvas.current;
-    if (!api_) return false;
+    const scene = latest.current;
+    if (!api_ || !scene) return false;
     const asked = saveAsked(s.auto);
     s.auto = asked.next;
     if (!asked.run) return running.current ?? (!s.auto.dirty && !s.auto.conflicted);
     setSaving(true);
-    const elements = drawnElements(api_.getSceneElements());
-    const app_state = persistedAppState(api_.getAppState());
+    const elements = drawnElements(scene.elements);
+    const app_state = scene.app;
     const run = (async () => {
       try {
         const { drawing } = await api.patchDrawing(s.id, { scene: { elements, app_state }, base_hash: atStore(s.auto, lastSaved(s.id, api_)?.hash ?? null).savedHash });
@@ -142,12 +168,21 @@ export function DrawEditor({
         setError(null);
         onSavedRef.current(drawing);
       } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
+        const kind = failureKind(e instanceof ApiError ? e.status : null);
+        if (kind === "conflict") {
           s.auto = saveConflicted(s.auto);
           setConflict(t("draw-editor-somebody-drew-meanwhile"));
+        } else if (kind === "gone") {
+          // Deleted under the canvas: no save can land, so none is tried again; what is drawn stays to be kept as a new drawing.
+          s.auto = saveGone(s.auto);
+          setGone(true);
+        } else if (kind === "refused") {
+          // The scene itself is what the node will not keep — said in its own sentence, and not sent again until the canvas changes.
+          s.auto = saveFailed(s.auto, "refused");
+          setError(t("draw-editor-save-refused", { why: e instanceof Error ? e.message : String(e) }));
         } else {
-          s.auto = saveFailed(s.auto);
-          setError(e instanceof ApiError ? e.message : t("draw-editor-could-not-save"));
+          s.auto = saveFailed(s.auto, "retry");
+          setError(t("draw-editor-could-not-save"));
         }
       } finally {
         running.current = null;
@@ -158,13 +193,16 @@ export function DrawEditor({
         // somebody else's scene (`heardAfterSave`).
         const late = heardAfterSave(atStore(live.current.auto, lastSaved(live.current.id, api_)?.hash ?? null));
         live.current.auto = late.next;
-        if (late.decision === "reload") void adoptRef.current();
-        else if (late.decision === "conflict") {
-          live.current.auto = saveConflicted(live.current.auto);
-          setConflict(t("draw-editor-somebody-drew-meanwhile"));
+        // An editor that has gone adopts nothing and arms nothing: its last save was the flush.
+        if (!unmounted.current) {
+          if (late.decision === "reload") void adoptRef.current();
+          else if (late.decision === "conflict") {
+            live.current.auto = saveConflicted(live.current.auto);
+            setConflict(t("draw-editor-somebody-drew-meanwhile"));
+          }
+          setDirty(live.current.auto.dirty);
+          if (rearms(live.current.auto)) arm();
         }
-        setDirty(live.current.auto.dirty);
-        if (live.current.auto.dirty && !live.current.auto.conflicted) arm();
       }
       return !live.current.auto.dirty && !live.current.auto.conflicted;
     })();
@@ -191,12 +229,15 @@ export function DrawEditor({
   const discard = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     live.current.auto = abandoned(live.current.auto);
+    // Read by the leave guard before the next render: let go of now, not at the next paint.
+    dirtyRef.current = false;
     setDirty(false);
   }, []);
 
   const arm = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void save(), delay.current);
+    // After a save the node could not take, the wait grows (`retryDelay`): a node that is down is not sent the whole scene at every tick.
+    timer.current = setTimeout(() => void save(), retryDelay(delay.current, live.current.auto.failures));
   }, [save]);
 
   /** Every change the canvas reports: the first is the load; then a stroke arms a save and a hover does not. */
@@ -206,6 +247,8 @@ export function DrawEditor({
       const api_ = canvas.current;
       if (!api_) return;
       const app = persistedAppState(appState);
+      // Kept for the save, which sends this and never asks the canvas again.
+      latest.current = { elements, app };
       const saved = lastSaved(s.id, api_);
       // The first change the canvas reports is the load — Excalidraw says
       // nothing while it loads — so the record is made from it, at the hash
@@ -219,15 +262,23 @@ export function DrawEditor({
       }
       const movedApp = app.view_background_color !== s.lastAppState.view_background_color || app.grid !== s.lastAppState.grid;
       if (!movedApp && !sceneMoved(elements, saved.elements)) return;
+      strokes.current += 1;
+      // Nothing is saved to a drawing that is gone; its canvas is still drawn on, to be kept as a new one.
+      if (s.auto.gone) return;
       s.auto = changed(s.auto);
       if (!dirty) setDirty(true);
-      arm();
+      if (!s.auto.conflicted) arm();
     },
     [arm, dirty],
   );
 
-  /** Take what is there: the store's scene replaces the canvas's, and saving resumes. */
-  const adopt = useCallback(async () => {
+  /**
+   * Take what is there: the store's scene replaces the canvas's, and saving
+   * resumes. `explicit` is the person's *Take theirs*; a reload a frame
+   * asked for replaces the canvas only if no stroke landed while its read
+   * was out (`adoptDecision`) — otherwise it is a conflict to settle.
+   */
+  const adopt = useCallback(async (explicit = false) => {
     const api_ = canvas.current;
     const m = mod;
     if (!api_ || !m || !lastSaved(live.current.id, api_)) {
@@ -236,20 +287,35 @@ export function DrawEditor({
       live.current.auto = reloadOwed(live.current.auto);
       return;
     }
+    const strokesAtAsk = strokes.current;
     try {
       const { drawing } = await api.drawing(live.current.id);
+      if (unmounted.current) return;
+      if (adoptDecision(explicit, strokesAtAsk, strokes.current) === "conflict") {
+        live.current.auto = saveConflicted(live.current.auto);
+        setConflict(t("draw-editor-somebody-drew-meanwhile"));
+        setDirty(true);
+        return;
+      }
       const elements = m.restoreElements(drawing.scene.elements as Parameters<typeof m.restoreElements>[0], null, { repairBindings: true });
       api_.updateScene({ elements, appState: canvasAppState(drawing.scene.app_state), captureUpdate: m.CaptureUpdateAction.NEVER });
       live.current.auto = adopted(live.current.auto, drawing.hash);
       live.current.lastAppState = persistedAppState(canvasAppState(drawing.scene.app_state));
-      confirm(drawing.id, drawing.hash, api_.getSceneElements());
+      const shown = api_.getSceneElements();
+      confirm(drawing.id, drawing.hash, shown);
+      latest.current = { elements: shown, app: live.current.lastAppState };
       setTitle(drawing.title);
       setConflict(null);
       setError(null);
       setDirty(false);
       onSavedRef.current(drawing);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t("draw-editor-could-not-re-read"));
+      if (failureKind(e instanceof ApiError ? e.status : null) === "gone") {
+        live.current.auto = saveGone(live.current.auto);
+        setConflict(null);
+        setGone(true);
+        setDirty(false);
+      } else setError(t("draw-editor-could-not-re-read"));
     }
   }, [confirm, mod]);
 
@@ -259,8 +325,18 @@ export function DrawEditor({
   // echo is nothing — the bridge's through this canvas too — and while a save
   // is in the air a frame may be that echo outrunning the answer, so it waits
   // for it. The frames come down from the overlay, the one subscriber.
-  const judge = useCallback((hash: string) => {
+  const judge = useCallback((hash: string, removed: boolean) => {
     const api_ = canvas.current;
+    // Deleted elsewhere: said, and saved to no more — the canvas keeps what is on it.
+    if (removed) {
+      if (timer.current) clearTimeout(timer.current);
+      live.current.auto = saveGone(live.current.auto);
+      setConflict(null);
+      setGone(true);
+      setDirty(false);
+      return;
+    }
+    if (live.current.auto.gone) return;
     const decision = reloadDecision(atStore(live.current.auto, lastSaved(live.current.id, api_ ?? undefined)?.hash ?? null), hash);
     if (decision === "reload") void adoptRef.current();
     else if (decision === "wait") live.current.auto = frameHeard(live.current.auto, hash);
@@ -270,18 +346,26 @@ export function DrawEditor({
     }
   }, []);
   useEffect(() => {
-    if (heard && heard.drawing === live.current.id) judge(heard.hash);
+    if (heard && heard.drawing === live.current.id) judge(heard.hash, heard.removed === true);
   }, [heard, judge]);
 
   // Flush once on unmount, and forget the live scene once the flush has
   // landed — the save reads and writes that record, so it must outlive it —
   // this canvas's record alone: a canvas that took the drawing meanwhile
   // keeps its own.
+  // Mounted — again, under a development double mount, whose simulated
+  // unmount must not leave the editor counted as gone for good: with the
+  // flag stuck, a save that landed changed nothing on screen.
+  useEffect(() => {
+    unmounted.current = false;
+  }, []);
   useEffect(
     () => () => {
+      unmounted.current = true;
       if (timer.current) clearTimeout(timer.current);
       const id = live.current.id;
       const api_ = canvas.current;
+      // The flush sends the last scene the canvas reported (`latest`) — the canvas itself has unmounted by now and reads as empty.
       const flush = live.current.auto.dirty && !live.current.auto.conflicted ? save() : Promise.resolve(false);
       void flush.finally(() => {
         if (api_) unregisterLiveScene(id, api_);
@@ -314,7 +398,35 @@ export function DrawEditor({
       const { drawing } = await api.patchDrawing(detail.id, { title: next });
       onSavedRef.current(drawing);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t("draw-editor-could-not-rename"));
+      log.warn("draw", "a drawing could not be renamed", { drawing: detail.id, ...errorFields(e) });
+      setError(t("draw-editor-could-not-rename"));
+    }
+  };
+
+  /**
+   * Keep what is on the canvas as a new drawing: the way out of a conflict
+   * that loses nothing, and the only way to keep a canvas whose drawing was
+   * deleted elsewhere. Filed where this one is, under its title with *mine*;
+   * this drawing is then let go of, as it stands in the store.
+   */
+  const keepAsNew = async () => {
+    const scene = latest.current;
+    if (!scene || copying) return;
+    setCopying(true);
+    try {
+      const { drawing } = await api.createDrawing({
+        scope: detail.scope,
+        id: detail.scope_id,
+        title: copyTitle(title || detail.title, t("draw-editor-copy-suffix")),
+        scene: { elements: drawnElements(scene.elements), app_state: scene.app },
+      });
+      const wasGone = live.current.auto.gone;
+      discard();
+      onCopied(drawing, wasGone);
+    } catch (e) {
+      // The node's sentence when it refused the scene itself; a word of ours otherwise.
+      setError(failureKind(e instanceof ApiError ? e.status : null) === "refused" ? t("draw-editor-save-refused", { why: e instanceof Error ? e.message : String(e) }) : t("draw-editor-could-not-copy"));
+      setCopying(false);
     }
   };
 
@@ -327,15 +439,22 @@ export function DrawEditor({
       await api.deleteDrawing(detail.id);
       onDeleted();
     } catch (e) {
+      // A drawing already gone is a delete that happened: the editor leaves, as it would have.
+      if (failureKind(e instanceof ApiError ? e.status : null) === "gone") {
+        onDeleted();
+        return;
+      }
+      // Still here: what was drawn since the last save is saved as before.
       live.current.auto = before;
       setDirty(before.dirty);
-      setError(e instanceof ApiError ? e.message : t("draw-editor-could-not-delete"));
+      if (rearms(before)) arm();
+      log.warn("draw", "a drawing could not be deleted", { drawing: detail.id, ...errorFields(e) });
+      setError(t("draw-editor-could-not-delete"));
       setDeleting(false);
     }
   };
 
-  const status = drawStatusWords({ conflict, error, saving, dirty });
-  const dirtyRef = useRef(dirty);
+  const status = gone ? "" : drawStatusWords({ conflict, error, saving, dirty });
   dirtyRef.current = dirty;
   // The hold: what the leave guard and the quit question read.
   useDocumentHold(drawGuard, "drawing", detail.id, { dirty: () => dirtyRef.current, save: saveNow, title: () => title, discard });
@@ -361,8 +480,10 @@ export function DrawEditor({
         <input
           value={title}
           aria-label={t("draw-editor-title")}
+          maxLength={MAX_DRAWING_TITLE_CHARS}
+          readOnly={gone}
           onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => void renameIfMoved()}
+          onBlur={() => void (gone ? undefined : renameIfMoved())}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
@@ -413,11 +534,22 @@ export function DrawEditor({
         confirmLabel={t("draw-editor-delete-confirm")}
         danger
       />
-      {conflict && (
+      {gone && (
+        <div role="status" className="flex shrink-0 items-center gap-2 border-b border-hairline bg-danger-soft py-1 pl-3 pr-2 text-2xs text-danger">
+          <span className="min-w-0 flex-1">{error ?? t("draw-editor-gone")}</span>
+          <Button size="sm" variant="ghost" disabled={copying} onClick={() => void keepAsNew()}>
+            {t("draw-editor-save-as-new")}
+          </Button>
+        </div>
+      )}
+      {conflict && !gone && (
         <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-danger-soft py-1 pl-3 pr-2 text-2xs text-danger">
           <span className="min-w-0 flex-1">{t("draw-editor-strokes-since-are-lost")}</span>
-          <Button size="sm" variant="ghost" onClick={() => void adopt()}>
+          <Button size="sm" variant="ghost" onClick={() => void adopt(true)}>
             {t("draw-editor-take-theirs")}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={copying} onClick={() => void keepAsNew()}>
+            {t("draw-editor-keep-as-new")}
           </Button>
         </div>
       )}

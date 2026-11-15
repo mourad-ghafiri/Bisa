@@ -80,6 +80,8 @@ export function ExcalidrawCanvas({
         theme={theme}
         langCode={locale()}
         UIOptions={UI_OPTIONS}
+        // No embed is valid here: a web embed is a page from outside, which a drawing never keeps — the store refuses it by name, so the canvas does not make one.
+        validateEmbeddable={false}
         name={detail.title}
       >
         <MainMenu>

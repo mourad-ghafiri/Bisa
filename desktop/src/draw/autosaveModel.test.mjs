@@ -122,3 +122,81 @@ test("the canvas is live from its first change, never from the API hand-over, an
   assert.ok(adopt.includes("reloadOwed(live.current.auto)"), "a canvas not loaded owes the reload rather than dropping the frame");
   assert.ok(editor.includes("if (api_) unregisterLiveScene(id, api_);"), "a close forgets its own record alone");
 });
+
+// --- the hardening pass ---
+
+test("a 409 leaves the strokes unsaved: leaving asks, and saving stays frozen", async () => {
+  const s = saveConflicted(saveAsked(changed(opened("h0"))).next);
+  assert.equal(s.dirty, true, "what was drawn is still on the canvas and in no store");
+  assert.equal(s.conflicted, true);
+  assert.equal(saveAsked(s).run, false);
+});
+
+test("a refusal is read by its status: lost, gone, refused for good, or worth another try", async () => {
+  const { failureKind } = await import("./autosaveModel.mjs");
+  assert.equal(failureKind(409), "conflict");
+  assert.equal(failureKind(404), "gone");
+  for (const status of [400, 413, 422]) assert.equal(failureKind(status), "refused", String(status));
+  for (const status of [0, 408, 429, 500, 502, 503]) assert.equal(failureKind(status), "retry", String(status));
+  assert.equal(failureKind(null), "retry");
+});
+
+test("a save the node refuses is not sent again until the canvas changes; one the node could not take backs off", async () => {
+  const { rearms, retryDelay } = await import("./autosaveModel.mjs");
+  let s = saveAsked(changed(opened("h0"))).next;
+  s = saveFailed(s, "refused");
+  assert.ok(s.dirty && s.refused && !s.inFlight);
+  assert.equal(rearms(s), false, "the same scene would be refused the same way, every tick");
+  assert.equal(saveAsked(s).run, true, "Save and ⌘S may still ask");
+  s = changed(s);
+  assert.ok(!s.refused && rearms(s), "a stroke may have put it right");
+
+  let f = saveFailed(saveAsked(changed(opened("h0"))).next, "retry");
+  assert.ok(f.dirty && !f.refused && rearms(f));
+  assert.equal(f.failures, 1);
+  assert.equal(retryDelay(700, 0), 700);
+  assert.equal(retryDelay(700, 1), 1400);
+  assert.equal(retryDelay(700, 3), 5600);
+  assert.equal(retryDelay(700, 40), 30000, "never longer than half a minute");
+  f = saveFailed(saveAsked(f).next, "retry");
+  assert.equal(f.failures, 2);
+  assert.equal(saveLanded(saveAsked(f).next, "h1").failures, 0, "a save that landed starts the count over");
+  assert.equal(saveFailed(saveAsked(changed(opened("h0"))).next).failures, 1, "no kind said is a retry");
+  assert.equal(rearms(saveConflicted(f)), false);
+  assert.equal(rearms(opened("h0")), false, "nothing to save");
+});
+
+test("a drawing deleted elsewhere is saved to no more and holds nobody back", async () => {
+  const { saveGone } = await import("./autosaveModel.mjs");
+  const s = saveGone(changed(opened("h0")));
+  assert.ok(s.gone);
+  assert.equal(s.dirty, false, "there is nothing a save could write to");
+  assert.equal(saveAsked(changed(s)).run, false);
+  assert.equal(opened("h0").gone, false);
+});
+
+test("a read never swaps the canvas under the pen: a stroke made while it was out makes it a conflict", async () => {
+  const { adoptDecision } = await import("./autosaveModel.mjs");
+  assert.equal(adoptDecision(false, 4, 4), "replace", "nothing was drawn meanwhile");
+  assert.equal(adoptDecision(false, 4, 5), "conflict", "drawn during the read");
+  assert.equal(adoptDecision(true, 4, 5), "replace", "Take theirs is the person's own word");
+});
+
+test("the editor's wiring: what is saved is what the canvas last reported, never read from a canvas that may have gone", () => {
+  const editor = readFileSync(new URL("./DrawEditor.tsx", import.meta.url), "utf8");
+  const save = editor.slice(editor.indexOf("const save = useCallback("), editor.indexOf("/** Save now and say whether the canvas is clean afterwards"));
+  assert.ok(!save.includes("getSceneElements()") && !save.includes("getAppState()"), "an unmounted canvas reads as an empty scene — a flush from it wiped the drawing");
+  assert.ok(save.includes("latest.current"), "the last scene `onChange` handed over");
+  assert.ok(save.includes("failureKind(") && save.includes("rearms("), "the model reads the refusal and decides the re-arm");
+  assert.ok(save.includes("gone.current") || save.includes("unmounted.current"), "nothing re-arms after the editor is gone");
+  assert.ok(editor.includes("adoptDecision("), "a read that came back to a drawn-on canvas does not replace it");
+  assert.ok(editor.includes("useEffect(() => {\n    unmounted.current = false;\n  }, []);"), "a development double mount does not leave the editor counted as gone");
+  assert.ok(editor.includes("dirtyRef.current = false;\n    setDirty(false);"), "a canvas let go of holds nobody back before the next paint");
+  assert.ok(editor.includes("maxLength={MAX_DRAWING_TITLE_CHARS}"), "a title the node would refuse cannot be typed");
+  const canvas = readFileSync(new URL("./ExcalidrawCanvas.tsx", import.meta.url), "utf8");
+  assert.ok(canvas.includes("validateEmbeddable={false}"), "the canvas offers no embed the store refuses");
+  const dialog = readFileSync(new URL("./NewDrawingDialog.tsx", import.meta.url), "utf8");
+  assert.ok(!/\}, \[open, targets, untitled\]\);/.test(dialog), "the dialog no longer starts afresh whenever the workspace's lists move");
+  const loader = readFileSync(new URL("../ui/excalidraw.ts", import.meta.url), "utf8");
+  assert.ok(loader.includes("loading = null"), "a chunk that failed to load is asked for again");
+});

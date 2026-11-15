@@ -84,7 +84,7 @@ test("the editor saves against the store's hash, adopts theirs on a conflict, an
   assert.ok(editor.includes("base_hash: atStore(s.auto, lastSaved(s.id, api_)?.hash ?? null).savedHash"), "the hash the store last gave through this canvas");
   assert.ok(editor.includes("saveConflicted") && editor.includes("CaptureUpdateAction.NEVER"), "a 409 freezes saving; adopting theirs is not undoable");
   assert.ok(!editor.includes("useEngineEvents("), "the editor is no subscriber of its own");
-  assert.ok(editor.includes("heard.drawing === live.current.id") && overlay.includes("if (e.payload.drawing === active) setHeard({ drawing: active, hash: e.payload.hash });"), "the overlay hands the open drawing's frame down, so one heard before the editor mounted is judged on the mount");
+  assert.ok(editor.includes("heard.drawing === live.current.id") && overlay.includes("if (e.payload.drawing === active) setHeard({ drawing: active, hash: e.payload.hash, removed: e.payload.removed === true });"), "the overlay hands the open drawing's frame down, so one heard before the editor mounted is judged on the mount");
   assert.ok(overlay.includes("setHeard({ drawing: row.id, hash: row.hash })"), "and on reconnect the row's hash is judged as a frame would be");
   assert.ok(editor.includes("reloadDecision("), "and decides with the model");
   assert.ok(editor.includes('origin={{ kind: "drawing", id: detail.id }}') && editor.includes("<ConversationDrawer"), "the Ask drawer is the shared conversation drawer, about the drawing");

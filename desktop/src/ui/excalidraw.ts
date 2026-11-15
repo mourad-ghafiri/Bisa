@@ -48,10 +48,17 @@ export function loadExcalidraw(): Promise<ExcalidrawModule> {
   if (mod) return Promise.resolve(mod);
   if (!loading) {
     pointAssetsHome();
-    loading = Promise.all([import("@excalidraw/excalidraw"), import("@excalidraw/excalidraw/index.css")]).then(([m]) => {
-      mod = m;
-      return m;
-    });
+    loading = Promise.all([import("@excalidraw/excalidraw"), import("@excalidraw/excalidraw/index.css")]).then(
+      ([m]) => {
+        mod = m;
+        return m;
+      },
+      (e: unknown) => {
+        // A chunk that failed to load is asked for again by the next caller: a kept rejection would be the answer for the rest of the session.
+        loading = null;
+        throw e;
+      },
+    );
   }
   return loading;
 }

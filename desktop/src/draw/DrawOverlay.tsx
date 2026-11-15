@@ -173,7 +173,9 @@ export function DrawOverlay() {
    * mount rather than lost. Cleared as a detail read begins — a frame heard
    * before that is in the detail.
    */
-  const [heard, setHeard] = useState<{ drawing: string; hash: string } | null>(null);
+  const [heard, setHeard] = useState<{ drawing: string; hash: string; removed?: boolean } | null>(null);
+  /** A drawing that could not be opened: said in its own words, with a retry that opens it again — never the list's error with the list's retry. */
+  const [unopened, setUnopened] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -189,6 +191,7 @@ export function DrawOverlay() {
       return;
     }
     setHeard(null);
+    setUnopened(null);
     const ctrl = new AbortController();
     api
       .drawing(active, ctrl.signal)
@@ -202,7 +205,7 @@ export function DrawOverlay() {
         // The drawing that came back from the last window may have gone since: it opens nothing, and says nothing.
         if (!goneQuietly(active, restoredDrawing(), e instanceof ApiError ? e.status : null)) {
           log.warn("draw", "a drawing could not be read", { drawing: active, ...errorFields(e) });
-          setError(tr("draw-overlay-could-not-load"));
+          setUnopened(active);
         }
         clearActiveDrawing();
       });
@@ -218,7 +221,8 @@ export function DrawOverlay() {
   useEngineEvents((e) => {
     if (e.payload.type !== "drawing_changed" || !open) return;
     setRepoTick((n) => n + 1);
-    if (e.payload.drawing === active) setHeard({ drawing: active, hash: e.payload.hash });
+    // A deletion goes down as one (`removed`): the editor keeps its canvas and says the drawing is gone.
+    if (e.payload.drawing === active) setHeard({ drawing: active, hash: e.payload.hash, removed: e.payload.removed === true });
     if (!drawTabAdmits(tab, e.payload.scope)) return;
     void load();
   });
@@ -248,6 +252,18 @@ export function DrawOverlay() {
     clearActiveDrawing();
   }, [active]);
 
+  /**
+   * What was on a canvas was kept as a new drawing (*Keep mine as a new
+   * drawing*): it joins the list and opens; the one it was drawn over stays
+   * as the store holds it — or leaves the list, when it was deleted elsewhere.
+   */
+  const handleCopied = useCallback((copy: DrawingDetail, gone: boolean) => {
+    const left = active;
+    setRows((prev) => [copy, ...prev.filter((r) => r.id !== copy.id && !(gone && r.id === left))]);
+    setRepoTick((n) => n + 1);
+    openDrawing(copy.id);
+  }, [active]);
+
   const shown = useMemo(() => filterDrawings(rows, query), [rows, query]);
   const targets = useMemo(() => drawTargets(tab, route, names, projectOf), [tab, route, names, projectOf]);
   const chips = drawTabKind(tab) !== "workspace" && drawTabKind(tab) !== "node";
@@ -258,7 +274,10 @@ export function DrawOverlay() {
   };
 
   const [newOpen, setNewOpen] = useState(false);
-  const create = async (scope: OwnerScope, template: string, title: string) => {
+  /** Make a drawing from the dialog. Answers whether it was made: a dialog whose drawing was not made stays open, with the title typed into it. */
+  const [creating, setCreating] = useState(false);
+  const create = async (scope: OwnerScope, template: string, title: string): Promise<boolean> => {
+    setCreating(true);
     try {
       const mod = await loadExcalidraw();
       const skeleton = templateOf(template).skeleton();
@@ -272,9 +291,13 @@ export function DrawOverlay() {
       setRows((prev) => [drawing, ...prev]);
       setRepoTick((n) => n + 1);
       openDrawing(drawing.id);
+      return true;
     } catch (e) {
       log.warn("draw", "a drawing could not be created", { scope: scope.scope, template, ...errorFields(e) });
-      setError(tr("draw-overlay-could-not-create"));
+      toast.error(sayFailure("draw", tr("draw-overlay-could-not-create"), e));
+      return false;
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -361,6 +384,7 @@ export function DrawOverlay() {
                     onSaved={handleSaved}
                     onBack={clearActiveDrawing}
                     onDeleted={handleDeleted}
+                    onCopied={handleCopied}
                     onApi={(api_) => {
                       canvasApi.current = api_;
                     }}
@@ -403,6 +427,11 @@ export function DrawOverlay() {
                       {error && (
                         <div className="p-1">
                           <ErrorNote error={error} retry={() => void load()} />
+                        </div>
+                      )}
+                      {unopened && (
+                        <div className="p-1">
+                          <ErrorNote error={tr("draw-overlay-could-not-open")} retry={() => openDrawing(unopened)} />
                         </div>
                       )}
                       {/* Doors, not prose: an empty tab offers the first drawing; a search that matched nothing, the way back. */}
@@ -469,9 +498,12 @@ export function DrawOverlay() {
         open={newOpen}
         onClose={() => setNewOpen(false)}
         targets={targets}
+        busy={creating}
         onCreate={(scope, template, title) => {
-          setNewOpen(false);
-          void create(scope, template, title);
+          // Closed only once the drawing is made: a failure leaves the dialog, and the title typed, where they were.
+          void create(scope, template, title).then((made) => {
+            if (made) setNewOpen(false);
+          });
         }}
       />
       {/* The dock's count is its own (`drawingCount.ts`); this list is the panel's. */}

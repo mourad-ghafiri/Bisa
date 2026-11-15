@@ -16,7 +16,13 @@ draw-editor-delete = Delete this drawing
 draw-editor-hide-ask = Hide the conversation
 draw-editor-loading-canvas = Opening the canvas…
 draw-editor-somebody-drew-meanwhile = Somebody drew here meanwhile
-draw-editor-strokes-since-are-lost = Somebody else drew here while you were drawing. Taking theirs replaces the canvas; your strokes since your last save are lost.
+draw-editor-strokes-since-are-lost = Somebody else drew here while you were drawing. Taking theirs replaces the canvas and your strokes since your last save are lost; keeping yours makes a new drawing of what is on this canvas.
+draw-editor-keep-as-new = Keep mine as a new drawing
+draw-editor-gone = This drawing was deleted elsewhere. What is on the canvas stays until you leave it; nothing more is saved to it.
+draw-editor-save-as-new = Save as a new drawing
+draw-editor-copy-suffix = { " " }(mine)
+draw-editor-could-not-copy = The new drawing could not be made.
+draw-editor-save-refused = Not saved — { $why }
 draw-editor-take-theirs = Take theirs
 draw-editor-title = Drawing title
 draw-library-actor = Person
@@ -50,6 +56,7 @@ draw-overlay-could-not-create = The drawing could not be created. The diagnostic
 draw-overlay-could-not-delete = The drawing could not be deleted.
 draw-overlay-delete-drawing = Delete “{ $title }”
 draw-overlay-could-not-load = The drawings could not be read. The diagnostic log has the detail.
+draw-overlay-could-not-open = The drawing could not be opened. The diagnostic log has the detail.
 draw-overlay-elements = { $count ->
     [one] 1 element
    *[other] { $count } elements

@@ -51,3 +51,6 @@ export declare function clampSaveDelay(raw: unknown): number;
 /** Whether a drawing that could not be read goes without a word: the one kept from the last window, gone since. */
 export declare function goneQuietly(id: string | null, restored: string | null, status: number | null | undefined): boolean;
 export declare function drawStatusWords(s: { conflict?: string | null; error?: string | null; saving?: boolean; dirty?: boolean }): string;
+
+export declare const MAX_DRAWING_TITLE_CHARS: number;
+export declare function copyTitle(title: string, suffix: string): string;
