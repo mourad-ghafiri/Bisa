@@ -563,9 +563,10 @@ export function noteView(raw) {
  *
  * **The floor is the interesting number.** Below about 300ms the timer starts
  * firing inside ordinary typing rhythm — the pause between two words is enough
- * — and every one of those is a PATCH, a `NoteChanged` on the bus and a
- * re-render. That is precisely the request storm that made this feature
- * unusable before the save effect was rewritten, and a preference is not
+ * — and every one of those is a PATCH and a re-render (and was once a
+ * `note_changed` on the bus too; an editor's own save is silent now). That is
+ * precisely the request storm that made this feature unusable before the save
+ * effect was rewritten, and a preference is not
  * allowed to reintroduce it. The ceiling is where *Saved* stops being a useful
  * thing to have read.
  */

@@ -690,7 +690,12 @@ every document uses: regex and match-case toggles, Enter steps and selects the m
 *Replace* and *Replace all* write through the editor so the save sees them like typing; in Read the
 bar searches the rendering and has nothing to replace into. Write, Split and Read views; saves as
 you stop typing — and **Save** in the header (or ⌘S) saves now; two writers (you, and an agent in the
-conversation beside the note, whose only write is to append when asked). Leaving a note with unsaved
+conversation beside the note, which adds or rewrites only when asked). When a save loses to a write
+made elsewhere, saving pauses and you choose: *Take theirs*, or *Keep mine*, which saves your text
+over what is there. A note **deleted elsewhere** while you have it open stays on screen, said as
+gone, so what you typed can be copied; one whose file can no longer be read — changed outside the
+app — says so, and can still be deleted. A save that failed while the node was away is tried again
+when it is back. Leaving a note with unsaved
 changes — Back, the panel's ×, `Alt+N`, the dock, another note opened over it — asks first: **Save**,
 **Don't save** or **Cancel**, the same question the IDE's tabs ask, and quitting the app counts and saves
 an unsaved note like a document. **Delete** asks first too, and says that the note's conversations go
@@ -767,8 +772,9 @@ workspace as above.
 
 **⌘⌥D** opens a canvas over whatever you are looking at — the notes panel's twin for pictures: a
 system's parts and how they talk, a flow, a board, a map. A drawing is about one of the same six
-things a note is, listed under the same seven tabs, made by **New**, and searched by title. Two things are not like a note. A drawing is a **record of the workspace**: it travels to
-everyone in it, and an agent on any member's machine can read it and draw into it. And a drawing
+things a note is, listed under the same seven tabs, made by **New**, and searched by title. Two things are not like a note. A drawing is a **record of the workspace** your agents read and
+draw into with tools of their own — like a note it stays on this machine unless you push its
+repository; nothing syncs it. And a drawing
 needs room: **Maximize** in its header fills the window between the header, the footer and the
 sidebar; Escape puts it back in its corner once the canvas has nothing of its own to cancel.
 
@@ -777,29 +783,38 @@ swimlanes, a mind map, a board, a user journey, entities and relations, a retros
 a timeline — each a tile with a preview of the picture and a line on when to reach for it, a name the
 template proposes and you may change, and, when the tab offers several places, *Where* it is filed
 (where you stand, first). *Create* opens it. **Save** in the header (or ⌘S) saves now, beside the
-autosave; leaving a drawing with unsaved strokes asks **Save · Don't save · Cancel**, as a note does, and
+autosave; when somebody else drew meanwhile, saving stops and you choose — **Take theirs**, which
+replaces the canvas, or **Keep mine as a new drawing**, which files what is on your canvas as a
+drawing of its own; a drawing deleted elsewhere while open says so and offers **Save as a new
+drawing**. A save the node refuses says why, once — a drawing too large, a link it does not keep.
+Leaving a drawing with unsaved strokes asks **Save · Don't save · Cancel**, as a note does, and
 **Delete** asks first, naming the snapshot and the conversations that go with it — from the open
 drawing's header, or from the trash on its row in the list. The canvas is Excalidraw, with the platform's own shape libraries in its sidebar: software-engineering
 shapes (a service, a database, a queue, a cache, a client, an API gateway, a load balancer, an
 external system, a person), stickers (sticky notes, callouts, badges, a checkmark, a warning) and
 drawing elements (a title banner, a section frame, a legend, a note card). Everything is vector: the
-image tool is off, since a drawing must reach every member whole. The canvas saves as you draw, and
+image tool is off and so are web embeds, and a link on a shape is a web address, a mail address or
+one inside the app. The canvas saves as you draw, and
 nothing about the window — the zoom, the selection — is saved with it.
 
 **Ask an agent** (the agent glyph) opens a conversation beside the canvas whose subject is this drawing — started in one
 click, named later from its menu, in a drawer you resize by its edge, with the composer the IDE's
 has: who a bare message reaches, and *Stop* while an agent works. Every agent
 carries the Drawing skill and seven tools: it reads the drawing first (every element with its id),
-then draws — boxes with labels, arrows bound between them, frames, a Mermaid flowchart laid out into
-real shapes — while you watch the shapes land, erases by id, and takes a snapshot to look at what it
-drew. Who may draw is the workspace's word (**Settings › You › Draw**: everyone, agents carrying the
-skill, or nobody), and the canvas must be open on some desktop: with none, the tool says so at once.
+then draws — boxes with labels, arrows bound between them, frames, a Mermaid flowchart, sequence,
+class, entity or state diagram laid out into real shapes — while you watch the shapes land, erases
+by id, and takes a snapshot to look at what it drew. If you are drawing when its save loses to
+somebody else's, its shapes come back off your canvas and it is told to read and draw again: an
+agent never replaces what you are drawing. Who may draw is the workspace's word (**Settings › You ›
+Draw**: everyone, agents carrying the skill, or nobody) — or a project's, for the drawings filed
+under it — and the canvas must be open on some desktop: with none, the tool says so at once. An
+agent you stop takes its waiting request with it.
 
 **Your drawings are a git repository** too, `drawings/` in the data directory, with the same strip
 at the foot of the list — *Commit…*, *Suggest*, *Push*, *Fetch*, *Set origin…*, *Who commits…* —
-and one verb fewer: there is no *Pull*. A drawing's record arrives by sync, and its file here is an
-export the next change rewrites. The footer's pen switch shows or hides the floating drawings
-button, above the notes button; **Settings › You › Draw** holds the dock, its count, opening maximized, the
+and one verb fewer: there is no *Pull*. A drawing's file here is an export the next change
+rewrites, so a pull could bring nothing in. The footer's pen switch shows or hides the floating
+drawings button, beside the notes button (with Draw turned off on this machine, neither is there); **Settings › You › Draw** holds the dock, its count, opening maximized, the
 save delay, and the workspace's word on who may draw and how wide an agent's snapshot is.
 
 ## Addons

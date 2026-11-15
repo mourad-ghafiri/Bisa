@@ -1,7 +1,7 @@
 //! Drawings (19 — Drawings): a picture on a canvas as a GEP record. The
 //! **snapshot is the truth** — a drawing is an addressable event of kind
-//! [`KIND_DRAWING`] in the `drawings/` namespace, like an addon's record, so
-//! it travels to every peer of the workspace — and the **file is the
+//! [`KIND_DRAWING`] in the `drawings/` namespace, like an addon's record —
+//! signed so it can travel, though nothing sends one today — and the **file is the
 //! export**: every write materializes the standard `.excalidraw` file under
 //! the drawings repository the engine keeps over `drawings/`
 //! (`drawings/workspace/<id>.excalidraw`, `drawings/goals/<id>/…`, the

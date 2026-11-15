@@ -363,9 +363,12 @@ pub enum EnginePayload {
         workstream: WorkstreamId,
         project: ProjectId,
     },
-    /// A note was created, edited, or appended to.
+    /// A note was created, deleted, written by an agent (appended to or
+    /// rewritten), moved by a pull, or edited by a caller that asked for its
+    /// edit to be said. A person's edit from the editor is **not** announced
+    /// (`notes::update` says why).
     ///
-    /// One variant for all three, because the overlay's response to each is
+    /// One variant for all of them, because the overlay's response to each is
     /// the same — re-read — and a surface that had to switch on *which* kind
     /// of change it was would be deciding something it does not need to know.
     ///

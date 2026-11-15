@@ -1,5 +1,5 @@
 /**
- * Settings › Capabilities › Draw, as facts (19 — Drawings): the keys, the
+ * Settings › You › Draw, as facts (19 — Drawings): the keys, the
  * three words `draw.agents` takes and what each means, the snapshot's width
  * within its bounds. The registry panel draws the group; the panel's own
  * switches are `drawStore.ts`'s. Plain `.mjs`, so `node --test` reads it.

@@ -996,8 +996,22 @@ inventing a policy nothing else reads. Nothing pushes on its own; nothing autosa
 
 The status (`GET /notes/git` → `NotesRepo`: changed, branch, upstream, ahead/behind, remote,
 identity, last commit, an operation in progress) sits on its own `TtlCell` at the git status TTL,
-invalidated by every note write (`inner.notes_git.touched`) and every act above. Deleting a goal or a
-project removes its notes directory (`Workspace::remove_notes_of`); the next commit records it.
+invalidated by every note write (`inner.notes_git.touched`) and every act above. Deleting a goal, a
+project, a workflow or a channel removes its notes directory (`Workspace::remove_notes_of`); the next
+commit records it.
+
+**A pull moves files under the store, so it is followed by a resync.** After a fast-forward that
+moved, the notes are indexed again, the rows of files that left are cleared with the conversations
+about them, and every note that arrived, reads differently or left is announced as `note_changed`
+(`Workspace::resync_notes`, `notes::adopt_moved`) — the list, `bisa note list` and an open note
+follow at once. Only this pull does: a `git pull` in a terminal is the store's to hear of at the
+next `bisa workspace reindex`.
+
+**This machine's notes stay on it.** The repository's own `.git/info/exclude` names `node/` — the
+notes filed under *Node* — and `*.tmp.*`, a write a crash cut short. An exclude keeps a file from
+being *added*: a machine note an earlier commit already tracks stays tracked and travels until it
+is untracked by hand (`git rm --cached`), which the platform does not do for the person — the
+removal would travel too, and delete the note from their other machines at their next pull.
 
 ---
 

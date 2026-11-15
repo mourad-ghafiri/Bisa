@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 /// The line that opens and closes the front matter block.
 const FENCE: &str = "---";
 
-/// Longest note body, in bytes — a prompt budget: asking an agent about a note
-/// puts the whole body in its first prompt.
+/// Longest note body, in bytes — a reading budget: an agent asked about a note
+/// reads the whole body with `note_read` (its first prompt carries the title).
 pub const MAX_NOTE_BYTES: usize = 128 * 1024;
 
 /// Longest note title, in characters — a title is a line in a list, in a

@@ -1,6 +1,7 @@
 //! `Drawing`: a picture on a canvas (19 — Drawings). The record — its title,
 //! what it is attached to ([`OwnerScope`]) and its **scene** — is a GEP
-//! record of kind [`crate::kind::KIND_DRAWING`], so it travels; the scene is
+//! record of kind [`crate::kind::KIND_DRAWING`], signed and addressable so it
+//! *can* travel (no transport sends one today — 19 § What travels today); the scene is
 //! Excalidraw's element JSON, which the desktop's canvas owns and this crate
 //! only bounds: every element is one of a few vector types, under a size and
 //! a count a record can carry whole to a peer, and never an image.

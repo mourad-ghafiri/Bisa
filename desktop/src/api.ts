@@ -1468,7 +1468,7 @@ export const api = {
     return res.text();
   },
 
-  /// Notes: a markdown scratchpad on a goal, a project, or the workspace.
+  /// Notes: a markdown scratchpad on the workspace, a goal, a project, a workflow, a channel or this node.
   /// Local to this machine by design — a note is somebody's own thinking, and
   /// `docs/GEP.md`'s test denies a kind to anything a second node could not
   /// act on — so unlike everything above these never sync.
