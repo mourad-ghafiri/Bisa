@@ -97,6 +97,12 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **A node asked to stop while it starts stops well.** The node listened for `SIGTERM` and
+  Ctrl-C only once it was serving, so a stop that arrived during the boot — or in the instant
+  between its socket appearing and its first request — killed it outright: no goodbye, sessions
+  and the socket left as they were. It now listens from its first moment; a stop asked for
+  during the boot is kept, and answered in order as soon as the node serves.
+
 - **A poll loses nothing.** An item a connector poll found and could not write down — the
   listener's backlog was full, the minute's budget spent — was remembered as seen and never fired.
   It is now remembered only once written down, so the next poll finds it again, in order; an

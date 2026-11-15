@@ -831,7 +831,8 @@ async fn a_secret_the_platform_echoes_never_reaches_the_steps_output() {
         "POST",
         "/post",
         200,
-        json!({"ok": true, "ts": format!("posted with {TOKEN}")}),
+        // Its own token, and a key of somebody else's shape beside it.
+        json!({"ok": true, "ts": format!("posted with {TOKEN} beside {}", somebody_elses_key())}),
     )])
     .await;
     let engine = engine_with(&dir, vec![MockAdapter::default()]);
@@ -853,10 +854,20 @@ async fn a_secret_the_platform_echoes_never_reaches_the_steps_output() {
         "the answer went through the redactor: {output}"
     );
     assert!(
-        output.contains("posted with"),
+        !output.contains(&somebody_elses_key()),
+        "a secret that is not the call's own is the redactor's to find: {output}"
+    );
+    assert!(
+        output.contains("posted with") && output.contains("beside"),
         "the rest of the answer stands: {output}"
     );
     engine.shutdown().await;
+}
+
+/// A made-up key in a shape the redactor knows, spelled in two halves so no
+/// scanner reads this file as holding one.
+fn somebody_elses_key() -> String {
+    format!("{}{}", "AKIA", "A".repeat(16))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -938,6 +949,25 @@ async fn an_agent_reads_through_a_connector_and_is_refused_a_write() {
     .await;
     assert_eq!(named["ok"], json!(true), "{named}");
     assert_eq!(stub.calls().len(), 2);
+    // The roster says which account is the default and which is connected:
+    // a new default with no token yet, and the first one beside it.
+    engine
+        .workspace()
+        .create_connector_account(NewConnectorAccount {
+            connector: bisa_core::ConnectorId::new("chat").unwrap(),
+            label: "spare".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap();
+    let listed = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "list_connectors", "agent": "researcher"}),
+    )
+    .await;
+    let text = listed["text"].as_str().unwrap_or("").to_string();
+    assert!(text.contains("spare (default, not connected)"), "{text}");
+    assert!(!text.contains("(not connected),"), "{text}");
     engine.shutdown().await;
 }
 

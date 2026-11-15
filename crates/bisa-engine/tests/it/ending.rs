@@ -236,8 +236,21 @@ async fn a_stop_during_a_workers_launch_leaves_no_harness() {
     // Not a moment of patience: the stop lands while the harness is probed.
     engine.stop_goal(goal.id, None).await.unwrap();
 
-    until("no item in flight and no live row", || {
-        (engine.inner().inflight.is_empty() && live_rows(&engine).is_empty()).then_some(())
+    // The stop takes the item out of flight itself, and a harness stopped as
+    // it launches never has a row: neither says the worker's own task has
+    // finished letting go of what it started. Waited for by what it leaves —
+    // a harness that did start, aborted and disposed; every item settled.
+    until("the stopped launch to be let go of", || {
+        let let_go = launches.lock().unwrap().is_empty()
+            || closed(&closes) == vec![Close::Aborted, Close::Disposed];
+        let settled = items_of(&engine, goal.id).iter().all(|item| {
+            matches!(
+                item.state,
+                WorkItemState::Cancelled | WorkItemState::Blocked { .. }
+            )
+        });
+        (engine.inner().inflight.is_empty() && live_rows(&engine).is_empty() && let_go && settled)
+            .then_some(())
     })
     .await;
     let after = run_of(&engine, run.id);

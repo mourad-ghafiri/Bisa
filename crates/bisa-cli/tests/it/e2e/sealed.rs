@@ -455,32 +455,54 @@ impl Sealed {
         self.spawn_daemon(&[], &[("BISA_STOP_ON_STDIN_CLOSE", "1")], true);
     }
 
+    /// Ask a daemon to stop while it is still booting — the workspace
+    /// opening, nothing served yet — the way a supervisor that changed its
+    /// mind does. It is heard all the same: the daemon ends by itself,
+    /// well, and leaves no socket behind.
+    pub fn stop_while_booting(&mut self) {
+        assert!(self.daemon.is_none(), "the daemon is already up");
+        let mut daemon = self.launch(&[], &[], false);
+        let deadline = Instant::now() + PATIENCE;
+        while !self.daemon_out().contains("opening the workspace") {
+            let ended = daemon.try_wait().expect("the daemon's state");
+            assert!(
+                ended.is_none() && Instant::now() < deadline,
+                "the daemon never began to boot (it ended: {ended:?}):\n{}",
+                self.what_happened(),
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pid = rustix::process::Pid::from_child(&daemon);
+        rustix::process::kill_process(pid, rustix::process::Signal::TERM)
+            .expect("the daemon takes the request");
+        let deadline = Instant::now() + PATIENCE + GOODBYE;
+        let status = loop {
+            if let Some(status) = daemon.try_wait().expect("the daemon's state") {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the daemon was asked to stop while booting and did not:\n{}",
+                self.what_happened(),
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(
+            status.success(),
+            "a daemon asked to stop while it boots ends well, not {status}:\n{}",
+            self.what_happened(),
+        );
+        let socket = self.socket();
+        assert!(
+            !socket.exists(),
+            "the daemon left its socket behind at {}",
+            socket.display()
+        );
+    }
+
     fn spawn_daemon(&mut self, listening: &[&str], environment: &[(&str, &str)], leashed: bool) {
         assert!(self.daemon.is_none(), "the daemon is already up");
-        let said = |name: &str| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.root.path().join(name))
-                .expect("the daemon's own words, kept")
-        };
-        let mut command = self.command();
-        command.envs(environment.iter().copied());
-        if leashed {
-            command.arg("--json");
-        }
-        let mut daemon = command
-            .arg("node")
-            .args(listening)
-            .stdin(if leashed {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
-            .stdout(said("daemon.out"))
-            .stderr(said("daemon.err"))
-            .spawn()
-            .expect("the daemon starts");
+        let mut daemon = self.launch(listening, environment, leashed);
         if leashed {
             self.leash = daemon.stdin.take();
         }
@@ -495,6 +517,39 @@ impl Sealed {
             std::thread::sleep(Duration::from_millis(50));
         }
         self.daemon = Some(daemon);
+    }
+
+    /// The daemon's process, started and not waited for.
+    fn launch(
+        &self,
+        listening: &[&str],
+        environment: &[(&str, &str)],
+        leashed: bool,
+    ) -> std::process::Child {
+        let said = |name: &str| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.root.path().join(name))
+                .expect("the daemon's own words, kept")
+        };
+        let mut command = self.command();
+        command.envs(environment.iter().copied());
+        if leashed {
+            command.arg("--json");
+        }
+        command
+            .arg("node")
+            .args(listening)
+            .stdin(if leashed {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(said("daemon.out"))
+            .stderr(said("daemon.err"))
+            .spawn()
+            .expect("the daemon starts")
     }
 
     /// Where the daemon's socket is: the preferred path, or — under a long

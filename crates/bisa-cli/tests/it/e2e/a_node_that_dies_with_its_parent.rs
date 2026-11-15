@@ -59,3 +59,26 @@ fn a_leashed_node_stops_when_its_parent_lets_go_and_the_workspace_is_free_again(
     assert_eq!(status, 200);
     ws.stop();
 }
+
+/// A stop asked for while the node is still booting is a stop: the request
+/// is heard from the node's first moment, kept through the boot, and
+/// answered the way any stop is — the node ends well, leaves no socket, and
+/// the workspace is free. Before this the listener was made only once the
+/// node was serving, so a `SIGTERM` in the boot — or in the instant between
+/// the socket and the first request — killed it outright: no goodbye,
+/// nothing stopped in order.
+#[test]
+fn a_node_asked_to_stop_while_it_boots_ends_well() {
+    let mut ws = Sealed::bare();
+    ws.stop_while_booting();
+    let paths = ws.json(&["paths"]);
+    assert!(
+        paths["engine_holder"].is_null(),
+        "the workspace is free: {paths}"
+    );
+    // And a node starts again at once.
+    ws.start();
+    let (status, _) = ws.call("GET", "/node", &[], None);
+    assert_eq!(status, 200);
+    ws.stop();
+}

@@ -2282,6 +2282,11 @@ async fn node(
     if let Some(addr) = listen {
         check_bind(addr, insecure_allow_remote)?;
     }
+    // Heard from the node's first moment, before the workspace opens: a stop
+    // asked for during the boot is kept and answered once the node serves.
+    // Listened for only then, a `SIGTERM` in the boot — or in the instant
+    // between the socket and the first request — killed the node outright.
+    let signals = StopSignals::listen();
     // One engine per workspace (I40), refused at the door. The lock the
     // engine takes in `node_engine` is the guarantee — but by then the
     // workspace has been opened and its maintenance written beside the
@@ -2393,7 +2398,7 @@ async fn node(
         {
             let stopped = std::sync::Arc::clone(&stopped);
             async move {
-                let reason = stop_signal(leashed).await;
+                let reason = stop_signal(leashed, signals).await;
                 tracing::info!(target: "bisa_cli", reason, "stop signal received");
                 // The first reason stands; a second signal changes nothing.
                 let _first_reason_stands = stopped.set(reason);
@@ -2409,7 +2414,7 @@ async fn node(
 /// The daemon's stop: ctrl-c (`SIGINT`), `SIGTERM` — what launchd, a
 /// supervisor and the desktop shell send — or, `leashed`, the end of its
 /// stdin, which is the desktop shell going away; each named for the goodbye.
-async fn stop_signal(leashed: bool) -> &'static str {
+async fn stop_signal(leashed: bool, signals: StopSignals) -> &'static str {
     let leash = async move {
         if !leashed {
             std::future::pending::<()>().await;
@@ -2438,37 +2443,16 @@ async fn stop_signal(leashed: bool) -> &'static str {
     };
     #[cfg(unix)]
     {
-        let term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(term) => Some(term),
-            // LCOV_EXCL_START: the signal listener refused by the system; out by decision
-            Err(e) => {
-                tracing::warn!(target: "bisa_cli", "SIGTERM is not listened for: {e}");
-                None
-            } // LCOV_EXCL_STOP
-        };
-        let terminated = async move {
-            match term {
-                Some(mut term) => {
-                    term.recv().await;
-                }
-                None => std::future::pending::<()>().await, // LCOV_EXCL_LINE: the signal listener refused by the system; out by decision
-            }
-        };
+        let StopSignals { term, interrupt } = signals;
         tokio::select! {
-            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
-            r = tokio::signal::ctrl_c() => {
-                if let Err(e) = r {
-                    tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
-                }
-                "interrupted"
-            }
-            // LCOV_EXCL_STOP
-            _ = terminated => "terminated",
+            _ = heard(interrupt) => "interrupted", // LCOV_EXCL_LINE: the process interrupted at a terminal; out by decision
+            _ = heard(term) => "terminated",
             _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
     }
     #[cfg(not(unix))]
     {
+        let StopSignals {} = signals;
         tokio::select! {
             // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             r = tokio::signal::ctrl_c() => {
@@ -2480,6 +2464,50 @@ async fn stop_signal(leashed: bool) -> &'static str {
             // LCOV_EXCL_STOP
             _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
+    }
+}
+
+/// The signals that ask the daemon to stop, listened for from the moment
+/// this is made: one that arrives before anybody waits for it is kept, and
+/// answered when somebody does.
+struct StopSignals {
+    #[cfg(unix)]
+    term: Option<tokio::signal::unix::Signal>,
+    #[cfg(unix)]
+    interrupt: Option<tokio::signal::unix::Signal>,
+}
+
+impl StopSignals {
+    fn listen() -> Self {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let listen = |kind: SignalKind, name: &str| match signal(kind) {
+                Ok(heard) => Some(heard),
+                // LCOV_EXCL_START: the signal listener refused by the system; out by decision
+                Err(e) => {
+                    tracing::warn!(target: "bisa_cli", "{name} is not listened for: {e}");
+                    None
+                } // LCOV_EXCL_STOP
+            };
+            Self {
+                term: listen(SignalKind::terminate(), "SIGTERM"),
+                interrupt: listen(SignalKind::interrupt(), "Ctrl-C"),
+            }
+        }
+        #[cfg(not(unix))]
+        Self {}
+    }
+}
+
+/// One signal, once it comes; never, where it could not be listened for.
+#[cfg(unix)]
+async fn heard(signal: Option<tokio::signal::unix::Signal>) {
+    match signal {
+        Some(mut signal) => {
+            signal.recv().await;
+        }
+        None => std::future::pending::<()>().await, // LCOV_EXCL_LINE: the signal listener refused by the system; out by decision
     }
 }
 

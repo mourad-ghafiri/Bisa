@@ -114,13 +114,24 @@ fn what_concerns_a_person_is_a_row_until_it_is_answered_read_or_opened() {
     );
     assert!(row(&ws, &goal, "unread").is_some());
 
-    // Read: the notice stays, and no longer counts.
-    ws.ok(&["read", &goal]);
-    ws.json(&["inbox"]);
-    let read = row(&ws, &goal, "all").expect("the row");
-    assert_eq!(read["read"], true, "{read}");
-    assert_eq!(read["unread_notices"], 0);
-    assert!(row(&ws, &goal, "unread").is_none());
+    // Read: the notice stays, and no longer counts. A read is a mark at a
+    // moment, and a run that just failed may still be letting go of its
+    // session: news of the goal after the mark makes the row unread again,
+    // rightly. So the row is read until it stays read — once the goal is
+    // quiet, one read holds.
+    let read = ws.until("the row to stay read once the goal is quiet", || {
+        ws.ok(&["read", &goal]);
+        ws.json(&["inbox"]);
+        let read = row(&ws, &goal, "all")?;
+        (read["read"] == true && row(&ws, &goal, "unread").is_none()).then_some(read)
+    });
+    assert_eq!(read["unread_notices"], 0, "{read}");
+    assert!(
+        read["notices"]
+            .as_array()
+            .is_some_and(|all| all.iter().any(|n| n["notice"] == "run_failed")),
+        "the notice stays: {read}"
+    );
     // And unread again, by hand.
     ws.ok(&["unread", &goal]);
     assert!(row(&ws, &goal, "unread").is_some());
