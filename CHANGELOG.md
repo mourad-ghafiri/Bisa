@@ -10,6 +10,25 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Two more ways a connector signs in**, both additive — a definition written before them reads,
+  writes and behaves as it did, and a node on an earlier release sets one that uses them aside as
+  it does any field it does not know.
+  - **More than one key.** An `api_key` scheme takes `extra_keys = [{ secret, label, place,
+    prefix }]`: each further key is a secret field of the account (the new `app_key`, or `token`,
+    `username`, `password`, `client_id`, `client_secret`), sent in a header or query pair of its
+    own, required like the first, scrubbed like it from what the platform says back. An account
+    with one key of two is not connected and nothing is sent.
+  - **A client's own login.** The new scheme `client_credentials` (`token_url`, `scopes`,
+    `scope_join`, `token_auth` — `form` or `basic` —, `grant_type`, `params` over the account's
+    parameters): no browser — the token is asked for when a call needs one, kept with its expiry,
+    asked for again when it lapses or on a 401, once between calls at the same moment. Setting the
+    client's id or secret again, or editing the account's parameters, lets go of the token kept for
+    the old ones.
+  - The account's form asks for each field by the definition's own name for it, the rows say what
+    is still wanted, and `bisa connector show` gains a `secrets` line naming what an account must
+    hold. Still not expressible, and said so in the guide: a secret in the URL's path, a session
+    login, a signed request (SigV4, HMAC) and OAuth 1.0a.
+
 - **Settings › Connectors at forty-five.** The list is searched (name, id, description, tags,
   hosts), and a connector is one line until it is opened — its accounts read then, so a token
   refresh no longer re-reads every card. A card opens by itself where this machine holds an

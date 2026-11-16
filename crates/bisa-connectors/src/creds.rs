@@ -46,7 +46,20 @@ impl fmt::Display for Secret {
 }
 
 /// The secret fields an account may hold, named on the wire by `as_str`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum Field {
     ApiKey,
     Token,
@@ -58,10 +71,12 @@ pub enum Field {
     RefreshToken,
     /// A signing key in PEM, for the `jwt` scheme.
     PrivateKey,
+    /// A second key beside the API key.
+    AppKey,
 }
 
 impl Field {
-    pub const ALL: [Field; 9] = [
+    pub const ALL: [Field; 10] = [
         Field::ApiKey,
         Field::Token,
         Field::Username,
@@ -71,6 +86,7 @@ impl Field {
         Field::AccessToken,
         Field::RefreshToken,
         Field::PrivateKey,
+        Field::AppKey,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -84,6 +100,7 @@ impl Field {
             Field::AccessToken => "access_token",
             Field::RefreshToken => "refresh_token",
             Field::PrivateKey => "private_key",
+            Field::AppKey => "app_key",
         }
     }
 
@@ -152,7 +169,11 @@ pub struct TokenSet {
 #[derive(Clone, Debug)]
 pub enum Credential {
     None,
-    ApiKey(Secret),
+    /// The scheme's key, and each further key in the definition's order.
+    ApiKey {
+        key: Secret,
+        extra: Vec<Secret>,
+    },
     Bearer(Secret),
     Basic {
         username: String,
@@ -231,6 +252,8 @@ mod tests {
     fn fields_round_trip_their_wire_words() {
         for f in Field::ALL {
             assert_eq!(Field::parse(f.as_str()), Some(f));
+            // The wire's word in a definition is the keystore's.
+            assert_eq!(serde_json::to_value(f).unwrap(), f.as_str());
         }
         assert_eq!(Field::parse("nope"), None);
     }

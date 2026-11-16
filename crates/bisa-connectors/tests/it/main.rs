@@ -7,6 +7,7 @@ mod support;
 
 mod auth;
 mod error;
+mod grants;
 mod hardening;
 mod hosts;
 mod oauth;

@@ -225,6 +225,7 @@ cli-connector-account-forgotten-with-secrets = account { $aid } forgotten, with 
 cli-connector-account-params = {" "}account params: { $a0 }
 cli-connector-accounts = {" "}accounts ({ $a0 }):
 cli-connector-auth-base-hosts = {" "}auth { $a0 } base { $a1 } hosts { $a2 }
+cli-connector-secrets-required = {" "}secrets { $a0 }
 cli-connector-connecting-oauth-account-needs-node-hosts = connecting an OAuth account needs the node: it hosts the page the browser comes back to (`bisa node`)
 cli-connector-connector-recorded = connector { $a0 } recorded
 cli-connector-connector-recorded-operation-s = connector { $a0 } recorded ({ $a1 } operation(s))

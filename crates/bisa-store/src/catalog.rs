@@ -3980,6 +3980,7 @@ suited_for = "quick edits"
                 name: "X-Key".into(),
             },
             prefix: None,
+            extra_keys: vec![],
         };
         assert_eq!(
             moved_secret_field(&api_key, &AuthScheme::Bearer),

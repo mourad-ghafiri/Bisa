@@ -87,7 +87,7 @@ test("the panel's doors are the model's: a flow remembered and landed by the row
   assert.ok(panel.includes("accountVerbs(a, oauth, hasCheck)") && panel.includes("const hasCheck = Boolean(row.check);"), "Check is offered where the connector names one");
   assert.ok(panel.includes("readOnly={busy !== null}") && panel.includes("setParseError(null);") && panel.includes("if (text !== opened) setLeaving(true);") && panel.includes('role="status" aria-live="polite"'), "the editor holds its text while the node reads it, drops a stale parse error, asks before losing what was typed, and announces what was found");
   assert.ok(panel.includes("filterConnectors(connectors.rows, query)") && panel.includes("connectorFacts(row).map("), "the list is searched, and a card's facts are set apart");
-  assert.ok(panel.includes("SECRET_FIELD_WHAT[f]") && !panel.includes(".toLowerCase()"), "the secret input's noun is the field's own message");
+  assert.ok(panel.includes("secretWhat(auth, f)") && panel.includes("secretLabel(auth, f)") && !panel.includes(".toLowerCase()"), "the secret input's noun is the field's own message — a further key's, the definition's own name for it");
   const checkAll = panel.slice(panel.indexOf("const checkAll = async"), panel.indexOf("const checkable ="));
   assert.ok(checkAll.indexOf('setPass({ phase: "reading", done: 0, total: 0 })') < checkAll.indexOf("api.connector(row.id)"), "held from the first read");
   assert.ok(checkAll.includes("} else unread += 1;") && checkAll.includes("checkAllReport({ queued, unread, failed })"), "what did not answer and what could not be read are one sentence");

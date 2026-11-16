@@ -7,6 +7,7 @@
 mod api_key;
 mod basic;
 mod bearer;
+mod client_credentials;
 mod jwt;
 mod oauth2;
 
@@ -52,13 +53,19 @@ pub trait AuthSigner {
 pub fn signer_for(auth: &AuthSpec) -> Box<dyn AuthSigner + '_> {
     match auth {
         AuthSpec::None => Box::new(NoAuth),
-        AuthSpec::ApiKey { place, prefix } => Box::new(api_key::ApiKeySigner {
+        AuthSpec::ApiKey {
+            place,
+            prefix,
+            extra_keys,
+        } => Box::new(api_key::ApiKeySigner {
             place,
             prefix: prefix.as_deref(),
+            extra: extra_keys,
         }),
         AuthSpec::Bearer => Box::new(bearer::BearerSigner),
         AuthSpec::Basic => Box::new(basic::BasicSigner),
         AuthSpec::OAuth2 { .. } => Box::new(oauth2::OAuth2Signer),
+        AuthSpec::ClientCredentials { .. } => Box::new(client_credentials::ClientCredentialsSigner),
         AuthSpec::Jwt {
             alg,
             claims,
@@ -183,8 +190,12 @@ mod tests {
             &AuthSpec::ApiKey {
                 place: KeyPlace::Query { name: "key".into() },
                 prefix: None,
+                extra_keys: vec![],
             },
-            &Credential::ApiKey(crate::Secret::new("k1")),
+            &Credential::ApiKey {
+                key: crate::Secret::new("k1"),
+                extra: vec![],
+            },
             &mut req,
             &cx(&account),
         )
@@ -200,8 +211,12 @@ mod tests {
                     name: "X-Api-Key".into(),
                 },
                 prefix: Some("Token ".into()),
+                extra_keys: vec![],
             },
-            &Credential::ApiKey(crate::Secret::new("k2")),
+            &Credential::ApiKey {
+                key: crate::Secret::new("k2"),
+                extra: vec![],
+            },
             &mut req,
             &cx(&account),
         )

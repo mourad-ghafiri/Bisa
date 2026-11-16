@@ -2045,6 +2045,13 @@ export type AuthScheme =
   | {
       place: KeyPlace;
       prefix?: string | null;
+      /**
+       * The keys a platform asks for beside the first — an application
+       * key next to the API key, say — each a secret field of the account
+       * sent in its own place. Empty for every definition written before
+       * there were any, which reads and writes as it did.
+       */
+      extra_keys?: ExtraKey[];
       scheme: "api_key";
     }
   | {
@@ -2093,6 +2100,31 @@ export type AuthScheme =
       };
       ttl_secs?: number;
       scheme: "jwt";
+    }
+  | {
+      token_url: string;
+      scopes?: string[];
+      /**
+       * How the scopes are joined in the token request.
+       */
+      scope_join?: ScopeJoin;
+      /**
+       * Where the client's id and secret travel in the token request.
+       */
+      token_auth?: TokenAuth;
+      /**
+       * The grant's name: `client_credentials` unless the platform spells
+       * its own.
+       */
+      grant_type?: string;
+      /**
+       * More pairs of the token request's form, each a template over
+       * `{account.<param>}` (`account_id = "{account.account_id}"`).
+       */
+      params?: {
+        [k: string]: string;
+      };
+      scheme: "client_credentials";
     };
 /**
  * Where an API key goes.
@@ -2107,6 +2139,14 @@ export type KeyPlace =
       in: "query";
     };
 /**
+ * The secret fields an account may hold; which ones a scheme needs is
+ * [`AuthScheme::fields`]. The wire words are the keystore's field names.
+ */
+export type SecretField =
+  | ("api_key" | "token" | "username" | "password" | "client_id" | "client_secret" | "access_token" | "refresh_token")
+  | "private_key"
+  | "app_key";
+/**
  * How an OAuth2 scheme joins its scopes on the authorization URL.
  */
 export type ScopeJoin = "space" | "comma";
@@ -2118,6 +2158,10 @@ export type ChallengeEncoding = "base64url" | "hex";
  * The signing algorithms a `jwt` scheme may name, by their JOSE words.
  */
 export type JwtAlg = "ES256" | "RS256";
+/**
+ * Where a client's id and secret travel in a token request.
+ */
+export type TokenAuth = "form" | "basic";
 /**
  * What a parameter's value is, once rendered.
  */
@@ -2181,13 +2225,6 @@ export type Part1 =
       text: string;
       [k: string]: unknown;
     };
-/**
- * The secret fields an account may hold; which ones a scheme needs is
- * [`AuthScheme::fields`]. The wire words are the keystore's field names.
- */
-export type SecretField =
-  | ("api_key" | "token" | "username" | "password" | "client_id" | "client_secret" | "access_token" | "refresh_token")
-  | "private_key";
 /**
  * Where a stored secret lives — a `0600` file under `identity/`, or the OS
  * keyring when the node runs with `BISA_KEYSTORE=keyring`.
@@ -4495,9 +4532,12 @@ export interface BisaApi {
   Origin?: Origin;
   AuthScheme?: AuthScheme;
   KeyPlace?: KeyPlace;
+  ExtraKey?: ExtraKey;
+  SecretField?: SecretField;
   ScopeJoin?: ScopeJoin;
   ChallengeEncoding?: ChallengeEncoding;
   JwtAlg?: JwtAlg;
+  TokenAuth?: TokenAuth;
   ConnectorOperationDef?: ConnectorOperationDef;
   ConnectorParamDef?: ConnectorParamDef;
   GitConfigEntry?: GitConfigEntry;
@@ -4508,7 +4548,6 @@ export interface BisaApi {
   Expect?: Expect;
   Idempotency?: Idempotency;
   Paging?: Paging;
-  SecretField?: SecretField;
   ConnectorRow?: ConnectorRow;
   ConnectorOperation?: ConnectorOperation;
   ConnectorDetail?: ConnectorDetail;
@@ -6404,6 +6443,23 @@ export interface Connector {
    */
   revision?: number;
   created_at: number;
+}
+/**
+ * One more key of an `api_key` scheme: which secret field of the account
+ * holds it, what a person calls it, and where it is sent.
+ */
+export interface ExtraKey {
+  /**
+   * The account's secret field the key is kept under — any but the
+   * first key's own and the ones a flow writes ([`ExtraKey::admits`]).
+   */
+  secret: SecretField;
+  /**
+   * The platform's own name for the key (`Application key`).
+   */
+  label: string;
+  place: KeyPlace;
+  prefix?: string | null;
 }
 /**
  * One parameter: of an operation (`{params.<name>}`) or of a connector's

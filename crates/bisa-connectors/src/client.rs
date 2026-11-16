@@ -319,12 +319,13 @@ impl Client {
         // The access token the request carries, so a 401 can tell whether
         // another flight already replaced it.
         let mut bearer: Option<Secret> = None;
-        if let (AuthSpec::OAuth2 { .. }, Some(a)) = (&spec.auth, account) {
+        if let (true, Some(a)) = (spec.auth.mints_tokens(), account) {
             let token = crate::oauth::ensure_fresh(
                 self,
                 &spec.auth,
                 a,
                 &stored,
+                account_params,
                 judge,
                 left_of(spec.timeout, started),
             )
@@ -383,16 +384,21 @@ impl Client {
                 .send_judged(&req, resend, insecure, &host)
                 .await
                 .map_err(|e| whole_deadline(e, spec.timeout))?;
-            // A 401 under OAuth2 with a refresh token: the token died before its
-            // expiry said so. One refresh, one resend, then the answer stands.
+            // A 401 under a scheme that can ask for another token — OAuth2 with
+            // a refresh token, a client-credentials grant always: the token
+            // died before its expiry said so. One renewal, one resend, then
+            // the answer stands.
             if resp.status == 401 {
-                if let (AuthSpec::OAuth2 { .. }, Some(a)) = (&spec.auth, account) {
-                    if stored.field(crate::creds::Field::RefreshToken).is_some() {
+                if let (true, Some(a)) = (spec.auth.mints_tokens(), account) {
+                    if matches!(spec.auth, AuthSpec::ClientCredentials { .. })
+                        || stored.field(crate::creds::Field::RefreshToken).is_some()
+                    {
                         let token: Secret = crate::oauth::force_refresh(
                             self,
                             &spec.auth,
                             a,
                             bearer.as_ref(),
+                            account_params,
                             judge,
                             left_of(spec.timeout, started),
                         )

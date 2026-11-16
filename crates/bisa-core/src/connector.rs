@@ -119,6 +119,12 @@ pub enum AuthScheme {
         place: KeyPlace,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prefix: Option<String>,
+        /// The keys a platform asks for beside the first — an application
+        /// key next to the API key, say — each a secret field of the account
+        /// sent in its own place. Empty for every definition written before
+        /// there were any, which reads and writes as it did.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extra_keys: Vec<ExtraKey>,
     },
     /// `Authorization: Bearer <token>` — a pasted long-lived token.
     Bearer,
@@ -171,7 +177,98 @@ pub enum AuthScheme {
         #[serde(default = "default_jwt_ttl")]
         ttl_secs: u64,
     },
+    /// The client-credentials grant (RFC 6749 §4.4): the account holds a
+    /// client's id and secret, and the platform trades them for an access
+    /// token at `token_url` — no browser, no consent page. The token is
+    /// asked for when a call needs one, kept with its expiry, and asked for
+    /// again when it lapses or the platform refuses it.
+    ClientCredentials {
+        token_url: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        scopes: Vec<String>,
+        /// How the scopes are joined in the token request.
+        #[serde(default, skip_serializing_if = "ScopeJoin::is_default")]
+        scope_join: ScopeJoin,
+        /// Where the client's id and secret travel in the token request.
+        #[serde(default, skip_serializing_if = "TokenAuth::is_default")]
+        token_auth: TokenAuth,
+        /// The grant's name: `client_credentials` unless the platform spells
+        /// its own.
+        #[serde(
+            default = "default_grant_type",
+            skip_serializing_if = "is_default_grant_type"
+        )]
+        grant_type: String,
+        /// More pairs of the token request's form, each a template over
+        /// `{account.<param>}` (`account_id = "{account.account_id}"`).
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, String>,
+    },
 }
+
+/// One more key of an `api_key` scheme: which secret field of the account
+/// holds it, what a person calls it, and where it is sent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExtraKey {
+    /// The account's secret field the key is kept under — any but the
+    /// first key's own and the ones a flow writes ([`ExtraKey::admits`]).
+    pub secret: SecretField,
+    /// The platform's own name for the key (`Application key`).
+    pub label: String,
+    pub place: KeyPlace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+}
+
+impl ExtraKey {
+    /// Whether a second key may be kept under `field`: not the first key's
+    /// field, and not one a flow or a signer owns.
+    pub fn admits(field: SecretField) -> bool {
+        !matches!(
+            field,
+            SecretField::ApiKey
+                | SecretField::AccessToken
+                | SecretField::RefreshToken
+                | SecretField::PrivateKey
+        )
+    }
+}
+
+/// Where a client's id and secret travel in a token request.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenAuth {
+    /// In the form, as `client_id` and `client_secret`.
+    #[default]
+    Form,
+    /// In an `Authorization: Basic` header.
+    Basic,
+}
+
+impl TokenAuth {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Form
+    }
+}
+
+/// RFC 6749 §4.4's name of the grant.
+pub const DEFAULT_GRANT_TYPE: &str = "client_credentials";
+
+fn default_grant_type() -> String {
+    DEFAULT_GRANT_TYPE.to_string()
+}
+
+fn is_default_grant_type(s: &String) -> bool {
+    s == DEFAULT_GRANT_TYPE
+}
+
+/// The pairs a client-credentials token request carries by the grant's own
+/// hand; a definition's `params` may add to them, never restate them.
+pub const CLIENT_CREDENTIALS_PARAMS: &[&str] =
+    &["grant_type", "scope", "client_id", "client_secret"];
 
 fn default_true() -> bool {
     true
@@ -266,6 +363,24 @@ pub enum KeyPlace {
     Query { name: String },
 }
 
+impl KeyPlace {
+    /// The header's or the query pair's name, as written.
+    pub fn name(&self) -> &str {
+        match self {
+            KeyPlace::Header { name } | KeyPlace::Query { name } => name,
+        }
+    }
+
+    /// The place as one word two keys cannot share: a header's name
+    /// whatever its case, a query pair's as written.
+    fn slot(&self) -> String {
+        match self {
+            KeyPlace::Header { name } => format!("header:{}", name.to_ascii_lowercase()),
+            KeyPlace::Query { name } => format!("query:{name}"),
+        }
+    }
+}
+
 /// The secret fields an account may hold; which ones a scheme needs is
 /// [`AuthScheme::fields`]. The wire words are the keystore's field names.
 #[derive(
@@ -283,10 +398,12 @@ pub enum SecretField {
     RefreshToken,
     /// A signing key in PEM, for the `jwt` scheme.
     PrivateKey,
+    /// A second key beside the API key — an application key, say.
+    AppKey,
 }
 
 impl SecretField {
-    pub const ALL: [SecretField; 9] = [
+    pub const ALL: [SecretField; 10] = [
         SecretField::ApiKey,
         SecretField::Token,
         SecretField::Username,
@@ -296,6 +413,7 @@ impl SecretField {
         SecretField::AccessToken,
         SecretField::RefreshToken,
         SecretField::PrivateKey,
+        SecretField::AppKey,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -309,6 +427,7 @@ impl SecretField {
             SecretField::AccessToken => "access_token",
             SecretField::RefreshToken => "refresh_token",
             SecretField::PrivateKey => "private_key",
+            SecretField::AppKey => "app_key",
         }
     }
 
@@ -325,33 +444,50 @@ impl std::fmt::Display for SecretField {
 
 impl AuthScheme {
     /// Every secret field an account under this scheme may hold.
-    pub fn fields(&self) -> &'static [SecretField] {
+    pub fn fields(&self) -> Vec<SecretField> {
         match self {
-            AuthScheme::None => &[],
-            AuthScheme::ApiKey { .. } => &[SecretField::ApiKey],
-            AuthScheme::Bearer => &[SecretField::Token],
-            AuthScheme::Basic => &[SecretField::Username, SecretField::Password],
-            AuthScheme::OAuth2 { .. } => &[
+            AuthScheme::None => vec![],
+            AuthScheme::ApiKey { extra_keys, .. } => Self::keys(extra_keys),
+            AuthScheme::Bearer => vec![SecretField::Token],
+            AuthScheme::Basic => vec![SecretField::Username, SecretField::Password],
+            AuthScheme::OAuth2 { .. } => vec![
                 SecretField::ClientId,
                 SecretField::ClientSecret,
                 SecretField::AccessToken,
                 SecretField::RefreshToken,
             ],
-            AuthScheme::Jwt { .. } => &[SecretField::PrivateKey],
+            AuthScheme::Jwt { .. } => vec![SecretField::PrivateKey],
+            AuthScheme::ClientCredentials { .. } => vec![
+                SecretField::ClientId,
+                SecretField::ClientSecret,
+                SecretField::AccessToken,
+            ],
         }
     }
 
     /// The fields without which no call can be made. OAuth2 needs only the
     /// client id to *start* a connection; the tokens arrive from the flow.
-    pub fn required(&self) -> &'static [SecretField] {
+    /// A client-credentials account needs its client's id and secret, and
+    /// nothing else: the token is the platform's answer to those two.
+    pub fn required(&self) -> Vec<SecretField> {
         match self {
-            AuthScheme::None => &[],
-            AuthScheme::ApiKey { .. } => &[SecretField::ApiKey],
-            AuthScheme::Bearer => &[SecretField::Token],
-            AuthScheme::Basic => &[SecretField::Username, SecretField::Password],
-            AuthScheme::OAuth2 { .. } => &[SecretField::ClientId],
-            AuthScheme::Jwt { .. } => &[SecretField::PrivateKey],
+            AuthScheme::None => vec![],
+            AuthScheme::ApiKey { extra_keys, .. } => Self::keys(extra_keys),
+            AuthScheme::Bearer => vec![SecretField::Token],
+            AuthScheme::Basic => vec![SecretField::Username, SecretField::Password],
+            AuthScheme::OAuth2 { .. } => vec![SecretField::ClientId],
+            AuthScheme::Jwt { .. } => vec![SecretField::PrivateKey],
+            AuthScheme::ClientCredentials { .. } => {
+                vec![SecretField::ClientId, SecretField::ClientSecret]
+            }
         }
+    }
+
+    /// The first key's field, then each further key's.
+    fn keys(extra_keys: &[ExtraKey]) -> Vec<SecretField> {
+        std::iter::once(SecretField::ApiKey)
+            .chain(extra_keys.iter().map(|k| k.secret))
+            .collect()
     }
 
     /// The scheme's one word, as the wire spells it.
@@ -363,6 +499,7 @@ impl AuthScheme {
             AuthScheme::Basic => "basic",
             AuthScheme::OAuth2 { .. } => "oauth2",
             AuthScheme::Jwt { .. } => "jwt",
+            AuthScheme::ClientCredentials { .. } => "client_credentials",
         }
     }
 
@@ -759,6 +896,8 @@ pub enum TemplateSite {
     AuthClaim(String),
     /// A header field of a `jwt` scheme.
     AuthHeader(String),
+    /// A pair of a `client_credentials` scheme's token request.
+    AuthParam(String),
 }
 
 impl TemplateSite {
@@ -771,9 +910,10 @@ impl TemplateSite {
             | TemplateSite::Body(op)
             | TemplateSite::Form(op, _)
             | TemplateSite::Part(op, _) => Some(op),
-            TemplateSite::BaseUrl | TemplateSite::AuthClaim(_) | TemplateSite::AuthHeader(_) => {
-                None
-            }
+            TemplateSite::BaseUrl
+            | TemplateSite::AuthClaim(_)
+            | TemplateSite::AuthHeader(_)
+            | TemplateSite::AuthParam(_) => None,
         }
     }
 }
@@ -790,6 +930,7 @@ impl std::fmt::Display for TemplateSite {
             TemplateSite::Part(op, k) => write!(f, "operations.{op}.body.parts.{k}"),
             TemplateSite::AuthClaim(k) => write!(f, "auth.claims.{k}"),
             TemplateSite::AuthHeader(k) => write!(f, "auth.header.{k}"),
+            TemplateSite::AuthParam(k) => write!(f, "auth.params.{k}"),
         }
     }
 }
@@ -898,20 +1039,22 @@ impl Connector {
     }
 
     /// The authorities an OAuth2 scheme's consent page and token endpoint
-    /// live on — declared by the URLs themselves, so the flow reaches them
-    /// as a call reaches the operations' hosts, the deny list still ahead.
-    /// Nothing for another scheme.
+    /// live on, and a client-credentials scheme's token endpoint — declared
+    /// by the URLs themselves, so the flow reaches them as a call reaches
+    /// the operations' hosts, the deny list still ahead. Nothing for
+    /// another scheme.
     pub fn oauth_hosts(&self) -> Vec<String> {
-        let AuthScheme::OAuth2 {
-            authorization_url,
-            token_url,
-            ..
-        } = &self.auth
-        else {
-            return Vec::new();
+        let urls: Vec<&String> = match &self.auth {
+            AuthScheme::OAuth2 {
+                authorization_url,
+                token_url,
+                ..
+            } => vec![authorization_url, token_url],
+            AuthScheme::ClientCredentials { token_url, .. } => vec![token_url],
+            _ => return Vec::new(),
         };
         let mut out: Vec<String> = Vec::new();
-        for url in [authorization_url, token_url] {
+        for url in urls {
             if let Some(head) = url_head(url) {
                 let host = head.authority.to_ascii_lowercase();
                 if !out.contains(&host) {
@@ -977,6 +1120,11 @@ impl Connector {
             }
             for (k, v) in header {
                 out.push((TemplateSite::AuthHeader(k.clone()), v.as_str()));
+            }
+        }
+        if let AuthScheme::ClientCredentials { params, .. } = &self.auth {
+            for (k, v) in params {
+                out.push((TemplateSite::AuthParam(k.clone()), v.as_str()));
             }
         }
         out
@@ -1666,7 +1814,10 @@ impl Connector {
                 );
             }
         }
-        if let AuthScheme::ApiKey { place, .. } = &self.auth {
+        if let AuthScheme::ApiKey {
+            place, extra_keys, ..
+        } = &self.auth
+        {
             let name = match place {
                 KeyPlace::Header { name } | KeyPlace::Query { name } => name,
             };
@@ -1675,6 +1826,101 @@ impl Connector {
                     "auth.place",
                     crate::text!("problem-connector-key-s-header-query-name-empty"),
                 );
+            }
+            // Each further key: a field of its own, a name a person reads,
+            // and a place no other key travels in.
+            let mut held: Vec<SecretField> = Vec::new();
+            let mut places: Vec<String> = vec![place.slot()];
+            for key in extra_keys {
+                if !ExtraKey::admits(key.secret) {
+                    push(
+                        "auth.extra_keys",
+                        crate::text!(
+                            "problem-connector-extra-key-field-taken",
+                            secret = key.secret.to_string()
+                        ),
+                    );
+                } else if held.contains(&key.secret) {
+                    push(
+                        "auth.extra_keys",
+                        crate::text!(
+                            "problem-connector-extra-key-field-twice",
+                            secret = key.secret.to_string()
+                        ),
+                    );
+                }
+                held.push(key.secret);
+                if key.label.trim().is_empty() {
+                    push(
+                        "auth.extra_keys",
+                        crate::text!("problem-connector-extra-key-needs-label"),
+                    );
+                }
+                match &key.place {
+                    KeyPlace::Header { name } | KeyPlace::Query { name }
+                        if name.trim().is_empty() =>
+                    {
+                        push(
+                            "auth.extra_keys",
+                            crate::text!("problem-connector-key-s-header-query-name-empty"),
+                        )
+                    }
+                    KeyPlace::Header { name } if !name.bytes().all(is_token_byte) => push(
+                        "auth.extra_keys",
+                        crate::text!(
+                            "problem-connector-header-name-not-token",
+                            name = format!("{name:?}")
+                        ),
+                    ),
+                    place => {
+                        let slot = place.slot();
+                        if places.contains(&slot) {
+                            push(
+                                "auth.extra_keys",
+                                crate::text!(
+                                    "problem-connector-extra-key-place-twice",
+                                    name = place.name().to_string()
+                                ),
+                            );
+                        }
+                        places.push(slot);
+                    }
+                }
+            }
+        }
+        if let AuthScheme::ClientCredentials {
+            token_url,
+            grant_type,
+            params,
+            ..
+        } = &self.auth
+        {
+            match url_head(token_url) {
+                Some(head)
+                    if head.scheme == "https"
+                        || (head.scheme == "http" && is_loopback(head.authority)) => {}
+                _ => push(
+                    "auth.token_url",
+                    crate::text!("problem-connector-oauth-url-https-http-loopback-host"),
+                ),
+            }
+            if grant_type.is_empty() || grant_type.contains(char::is_whitespace) {
+                push(
+                    "auth.grant_type",
+                    crate::text!("problem-connector-grant-type-one-word"),
+                );
+            }
+            // What the grant itself writes is not a definition's to write again.
+            for key in params.keys() {
+                if CLIENT_CREDENTIALS_PARAMS.contains(&key.as_str()) {
+                    push(
+                        "auth.params",
+                        crate::text!(
+                            "problem-connector-token-params-reserved",
+                            key = key.to_string()
+                        ),
+                    );
+                }
             }
         }
 
@@ -1838,13 +2084,12 @@ impl ConnectorAccount {
     /// its access token under OAuth2 — the client's own id and secret are
     /// the way to one, not the way in — else every field the scheme requires.
     pub fn missing(&self, auth: &AuthScheme) -> Vec<SecretField> {
-        let needed: &[SecretField] = match auth {
-            AuthScheme::OAuth2 { .. } => &[SecretField::AccessToken],
+        let needed: Vec<SecretField> = match auth {
+            AuthScheme::OAuth2 { .. } => vec![SecretField::AccessToken],
             other => other.required(),
         };
         needed
-            .iter()
-            .copied()
+            .into_iter()
             .filter(|f| !self.auth.fields_set.contains(f))
             .collect()
     }
@@ -2567,6 +2812,7 @@ mod tests {
                 name: String::new(),
             },
             prefix: None,
+            extra_keys: vec![],
         };
         c.auth = key;
         assert!(c
@@ -2740,7 +2986,7 @@ mod tests {
             SecretField::parse("private_key"),
             Some(SecretField::PrivateKey)
         );
-        assert_eq!(SecretField::ALL.len(), 9);
+        assert_eq!(SecretField::ALL.len(), 10);
         let default: AuthScheme = serde_json::from_value(
             json!({"scheme": "jwt", "alg": "RS256", "claims": {"iss": "x"}}),
         )
@@ -3240,9 +3486,297 @@ mod tests {
                 name: "X-Key".into(),
             },
             prefix: None,
+            extra_keys: vec![],
         };
         assert_eq!(scheme.fields(), &[SecretField::ApiKey]);
         assert_eq!(scheme.required(), &[SecretField::ApiKey]);
         assert_eq!(scheme.word(), "api_key");
+    }
+
+    /// A second key is additive: a definition written before there were any
+    /// reads and writes as it did, and one that names more keys holds a
+    /// secret field for each.
+    #[test]
+    fn a_second_key_is_a_secret_field_of_the_account() {
+        let old = serde_json::json!({"scheme": "api_key", "place": {"in": "header", "name": "DD-API-KEY"}});
+        let scheme: AuthScheme = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(scheme.fields(), vec![SecretField::ApiKey]);
+        assert_eq!(
+            serde_json::to_value(&scheme).unwrap(),
+            old,
+            "nothing new is written"
+        );
+
+        let two: AuthScheme = serde_json::from_value(serde_json::json!({
+            "scheme": "api_key",
+            "place": {"in": "header", "name": "DD-API-KEY"},
+            "extra_keys": [{"secret": "app_key", "label": "Application key", "place": {"in": "header", "name": "DD-APPLICATION-KEY"}}]
+        }))
+        .unwrap();
+        assert_eq!(two.fields(), vec![SecretField::ApiKey, SecretField::AppKey]);
+        assert_eq!(two.required(), two.fields(), "every key is needed");
+        let mut c = connector();
+        c.auth = two;
+        assert_eq!(c.validate(), vec![]);
+
+        let mut account = ConnectorAccount {
+            id: AccountId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+            connector: c.id.clone(),
+            label: "work".into(),
+            default: true,
+            params: BTreeMap::new(),
+            auth: AccountAuth {
+                fields_set: vec![SecretField::ApiKey],
+                expires_at: None,
+                scope: None,
+            },
+            created_at: 0,
+        };
+        assert_eq!(account.missing(&c.auth), vec![SecretField::AppKey]);
+        account.auth.fields_set.push(SecretField::AppKey);
+        assert!(account.is_connected(&c.auth));
+        assert_eq!(account.validate(&c), vec![]);
+    }
+
+    #[test]
+    fn a_second_key_is_held_to_its_own_rules() {
+        let with = |keys: Vec<ExtraKey>| {
+            let mut c = connector();
+            c.auth = AuthScheme::ApiKey {
+                place: KeyPlace::Header {
+                    name: "X-Key".into(),
+                },
+                prefix: None,
+                extra_keys: keys,
+            };
+            c.validate()
+        };
+        let key = |secret, label: &str, place| ExtraKey {
+            secret,
+            label: label.into(),
+            place,
+            prefix: None,
+        };
+        let header = |name: &str| KeyPlace::Header { name: name.into() };
+        let query = |name: &str| KeyPlace::Query { name: name.into() };
+        assert_eq!(
+            with(vec![
+                key(SecretField::AppKey, "Application key", header("X-App")),
+                key(SecretField::Token, "Org token", query("org")),
+            ]),
+            vec![]
+        );
+        // The first key's field, and the ones a connection or a signer writes.
+        for taken in [
+            SecretField::ApiKey,
+            SecretField::AccessToken,
+            SecretField::RefreshToken,
+            SecretField::PrivateKey,
+        ] {
+            assert_eq!(
+                fields(&with(vec![key(taken, "Second", header("X-App"))])),
+                vec!["auth.extra_keys"],
+                "{taken}"
+            );
+        }
+        // One field holds one key.
+        assert_eq!(
+            fields(&with(vec![
+                key(SecretField::AppKey, "A", header("X-A")),
+                key(SecretField::AppKey, "B", header("X-B")),
+            ])),
+            vec!["auth.extra_keys"]
+        );
+        // A key a person cannot name, one with nowhere to go, one no header can carry.
+        assert_eq!(
+            fields(&with(vec![key(SecretField::AppKey, "  ", header("X-App"))])),
+            vec!["auth.extra_keys"]
+        );
+        assert_eq!(
+            fields(&with(vec![key(SecretField::AppKey, "App", query(" "))])),
+            vec!["auth.extra_keys"]
+        );
+        assert_eq!(
+            fields(&with(vec![key(
+                SecretField::AppKey,
+                "App",
+                header("X App")
+            )])),
+            vec!["auth.extra_keys"]
+        );
+        // Two keys in one place: the second would be read as the first — a
+        // header's name whatever its case, a query's as written.
+        assert_eq!(
+            fields(&with(vec![key(
+                SecretField::AppKey,
+                "App",
+                header("x-key")
+            )])),
+            vec!["auth.extra_keys"]
+        );
+        assert_eq!(
+            fields(&with(vec![
+                key(SecretField::AppKey, "App", query("k")),
+                key(SecretField::Token, "Org", query("k")),
+            ])),
+            vec!["auth.extra_keys"]
+        );
+        assert_eq!(
+            with(vec![key(SecretField::AppKey, "App", query("X-Key"))]),
+            vec![],
+            "a header and a query pair of one name are two places"
+        );
+    }
+
+    fn client_credentials() -> AuthScheme {
+        serde_json::from_value(serde_json::json!({
+            "scheme": "client_credentials",
+            "token_url": "https://auth.acme.example/token"
+        }))
+        .unwrap()
+    }
+
+    /// The grant with nothing said reads with the RFC's words, writes none
+    /// of them back, and holds a client's id and secret.
+    #[test]
+    fn a_client_credentials_scheme_reads_with_the_rfcs_words() {
+        let scheme = client_credentials();
+        let AuthScheme::ClientCredentials {
+            scopes,
+            scope_join,
+            token_auth,
+            grant_type,
+            params,
+            ..
+        } = &scheme
+        else {
+            panic!("a client-credentials scheme");
+        };
+        assert!(scopes.is_empty() && params.is_empty());
+        assert_eq!(*scope_join, ScopeJoin::Space);
+        assert_eq!(*token_auth, TokenAuth::Form);
+        assert_eq!(grant_type, DEFAULT_GRANT_TYPE);
+        assert_eq!(
+            serde_json::to_value(&scheme).unwrap(),
+            serde_json::json!({"scheme": "client_credentials", "token_url": "https://auth.acme.example/token"})
+        );
+        assert_eq!(scheme.word(), "client_credentials");
+        assert!(scheme.needs_account());
+        assert_eq!(
+            scheme.fields(),
+            vec![
+                SecretField::ClientId,
+                SecretField::ClientSecret,
+                SecretField::AccessToken
+            ]
+        );
+        assert_eq!(
+            scheme.required(),
+            vec![SecretField::ClientId, SecretField::ClientSecret]
+        );
+
+        // The token endpoint is a host the connector may reach, by its URL.
+        let mut c = connector();
+        c.auth = scheme;
+        assert_eq!(c.validate(), vec![]);
+        assert_eq!(c.oauth_hosts(), vec!["auth.acme.example"]);
+        assert_eq!(
+            c.declared_hosts(),
+            vec!["api.acme.example", "auth.acme.example"]
+        );
+
+        // An account with the client's two secrets is connected: the token
+        // is the platform's answer to them, asked for at the first call.
+        let account = ConnectorAccount {
+            id: AccountId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+            connector: c.id.clone(),
+            label: "work".into(),
+            default: true,
+            params: BTreeMap::new(),
+            auth: AccountAuth {
+                fields_set: vec![SecretField::ClientId],
+                expires_at: None,
+                scope: None,
+            },
+            created_at: 0,
+        };
+        assert_eq!(account.missing(&c.auth), vec![SecretField::ClientSecret]);
+    }
+
+    #[test]
+    fn a_client_credentials_scheme_is_held_to_its_own_rules() {
+        let with = |patch: serde_json::Value| {
+            let mut json = serde_json::json!({
+                "scheme": "client_credentials",
+                "token_url": "https://auth.acme.example/token"
+            });
+            for (k, v) in patch.as_object().unwrap() {
+                json[k] = v.clone();
+            }
+            let mut c = connector();
+            c.params = vec![ParamDef {
+                name: ParamName::new("tenant").unwrap(),
+                label: "Tenant".into(),
+                kind: ParamKind::Text,
+                required: true,
+                default: None,
+                doc: String::new(),
+            }];
+            c.auth = serde_json::from_value(json).unwrap();
+            c.validate()
+        };
+        use serde_json::json;
+        assert_eq!(
+            with(json!({
+                "scopes": ["read", "write"],
+                "scope_join": "comma",
+                "token_auth": "basic",
+                "grant_type": "account_credentials",
+                "params": {"account_id": "{account.tenant}", "audience": "https://api.acme.example"}
+            })),
+            vec![]
+        );
+        assert_eq!(
+            with(json!({"token_url": "http://127.0.0.1:9/token"})),
+            vec![],
+            "a loopback endpoint may be plain"
+        );
+        assert_eq!(
+            fields(&with(
+                json!({"token_url": "http://auth.acme.example/token"})
+            )),
+            vec!["auth.token_url"]
+        );
+        for word in ["", "  ", "client credentials"] {
+            assert_eq!(
+                fields(&with(json!({"grant_type": word}))),
+                vec!["auth.grant_type"],
+                "{word:?}"
+            );
+        }
+        // What the grant itself writes is not a definition's to write again.
+        for key in CLIENT_CREDENTIALS_PARAMS {
+            assert_eq!(
+                fields(&with(json!({"params": {*key: "x"}}))),
+                vec!["auth.params"],
+                "{key}"
+            );
+        }
+        // A pair reads the account, never a step: no step is there when a token is asked for.
+        assert_eq!(
+            fields(&with(json!({"params": {"audience": "{params.id}"}}))),
+            vec!["auth.params.audience"]
+        );
+        assert_eq!(
+            fields(&with(json!({"params": {"audience": "{account.nope}"}}))),
+            vec!["auth.params.audience"]
+        );
+        // A word the scheme does not know is refused where it is read.
+        assert!(serde_json::from_value::<AuthScheme>(json!({
+            "scheme": "client_credentials",
+            "token_url": "https://auth.acme.example/token",
+            "token_auth": "post"
+        }))
+        .is_err());
     }
 }

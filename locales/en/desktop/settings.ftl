@@ -279,6 +279,7 @@ settings-connectors-panel-waiting-platform-s-code-browser-s = Waiting for the pl
 settings-connectors-password-api-token = Password or API token
 settings-connectors-platform = the platform
 settings-connectors-private-key-pem = Private key (PEM)
+settings-connectors-app-key = Application key
 settings-connectors-refresh-token = Refresh token
 settings-connectors-register-own-oauth-client-platform-redirect = Register your own OAuth client at the platform with the redirect URI { $port }, set its client id and secret here, then connect: the browser opens the consent page and comes back to this node. A platform that cannot send the browser back to loopback shows a field to paste the code instead.
 settings-connectors-s-definition-names-check-operation-first = { $name }'s definition names no check operation; the first call will tell.
@@ -1652,6 +1653,7 @@ settings-connectors-what-client-secret = OAuth client secret
 settings-connectors-what-access-token = access token
 settings-connectors-what-refresh-token = refresh token
 settings-connectors-what-private-key = private key
+settings-connectors-what-app-key = application key
 
 ## A setting's origin badge and the scope a row writes to (`views/_settings/settingOriginModel.mjs`) — a scope is said as a person types it.
 settings-setting-origin-default = default
@@ -1852,6 +1854,7 @@ settings-connectors-scheme-bearer = Bearer token
 settings-connectors-scheme-basic = Username and password
 settings-connectors-scheme-oauth2 = OAuth 2
 settings-connectors-scheme-jwt = Signed token
+settings-connectors-scheme-client-credentials = Client credentials
 settings-connectors-oauth-held = { $words } · { $held } { $where }
 settings-connectors-held-where = { $held } { $where }
 settings-connectors-check-all-failed = { $failed } of { $queued } { $queued ->

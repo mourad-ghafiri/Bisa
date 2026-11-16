@@ -408,9 +408,15 @@ impl Workspace {
         let _one_writer = self.accounts_writer();
         let def = self.get_connector(connector)?;
         let mut existing = self.get_connector_account(connector, account)?;
+        let moved = existing.params != params;
         existing.label = label;
         existing.params = params;
         refuse_account_problems(&def, &existing)?;
+        if moved {
+            // A token granted for the old parameters — another tenant's,
+            // say — is not this account's any more.
+            self.forget_granted_token(&def, &mut existing)?;
+        }
         self.write_connector_account(&existing)?;
         Ok(existing)
     }
@@ -522,8 +528,40 @@ impl Workspace {
             }
         }
         existing.auth.fields_set.sort_by_key(|f| f.as_str());
+        let client_moved = [SecretField::ClientId, SecretField::ClientSecret]
+            .iter()
+            .any(|f| secrets.contains_key(f));
+        if client_moved && !secrets.contains_key(&SecretField::AccessToken) {
+            let def = self.get_connector(connector)?;
+            self.forget_granted_token(&def, &mut existing)?;
+        }
         self.write_connector_account(&existing)?;
         Ok(existing)
+    }
+
+    /// Under a client-credentials scheme the access token is the platform's
+    /// answer to one client and one account's parameters; when either
+    /// changes, the token kept for the old ones leaves the keystore and the
+    /// record, and the next call asks again. Nothing under another scheme:
+    /// an OAuth2 token is the person's consent, not a secret's answer. The
+    /// caller holds the accounts' writer and writes the record.
+    fn forget_granted_token(
+        &self,
+        def: &Connector,
+        account: &mut ConnectorAccount,
+    ) -> Result<(), StoreError> {
+        if !matches!(def.auth, AuthScheme::ClientCredentials { .. }) {
+            return Ok(());
+        }
+        self.identity
+            .delete_secret(&secret_name(&def.id, account.id, SecretField::AccessToken))?;
+        account
+            .auth
+            .fields_set
+            .retain(|f| *f != SecretField::AccessToken);
+        account.auth.expires_at = None;
+        account.auth.scope = None;
+        Ok(())
     }
 
     /// Move one secret field to another name — the credential that changes
@@ -1156,5 +1194,175 @@ mod tests {
             .connector_secret(&slack, b.id, SecretField::Token)
             .unwrap()
             .is_none());
+    }
+
+    fn account_of(ws: &Workspace, c: &Connector) -> ConnectorAccount {
+        ws.create_connector_account(NewConnectorAccount {
+            connector: c.id.clone(),
+            label: "work".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap()
+    }
+
+    /// A key scheme with a second key takes a secret for each, and still
+    /// refuses a field it does not read.
+    #[test]
+    fn a_second_key_is_set_like_the_first() {
+        let (_d, ws) = ws();
+        let mut two = def("metrics");
+        two.auth = AuthScheme::ApiKey {
+            place: bisa_core::KeyPlace::Header {
+                name: "X-Api-Key".into(),
+            },
+            prefix: None,
+            extra_keys: vec![bisa_core::ExtraKey {
+                secret: SecretField::AppKey,
+                label: "Application key".into(),
+                place: bisa_core::KeyPlace::Header {
+                    name: "X-App-Key".into(),
+                },
+                prefix: None,
+            }],
+        };
+        let c = ws.create_connector(two).unwrap();
+        let a = account_of(&ws, &c);
+        let first = BTreeMap::from([(SecretField::ApiKey, "k-one".to_string())]);
+        let half = ws.set_connector_secrets(&c.id, a.id, &first).unwrap();
+        assert!(!half.is_connected(&c.auth), "one key of two is not enough");
+        let second = BTreeMap::from([(SecretField::AppKey, " k-two\n".to_string())]);
+        let whole = ws.set_connector_secrets(&c.id, a.id, &second).unwrap();
+        assert!(whole.is_connected(&c.auth));
+        assert_eq!(
+            ws.connector_secret(&c.id, a.id, SecretField::AppKey)
+                .unwrap()
+                .as_deref(),
+            Some("k-two"),
+            "kept as the first is: without what a paste brought along"
+        );
+        let stray = BTreeMap::from([(SecretField::Token, "t".to_string())]);
+        assert!(ws.set_connector_secrets(&c.id, a.id, &stray).is_err());
+
+        // A key scheme with one key has no field for a second.
+        let mut one = def("plain");
+        one.auth = AuthScheme::ApiKey {
+            place: bisa_core::KeyPlace::Header {
+                name: "X-Api-Key".into(),
+            },
+            prefix: None,
+            extra_keys: vec![],
+        };
+        let plain = ws.create_connector(one).unwrap();
+        let b = account_of(&ws, &plain);
+        assert!(ws.set_connector_secrets(&plain.id, b.id, &second).is_err());
+
+        // Forgetting the account takes every key with it.
+        ws.delete_connector_account(&c.id, a.id).unwrap();
+        assert!(ws
+            .connector_secret(&c.id, a.id, SecretField::AppKey)
+            .unwrap()
+            .is_none());
+    }
+
+    /// A client-credentials token is the platform's answer to one client and
+    /// one account's parameters: when either changes, the token kept for the
+    /// old ones goes, and the next call asks again.
+    #[test]
+    fn a_granted_token_does_not_outlive_the_client_it_was_granted_to() {
+        let (_d, ws) = ws();
+        let mut grant = def("meetings");
+        grant.auth = serde_json::from_value(serde_json::json!({
+            "scheme": "client_credentials",
+            "token_url": "https://auth.example.com/token"
+        }))
+        .unwrap();
+        grant.params = vec![bisa_core::ParamDef {
+            name: bisa_core::InputName::new("tenant").unwrap(),
+            label: "Tenant".into(),
+            kind: bisa_core::ParamKind::Text,
+            required: false,
+            doc: "The tenant.".into(),
+            default: None,
+        }];
+        let c = ws.create_connector(grant).unwrap();
+        let a = account_of(&ws, &c);
+        let client = BTreeMap::from([
+            (SecretField::ClientId, "cid".to_string()),
+            (SecretField::ClientSecret, "cs-one".to_string()),
+        ]);
+        let set = ws.set_connector_secrets(&c.id, a.id, &client).unwrap();
+        assert!(set.is_connected(&c.auth), "the client alone connects");
+        let refresh = BTreeMap::from([(SecretField::RefreshToken, "r".to_string())]);
+        assert!(
+            ws.set_connector_secrets(&c.id, a.id, &refresh).is_err(),
+            "the grant has no refresh token"
+        );
+
+        let granted = |ws: &Workspace| {
+            ws.set_connector_tokens(&c.id, a.id, "at-one", None, Some(99), Some("read".into()))
+                .unwrap()
+        };
+        let holds_token = |ws: &Workspace| {
+            let record = ws.get_connector_account(&c.id, a.id).unwrap();
+            let kept = ws
+                .connector_secret(&c.id, a.id, SecretField::AccessToken)
+                .unwrap();
+            assert_eq!(
+                record.auth.fields_set.contains(&SecretField::AccessToken),
+                kept.is_some(),
+                "the record and the keystore agree"
+            );
+            assert_eq!(record.auth.expires_at.is_some(), kept.is_some());
+            assert_eq!(record.auth.scope.is_some(), kept.is_some());
+            kept.is_some()
+        };
+        let with = granted(&ws);
+        assert_eq!(with.auth.expires_at, Some(99));
+        assert!(holds_token(&ws));
+
+        // The same label and parameters saved again change nothing.
+        ws.update_connector_account(&c.id, a.id, "renamed".into(), BTreeMap::new())
+            .unwrap();
+        assert!(holds_token(&ws), "a label is not what the token answers");
+
+        // Another secret for the client: the old client's token goes.
+        let rotated = BTreeMap::from([(SecretField::ClientSecret, "cs-two".to_string())]);
+        let after = ws.set_connector_secrets(&c.id, a.id, &rotated).unwrap();
+        assert!(!holds_token(&ws));
+        assert!(
+            after.is_connected(&c.auth),
+            "still connected: the client is set"
+        );
+
+        // Another tenant: the token asked for the old one goes.
+        granted(&ws);
+        ws.update_connector_account(
+            &c.id,
+            a.id,
+            "renamed".into(),
+            BTreeMap::from([("tenant".to_string(), serde_json::json!("other"))]),
+        )
+        .unwrap();
+        assert!(!holds_token(&ws));
+
+        // Under OAuth2 a new client secret leaves the tokens: they were the
+        // person's consent, not the secret's answer.
+        let mut oauth = def("mail");
+        oauth.auth = serde_json::from_value(serde_json::json!({
+            "scheme": "oauth2",
+            "authorization_url": "https://auth.example.com/authorize",
+            "token_url": "https://auth.example.com/token"
+        }))
+        .unwrap();
+        let o = ws.create_connector(oauth).unwrap();
+        let b = account_of(&ws, &o);
+        ws.set_connector_tokens(&o.id, b.id, "at", Some("rt"), Some(99), None)
+            .unwrap();
+        ws.set_connector_secrets(&o.id, b.id, &rotated).unwrap();
+        assert!(ws
+            .connector_secret(&o.id, b.id, SecretField::AccessToken)
+            .unwrap()
+            .is_some());
     }
 }

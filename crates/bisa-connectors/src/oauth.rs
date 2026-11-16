@@ -2,16 +2,22 @@
 //! alive. The person's own client id and secret arrive as stored fields;
 //! nothing here ships one. The browser's redirect lands on the node; this
 //! module only builds the URL it is sent to and exchanges what it brings back.
+//!
+//! The client-credentials grant lives here too: no browser and no refresh
+//! token — the client's id and secret are traded for an access token, and
+//! traded again when it lapses, under the same one-at-a-time rule.
 
 use crate::client::Client;
 use crate::creds::{AccountRef, Entropy, Secret, Stored, TokenSet};
 use crate::error::ConnectorError;
 use crate::hosts::HostJudge;
 use crate::http::Request;
-use crate::spec::{AuthSpec, ChallengeEncoding, Method, ScopeJoin};
+use crate::spec::{AuthSpec, ChallengeEncoding, Method, ScopeJoin, TokenAuth};
+use crate::template::{self, Encode, Values};
 use base64::Engine as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::time::Duration;
 use url::Url;
 
@@ -159,11 +165,11 @@ pub fn authorize_url(
 
 /// A token-endpoint request: a form body, and the client's own credentials
 /// either in the form — the id under `client_id_param` — or, when the
-/// definition says `token_auth = "basic"`, in an `Authorization` header.
+/// definition says so (`basic`), in an `Authorization` header.
 fn token_request(
     token_url: &str,
     judge: &dyn HostJudge,
-    extra: &std::collections::BTreeMap<String, String>,
+    basic: bool,
     client_id_param: &str,
     stored: &Stored,
     pairs: Vec<(&str, String)>,
@@ -182,7 +188,6 @@ fn token_request(
     let client_secret = stored
         .field(crate::creds::Field::ClientSecret)
         .map(|s| s.expose().to_string());
-    let basic = extra.get("token_auth").is_some_and(|v| v == "basic");
     let mut form = url::form_urlencoded::Serializer::new(String::new());
     let mut secrets = Vec::new();
     for (k, v) in &pairs {
@@ -294,7 +299,7 @@ pub async fn exchange(
     let (req, secrets) = token_request(
         token_url,
         judge,
-        extra,
+        basic_in(extra),
         client_id_param,
         &stored,
         pairs,
@@ -315,11 +320,12 @@ pub async fn refresh(
     stored: &Stored,
     judge: &dyn HostJudge,
 ) -> Result<TokenSet, ConnectorError> {
-    refresh_within(
+    renew_within(
         client,
         auth,
         account,
         stored,
+        &BTreeMap::new(),
         judge,
         client.oauth_timeout(),
         None,
@@ -327,25 +333,116 @@ pub async fn refresh(
     .await
 }
 
-/// The account's refresh lock, held by whoever is exchanging its token.
-type RefreshTurn = tokio::sync::OwnedMutexGuard<()>;
+/// Whether an OAuth2 scheme's `extra` sends the client's credentials in a
+/// header.
+fn basic_in(extra: &BTreeMap<String, String>) -> bool {
+    extra.get("token_auth").is_some_and(|v| v == "basic")
+}
 
-/// The refresh. The caller waits `timeout` for it — what is left of the call
-/// that needs the token, never more than the endpoint's own deadline — but
-/// the exchange is **not the caller's to cut short**: a platform that
-/// rotates its refresh token spent the old one the moment it answered, so
-/// the request and the save run on a task of their own, under the
-/// endpoint's deadline and holding the account's `turn`, and what the
-/// platform answered is kept whether or not anybody still waits for it.
-async fn refresh_within(
+/// The request that gets an account a new access token, by its scheme, and
+/// what must be known to read the answer.
+struct Renewal {
+    req: Request,
+    /// What the request carries that no message may repeat.
+    secrets: Vec<String>,
+    /// The refresh token to keep when the platform answers none — an
+    /// OAuth2 refresh's; a client-credentials grant has none.
+    kept: Option<Secret>,
+    /// What the platform's refusal of this request means to the person.
+    refused: Refusal,
+}
+
+/// The two ways a token endpoint says *no* for good.
+#[derive(Clone, Copy)]
+enum Refusal {
+    /// `invalid_grant`: the refresh token no longer works.
+    Grant,
+    /// `invalid_client`, or a 401: the client's id or secret is wrong.
+    Client,
+}
+
+impl Refusal {
+    /// The sentence for a refusal that is the account's to mend, or the
+    /// error as it came.
+    fn read(self, e: ConnectorError) -> ConnectorError {
+        match (self, e) {
+            (
+                Refusal::Grant,
+                ConnectorError::Refused {
+                    status: 400,
+                    reason,
+                },
+            ) if reason.contains("invalid_grant") => ConnectorError::NotAuthenticated(
+                "the refresh token was revoked; connect the account again".into(),
+            ),
+            (
+                Refusal::Client,
+                ConnectorError::Refused {
+                    status: 400,
+                    reason,
+                },
+            ) if reason.contains("invalid_client") => ConnectorError::NotAuthenticated(
+                "the platform refused the client's id and secret; set them again".into(),
+            ),
+            (Refusal::Client, ConnectorError::NotAuthenticated(_)) => {
+                ConnectorError::NotAuthenticated(
+                    "the platform refused the client's id and secret; set them again".into(),
+                )
+            }
+            (_, e) => e,
+        }
+    }
+}
+
+/// Build the renewal a scheme names: a refresh for OAuth2, the grant itself
+/// for client credentials — its extra pairs rendered against the account.
+fn renewal(
     client: &Client,
     auth: &AuthSpec,
-    account: &AccountRef,
     stored: &Stored,
+    account_params: &BTreeMap<String, Value>,
     judge: &dyn HostJudge,
-    timeout: Duration,
-    turn: Option<RefreshTurn>,
-) -> Result<TokenSet, ConnectorError> {
+) -> Result<Renewal, ConnectorError> {
+    if let AuthSpec::ClientCredentials {
+        token_url,
+        scopes,
+        scope_join,
+        token_auth,
+        grant_type,
+        params,
+    } = auth
+    {
+        // The signer asked for the client's id and secret before the call
+        // got here (`ClientCredentialsSigner::credential_for`); a secret
+        // taken away since is the platform's to refuse, as `invalid_client`.
+        let none = BTreeMap::new();
+        let values = Values {
+            account: account_params,
+            params: &none,
+        };
+        let mut pairs = vec![("grant_type", grant_type.clone())];
+        if !scopes.is_empty() {
+            pairs.push(("scope", scopes.join(scope_join.separator())));
+        }
+        for (k, tmpl) in params {
+            pairs.push((k.as_str(), template::render(tmpl, &values, Encode::Text)?));
+        }
+        let (req, secrets) = token_request(
+            token_url,
+            judge,
+            *token_auth == TokenAuth::Basic,
+            crate::spec::DEFAULT_CLIENT_ID_PARAM,
+            stored,
+            pairs,
+            client.oauth_timeout(),
+        )?;
+        return Ok(Renewal {
+            req,
+            secrets,
+            kept: None,
+            refused: Refusal::Client,
+        });
+    }
     let OAuthParts {
         token_url,
         extra,
@@ -369,31 +466,63 @@ async fn refresh_within(
     let (req, secrets) = token_request(
         token_url,
         judge,
-        extra,
+        basic_in(extra),
         client_id_param,
         stored,
         pairs,
         client.oauth_timeout(),
     )?;
+    Ok(Renewal {
+        req,
+        secrets,
+        kept: Some(refresh_token.clone()),
+        refused: Refusal::Grant,
+    })
+}
+
+/// The account's refresh lock, held by whoever is exchanging its token.
+type RefreshTurn = tokio::sync::OwnedMutexGuard<()>;
+
+/// The renewal: a refresh, or a client-credentials grant asked again. The
+/// caller waits `timeout` for it — what is left of the call that needs the
+/// token, never more than the endpoint's own deadline — but the exchange is
+/// **not the caller's to cut short**: a platform that rotates its refresh
+/// token spent the old one the moment it answered, so the request and the
+/// save run on a task of their own, under the endpoint's deadline and
+/// holding the account's `turn`, and what the platform answered is kept
+/// whether or not anybody still waits for it.
+#[allow(clippy::too_many_arguments)]
+async fn renew_within(
+    client: &Client,
+    auth: &AuthSpec,
+    account: &AccountRef,
+    stored: &Stored,
+    account_params: &BTreeMap<String, Value>,
+    judge: &dyn HostJudge,
+    timeout: Duration,
+    turn: Option<RefreshTurn>,
+) -> Result<TokenSet, ConnectorError> {
+    let Renewal {
+        req,
+        secrets,
+        kept,
+        refused,
+    } = renewal(client, auth, stored, account_params, judge)?;
     let wait = timeout.min(client.oauth_timeout());
     let flight = {
-        let (client, account, kept) = (client.clone(), account.clone(), refresh_token.clone());
+        let (client, account) = (client.clone(), account.clone());
         tokio::spawn(async move {
             let _turn = turn;
-            let body = match token_body(&client, &req, &secrets).await {
-                Ok(body) => body,
-                Err(ConnectorError::Refused {
-                    status: 400,
-                    reason,
-                }) if reason.contains("invalid_grant") => {
-                    return Err(ConnectorError::NotAuthenticated(
-                        "the refresh token was revoked; connect the account again".into(),
-                    ))
-                }
-                Err(e) => return Err(e),
-            };
-            let tokens = read_tokens(&body, client.now(), Some(&kept))
+            let body = token_body(&client, &req, &secrets)
+                .await
+                .map_err(|e| refused.read(e))?;
+            let mut tokens = read_tokens(&body, client.now(), kept.as_ref())
                 .map_err(|e| e.scrubbed(&refs(&secrets)))?;
+            if kept.is_none() {
+                // A grant asked again needs no refresh token, and the
+                // account has no field for one: what a platform adds is let go.
+                tokens.refresh_token = None;
+            }
             client.creds().save_tokens(&account, &tokens).await?;
             Ok(tokens)
         })
@@ -410,13 +539,14 @@ async fn refresh_within(
 }
 
 /// A usable access token: the stored one while it is not about to expire,
-/// else a refreshed one — refreshed once even when several calls ask at the
-/// same moment, and within `budget`, what the call that needs it has left.
+/// else a new one — asked for once even when several calls ask at the same
+/// moment, and within `budget`, what the call that needs it has left.
 pub(crate) async fn ensure_fresh(
     client: &Client,
     auth: &AuthSpec,
     account: &AccountRef,
     stored: &Stored,
+    account_params: &BTreeMap<String, Value>,
     judge: &dyn HostJudge,
     budget: Duration,
 ) -> Result<Secret, ConnectorError> {
@@ -437,7 +567,17 @@ pub(crate) async fn ensure_fresh(
     if let Some(token) = fresh(&again) {
         return Ok(token);
     }
-    let tokens = refresh_within(client, auth, account, &again, judge, budget, Some(turn)).await?;
+    let tokens = renew_within(
+        client,
+        auth,
+        account,
+        &again,
+        account_params,
+        judge,
+        budget,
+        Some(turn),
+    )
+    .await?;
     Ok(tokens.access_token)
 }
 
@@ -450,6 +590,7 @@ pub(crate) async fn force_refresh(
     auth: &AuthSpec,
     account: &AccountRef,
     used: Option<&Secret>,
+    account_params: &BTreeMap<String, Value>,
     judge: &dyn HostJudge,
     budget: Duration,
 ) -> Result<Secret, ConnectorError> {
@@ -461,7 +602,17 @@ pub(crate) async fn force_refresh(
     if let Some(now) = replaced {
         return Ok(now.clone());
     }
-    let tokens = refresh_within(client, auth, account, &stored, judge, budget, Some(turn)).await?;
+    let tokens = renew_within(
+        client,
+        auth,
+        account,
+        &stored,
+        account_params,
+        judge,
+        budget,
+        Some(turn),
+    )
+    .await?;
     Ok(tokens.access_token)
 }
 

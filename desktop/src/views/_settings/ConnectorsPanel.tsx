@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, openExternal } from "../../api";
-import type { AccountCheck, ConnectorAccountRow, ConnectorDefinition, ConnectorParamDef, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
+import type { AccountCheck, AuthScheme, ConnectorAccountRow, ConnectorDefinition, ConnectorParamDef, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
 import { Button, Card, Chip, ConfirmDialog, Dialog, EmptyState, ErrorNote, Field, ICON, MoreMenu, Pending, SecretInput, SecretTextArea, TextArea, TextInput, Tooltip, failureText, cn, useToast } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { attempt } from "../_work/useAsync";
@@ -28,8 +28,8 @@ import { useResolvedSettings } from "../../shell/settingsStore";
 import { useConnectorDetail, useConnectors } from "../_workflow/useConnectors";
 import { pendingRows } from "./loadModel.mjs";
 import {
-  SECRET_FIELD_LABEL,
-  SECRET_FIELD_WHAT,
+  secretLabel,
+  secretWhat,
   accountBody,
   accountDraft,
   accountRows,
@@ -103,15 +103,15 @@ function useNow(ticking: boolean): number {
  * typed, the eye to show it, the mask for one the account already holds
  * (`secrets_set`); a PEM block gets the folded text area.
  */
-function SecretFields({ fields, value, storedFields, onChange }: { fields: SecretField[]; value: Secrets; storedFields: readonly SecretField[]; onChange: (next: Secrets) => void }) {
+function SecretFields({ auth, fields, value, storedFields, onChange }: { auth: AuthScheme | string; fields: SecretField[]; value: Secrets; storedFields: readonly SecretField[]; onChange: (next: Secrets) => void }) {
   return (
     <>
       {fields.map((f) => (
-        <Field key={f} label={SECRET_FIELD_LABEL[f]} hint={isMultilineSecret(f) ? t("settings-connectors-panel-paste-whole-pem-block-begin-end") : t("settings-connectors-panel-stored-keystore-machine-never-shown-back")}>
+        <Field key={f} label={secretLabel(auth, f)} hint={isMultilineSecret(f) ? t("settings-connectors-panel-paste-whole-pem-block-begin-end") : t("settings-connectors-panel-stored-keystore-machine-never-shown-back")}>
           {isMultilineSecret(f) ? (
-            <SecretTextArea what={SECRET_FIELD_WHAT[f]} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
+            <SecretTextArea what={secretWhat(auth, f)} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
           ) : (
-            <SecretInput what={SECRET_FIELD_WHAT[f]} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
+            <SecretInput what={secretWhat(auth, f)} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
           )}
         </Field>
       ))}
@@ -127,12 +127,15 @@ function SecretFields({ fields, value, storedFields, onChange }: { fields: Secre
  */
 function AccountDialog({
   connector,
+  auth,
   params,
   account,
   onClose,
   onSaved,
 }: {
   connector: ConnectorRow;
+  /** The definition's scheme once the card read it — a key scheme's further keys are named there — else its word. */
+  auth: AuthScheme | string;
   /** The definition's parameters as the card read them; null while unread. */
   params: readonly ConnectorParamDef[] | null;
   /** Editing this account; adding one when null. */
@@ -145,7 +148,7 @@ function AccountDialog({
   const [values, setValues] = useState<Record<string, string>>(() => accountDraft(account, params).values);
   const [secrets, setSecrets] = useState<Secrets>({});
   const [busy, setBusy] = useState(false);
-  const fields = secretFields(connector.auth);
+  const fields = secretFields(auth);
   // What the account still holds and the definition no longer asks for: said, and let go of by the save.
   const strays = strayParams(account, params);
   const missing = missingRequired(values, params);
@@ -197,7 +200,7 @@ function AccountDialog({
             <span className="font-mono">{strays.map((p) => `${p.name}=${p.value}`).join(" · ")}</span>
           </p>
         )}
-        {fields.length > 0 && <SecretFields fields={fields} value={secrets} storedFields={account?.secrets_set ?? []} onChange={setSecrets} />}
+        {fields.length > 0 && <SecretFields auth={auth} fields={fields} value={secrets} storedFields={account?.secrets_set ?? []} onChange={setSecrets} />}
         {account && fields.length > 0 && <p className="text-2xs text-text-dim">{t("settings-connectors-panel-field-left-blank-keeps-stored")}</p>}
       </div>
     </Dialog>
@@ -522,7 +525,8 @@ function ConnectorCard({
           {accounts.length > 0 && (
             <ul className="flex flex-col gap-2" aria-label={t("settings-connectors-panel-accounts", { row: row.name })}>
               {accounts.map((a) => {
-                const secrets = secretsLine(a, row.auth);
+                // The definition's scheme once it is read: a key scheme's further keys are named there.
+                const secrets = secretsLine(a, detail.data?.connector.auth ?? row.auth);
                 const expiry = oauthLine(a, now);
                 // One verb on the row, the rest behind its menu (`accountVerbs`); Forget still asks first.
                 const verbs = accountVerbs(a, oauth, hasCheck);
@@ -617,8 +621,8 @@ function ConnectorCard({
             ))}
         </div>
       )}
-      {adding && detail.data && <AccountDialog connector={row} params={detail.data.connector.params ?? []} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
-      {editing && <AccountDialog connector={row} params={detail.data?.connector.params ?? null} account={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); detail.reload(); }} />}
+      {adding && detail.data && <AccountDialog connector={row} auth={detail.data.connector.auth} params={detail.data.connector.params ?? []} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
+      {editing && <AccountDialog connector={row} auth={detail.data?.connector.auth ?? row.auth} params={detail.data?.connector.params ?? null} account={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); detail.reload(); }} />}
       {editingDef && detail.data && (
         <DefinitionDialog
           initial={definitionOf(detail.data.connector)}

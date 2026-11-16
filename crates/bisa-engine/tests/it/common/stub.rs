@@ -48,6 +48,17 @@ pub struct Call {
     pub authorization: Option<String>,
     /// The write's key, when the request carried one.
     pub idempotency_key: Option<String>,
+    /// Every header the request carried, names in lower case.
+    pub headers: Vec<(String, String)>,
+}
+
+impl Call {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
 }
 
 #[derive(Clone)]
@@ -117,6 +128,11 @@ async fn handle(State(shared): State<Shared>, req: AxumRequest) -> AxumResponse 
             .get("idempotency-key")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string),
+        headers: parts
+            .headers
+            .iter()
+            .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
+            .collect(),
     });
     let canned = {
         let mut answers = shared.answers.lock().unwrap();

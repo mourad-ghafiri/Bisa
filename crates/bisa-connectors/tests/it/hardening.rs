@@ -718,7 +718,7 @@ async fn a_call_to_this_machine_never_goes_through_a_proxy() {
                 body: None,
                 timeout: std::time::Duration::from_secs(5),
                 hidden_headers: vec![],
-                secret_query: None,
+                secret_query: vec![],
             },
             false,
         )
@@ -743,7 +743,7 @@ async fn a_platform_nobody_can_find_is_unreachable() {
                 body: None,
                 timeout: std::time::Duration::from_secs(5),
                 hidden_headers: vec![],
-                secret_query: None,
+                secret_query: vec![],
             },
             false,
         )

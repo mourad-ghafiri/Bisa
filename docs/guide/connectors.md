@@ -297,6 +297,85 @@ required = true
 bisa connector account add developer-api --label team --param issuer_id=… --param key_id=… --secret private_key=@AuthKey.p8
 ```
 
+### More than one key, and a client's own login
+
+**More than one key.** Some platforms ask for two keys on every request — an API key and an
+application key, say. `extra_keys` on an `api_key` scheme names each further one: the account's
+secret field that holds it (`secret`), the platform's own name for it (`label`, what the account's
+form asks for), where it goes (`place`) and an optional `prefix`. Every key is required, each is
+set like the first and scrubbed like it from whatever the platform says back, and an account
+holding one key of two is *not connected* — nothing is sent with half a credential. A second key
+is kept under `app_key`, or any of `token`, `username`, `password`, `client_id`, `client_secret`;
+never under `api_key` (the first key's) or a field a connection writes. Two keys cannot share a
+header or a query name. A definition without `extra_keys` is exactly what it was.
+
+```toml
+[connector]
+name = "Metrics"
+description = "A monitoring platform that asks for two keys."
+base_url = "https://api.metrics.example"
+hosts = ["api.metrics.example"]
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "X-Api-Key" }
+
+[[connector.auth.extra_keys]]
+secret = "app_key"
+label = "Application key"
+place = { in = "header", name = "X-Application-Key" }
+```
+
+```sh
+bisa connector account add metrics --label work --secret api_key=@api.txt --secret app_key=@app.txt
+```
+
+**A client's own login** (`client_credentials`, RFC 6749 §4.4). For a platform that gives a
+server-side app a client id and secret and no person to consent: the account holds the two, and
+the platform trades them for an access token at `token_url`. There is no *Connect* and no browser
+— the token is asked for when the first call needs one, kept in the keystore with its expiry,
+used until a minute before it lapses, and asked for again then or when the platform answers 401
+(once; a second 401 is the platform's answer). Calls at the same moment ask for one token between
+them. `scopes` and `scope_join` (`space` · `comma`) spell the `scope` pair; `token_auth` says
+where the client's id and secret travel (`form`, the default, or `basic` for an `Authorization:
+Basic` header); `grant_type` is `client_credentials` unless the platform names its own; `params`
+adds pairs to the token request, each a template over the account's parameters. The token
+endpoint is a host the scheme declares by its URL, the deny list still read first. A platform
+that refuses the client reads *the platform refused the client's id and secret; set them again*.
+Setting the client's id or secret again, or editing the account's parameters, lets go of the
+token kept for the old ones.
+
+```toml
+[connector]
+name = "Meetings"
+description = "A meetings platform reached as a server-side app."
+base_url = "https://api.meetings.example"
+hosts = ["api.meetings.example"]
+
+[connector.auth]
+scheme = "client_credentials"
+token_url = "https://auth.meetings.example/oauth/token"
+scopes = ["meeting:read"]
+token_auth = "basic"
+params = { account_id = "{account.account_id}" }
+
+[[connector.params]]
+name = "account_id"
+label = "Account id"
+required = true
+```
+
+```sh
+bisa connector account add meetings --label ops --param account_id=… --secret client_id=@id.txt --secret client_secret=@stdin
+```
+
+`bisa connector show <connector>` says on its `secrets` line which fields an account must hold.
+
+**What no scheme expresses yet.** A secret that is part of the URL's path, a login that trades a
+username and password for a session token, a request signed over its own bytes (AWS Signature
+Version 4, an HMAC of the body), and OAuth 1.0a. A platform that needs one of these cannot be
+written as a connector today.
+
 ## Polling a platform
 
 A connector step reads a platform when a run reaches it; a workflow's **`connector` start** reads

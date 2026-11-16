@@ -2113,3 +2113,213 @@ async fn a_write_the_platform_took_is_never_sent_again_because_its_answer_was_un
         engine.shutdown().await;
     }
 }
+
+/// A made-up key, spelled in two halves so no scanner reads this file as
+/// holding one.
+fn made_up(kind: &str) -> String {
+    format!("{kind}-{}", "0a1b2c3d".repeat(2))
+}
+
+/// The second key of a key scheme, end to end: each key from the keystore
+/// to its own header, an account with one key of two not connected, and
+/// neither key in what a refusal says.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connector_with_two_keys_sends_each_in_its_own_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let (api, app) = (made_up("api"), made_up("app"));
+    let stub = Stub::start(vec![
+        canned("GET", "/whoami", 200, json!({"user": "me"})),
+        canned(
+            "GET",
+            "/whoami",
+            403,
+            json!({"message": format!("{app} may not read this")}),
+        ),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let def = chat(
+        &stub,
+        serde_json::from_value(json!({
+            "scheme": "api_key",
+            "place": {"in": "header", "name": "DD-API-KEY"},
+            "extra_keys": [{
+                "secret": "app_key",
+                "label": "Application key",
+                "place": {"in": "header", "name": "DD-APPLICATION-KEY"}
+            }]
+        }))
+        .unwrap(),
+    );
+    let cid = def.id.clone();
+    ws.create_connector(def).unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: cid.clone(),
+            label: "work".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap()
+        .id;
+    ws.set_connector_secrets(
+        &cid,
+        account,
+        &BTreeMap::from([(SecretField::ApiKey, api.clone())]),
+    )
+    .unwrap();
+    let check = || {
+        connectors::check_account(
+            engine.inner(),
+            &cid,
+            account,
+            connectors::check_budget(None),
+        )
+    };
+
+    // One key of two: nothing is sent, and the missing one is named.
+    let half = check().await.unwrap();
+    assert_ne!(half.state, connectors::AccountCheckState::Connected);
+    assert!(
+        half.reason.clone().unwrap_or_default().contains("app_key"),
+        "{half:?}"
+    );
+    assert!(stub.calls().is_empty(), "half a credential is never sent");
+
+    ws.set_connector_secrets(
+        &cid,
+        account,
+        &BTreeMap::from([(SecretField::AppKey, app.clone())]),
+    )
+    .unwrap();
+    let ok = check().await.unwrap();
+    assert_eq!(ok.state, connectors::AccountCheckState::Connected);
+    let call = &stub.calls()[0];
+    assert_eq!(call.header("dd-api-key"), Some(api.as_str()));
+    assert_eq!(call.header("dd-application-key"), Some(app.as_str()));
+    assert_eq!(call.authorization, None);
+
+    let refused = check().await.unwrap();
+    let said = refused.reason.unwrap_or_default();
+    assert!(said.contains("may not read this"), "{said}");
+    assert!(!said.contains(&app) && !said.contains(&api), "{said}");
+    engine.shutdown().await;
+}
+
+/// A client-credentials connector, end to end: no browser — the first call
+/// asks the token endpoint with the client's id and secret and a pair read
+/// from the account, the token lands in the keystore with its expiry, the
+/// next call reuses it, and a consent flow is refused in words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_credentials_connector_asks_for_its_own_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let (secret, token) = (made_up("cs"), made_up("at"));
+    let stub = Stub::start(vec![
+        canned(
+            "POST",
+            "/oauth/token",
+            200,
+            json!({"access_token": token, "expires_in": 3600, "token_type": "bearer", "scope": "read"}),
+        ),
+        canned("GET", "/whoami", 200, json!({"user": "me"})),
+        canned("GET", "/whoami", 200, json!({"user": "me"})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let mut def = chat(
+        &stub,
+        serde_json::from_value(json!({
+            "scheme": "client_credentials",
+            "token_url": format!("{}/oauth/token", stub.base_url),
+            "scopes": ["read"],
+            "token_auth": "basic",
+            "grant_type": "account_credentials",
+            "params": {"account_id": "{account.tenant}"}
+        }))
+        .unwrap(),
+    );
+    def.params = vec![param("tenant", ParamKind::Text, true)];
+    let cid = def.id.clone();
+    ws.create_connector(def).unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: cid.clone(),
+            label: "work".into(),
+            params: BTreeMap::from([("tenant".to_string(), json!("t-42"))]),
+            default: true,
+        })
+        .unwrap()
+        .id;
+    ws.set_connector_secrets(
+        &cid,
+        account,
+        &BTreeMap::from([
+            (SecretField::ClientId, "cid-1".to_string()),
+            (SecretField::ClientSecret, secret.clone()),
+        ]),
+    )
+    .unwrap();
+    assert!(ws
+        .get_connector_account(&cid, account)
+        .unwrap()
+        .is_connected(&ws.get_connector(&cid).unwrap().auth));
+
+    let mut rx = engine.events();
+    for _ in 0..2 {
+        let ok = connectors::check_account(
+            engine.inner(),
+            &cid,
+            account,
+            connectors::check_budget(None),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ok.state, connectors::AccountCheckState::Connected, "{ok:?}");
+    }
+    let calls = stub.calls();
+    let asked: Vec<&Call> = calls.iter().filter(|c| c.path == "/oauth/token").collect();
+    assert_eq!(asked.len(), 1, "one grant for two calls");
+    let form: BTreeMap<String, String> = url::form_urlencoded::parse(asked[0].text.as_bytes())
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    assert_eq!(form["grant_type"], "account_credentials");
+    assert_eq!(form["scope"], "read");
+    assert_eq!(form["account_id"], "t-42");
+    assert!(!form.contains_key("client_secret"), "basic: {form:?}");
+    assert!(asked[0]
+        .authorization
+        .as_deref()
+        .is_some_and(|a| a.starts_with("Basic ")));
+    let bearer = format!("Bearer {token}");
+    assert!(calls
+        .iter()
+        .filter(|c| c.path == "/whoami")
+        .all(|c| c.authorization.as_deref() == Some(bearer.as_str())));
+
+    // The token is the keystore's, with its expiry and scope on the record,
+    // and the desktop hears the account changed.
+    let record = ws.get_connector_account(&cid, account).unwrap();
+    assert!(record.auth.fields_set.contains(&SecretField::AccessToken));
+    assert!(record.auth.expires_at.is_some());
+    assert_eq!(record.auth.scope.as_deref(), Some("read"));
+    assert_eq!(
+        ws.connector_secret(&cid, account, SecretField::AccessToken)
+            .unwrap()
+            .as_deref(),
+        Some(token.as_str())
+    );
+    wait_for(&mut rx, "the accounts change", |e| {
+        matches!(&e.payload, EnginePayload::ConnectorsChanged { what } if what.as_str() == "accounts")
+    })
+    .await;
+
+    // No consent page exists for this scheme: connecting is setting secrets.
+    let refused = connectors::oauth_start(engine.inner(), &cid, account, 4478).unwrap_err();
+    assert!(
+        refused.to_string().contains("client_credentials"),
+        "{refused}"
+    );
+    engine.shutdown().await;
+}

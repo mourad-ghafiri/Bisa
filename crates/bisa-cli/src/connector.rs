@@ -405,6 +405,21 @@ fn show(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
         a1 = (c.base_url).to_string(),
         a2 = (c.hosts.join(", ")).to_string()
     ));
+    // The fields an account must hold before a call can be made — each a
+    // `field=` of `bisa connector account add` — so a scheme with more than
+    // one key, or a client's id and secret, is asked for by name.
+    let required = c.auth.required();
+    if !required.is_empty() {
+        out.say(&bisa_core::text!(
+            "cli-connector-secrets-required",
+            a0 = (required
+                .iter()
+                .map(|f| f.as_str())
+                .collect::<Vec<_>>()
+                .join(", "))
+            .to_string()
+        ));
+    }
     if !c.params.is_empty() {
         out.say(&bisa_core::text!(
             "cli-connector-account-params",

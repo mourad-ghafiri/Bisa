@@ -158,6 +158,10 @@ async fn a_connector_is_recorded_shown_given_an_account_checked_and_forgotten() 
     assert_ok(&shown, "connector show");
     let text = stdout(&shown);
     assert!(text.contains("timeout 20s"), "{text}");
+    assert!(
+        text.contains("secrets token"),
+        "what an account must hold is named: {text}"
+    );
     assert!(text.contains("idempotency Idempotency-Key"), "{text}");
     assert!(text.contains("pages by cursor ← next (≤5)"), "{text}");
     assert!(
@@ -304,4 +308,121 @@ page = { cursor_param = "cursor", next_cursor = "next", max_pages = 99 }
             .any(|c| c["id"] == "bad"),
         "nothing recorded"
     );
+}
+
+/// A definition with two keys, and one with a client-credentials login,
+/// recorded from TOML: each says by name what its account must hold, and an
+/// account is given every field the scheme reads — never one it does not.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_two_auth_abilities_are_recorded_and_say_what_an_account_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let operation = r#"
+[[connector.operations]]
+id = "ping"
+name = "Ping"
+description = "Answers."
+method = "get"
+path = "/ping"
+"#;
+    let metrics = dir.path().join("metrics.toml");
+    std::fs::write(
+        &metrics,
+        format!(
+            r#"[connector]
+name = "Metrics"
+description = "A platform that asks for two keys."
+base_url = "https://api.metrics.example"
+hosts = ["api.metrics.example"]
+
+[connector.auth]
+scheme = "api_key"
+place = {{ in = "header", name = "DD-API-KEY" }}
+
+[[connector.auth.extra_keys]]
+secret = "app_key"
+label = "Application key"
+place = {{ in = "header", name = "DD-APPLICATION-KEY" }}
+{operation}"#
+        ),
+    )
+    .unwrap();
+    let meetings = dir.path().join("meetings.toml");
+    std::fs::write(
+        &meetings,
+        format!(
+            r#"[connector]
+name = "Meetings"
+description = "A platform reached with a client's own credentials."
+base_url = "https://api.meetings.example"
+hosts = ["api.meetings.example"]
+
+[connector.auth]
+scheme = "client_credentials"
+token_url = "https://auth.meetings.example/oauth/token"
+token_auth = "basic"
+{operation}"#
+        ),
+    )
+    .unwrap();
+    for from in [&metrics, &meetings] {
+        let recorded = bisa(
+            dir.path(),
+            &["connector", "new", "--from", &from.to_string_lossy()],
+        );
+        assert_ok(&recorded, "connector new");
+    }
+    let shown = stdout(&bisa(dir.path(), &["connector", "show", "metrics"]));
+    assert!(shown.contains("auth api_key"), "{shown}");
+    assert!(shown.contains("secrets api_key, app_key"), "{shown}");
+    let shown = stdout(&bisa(dir.path(), &["connector", "show", "meetings"]));
+    assert!(shown.contains("auth client_credentials"), "{shown}");
+    assert!(
+        shown.contains("secrets client_id, client_secret"),
+        "{shown}"
+    );
+
+    // Both keys, each from a file; the record names them and holds neither.
+    let (api, app) = (dir.path().join("api.txt"), dir.path().join("app.txt"));
+    std::fs::write(&api, "api-not-a-real-key\n").unwrap();
+    std::fs::write(&app, "app-not-a-real-key\n").unwrap();
+    let added = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "connector",
+            "account",
+            "add",
+            "metrics",
+            "--label",
+            "work",
+            "--secret",
+            &format!("api_key=@{}", api.display()),
+            "--secret",
+            &format!("app_key=@{}", app.display()),
+        ],
+    );
+    assert_ok(&added, "account add");
+    let said = stdout(&added);
+    assert!(
+        said.contains("app_key") && said.contains("api_key"),
+        "{said}"
+    );
+    assert!(!said.contains("not-a-real-key"), "never a value: {said}");
+
+    // A field the scheme does not read is refused by name.
+    let refused = bisa(
+        dir.path(),
+        &[
+            "connector",
+            "account",
+            "add",
+            "meetings",
+            "--label",
+            "work",
+            "--secret",
+            &format!("app_key=@{}", app.display()),
+        ],
+    );
+    assert!(!refused.status.success(), "{}", stdout(&refused));
 }

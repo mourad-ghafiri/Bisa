@@ -1,7 +1,7 @@
 import type { AccountCheck, AuthScheme, Connector, ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, NewConnectorAccount, OAuthStart, Origin, ResolvedSetting, SecretField } from "../../types";
 
 export type Tone = "ok" | "warn" | "danger" | "quiet";
-export type SchemeWord = "none" | "api_key" | "bearer" | "basic" | "oauth2" | "jwt";
+export type SchemeWord = "none" | "api_key" | "bearer" | "basic" | "oauth2" | "jwt" | "client_credentials";
 
 export declare const SECRET_FIELDS_BY_SCHEME: Readonly<Record<SchemeWord, readonly SecretField[]>>;
 export declare const SECRET_FIELD_LABEL: Readonly<Record<SecretField, string>>;
@@ -10,6 +10,10 @@ export declare const SECRET_FIELD_WHAT: Readonly<Record<SecretField, string>>;
 export declare function schemeWord(auth: string | AuthScheme | null | undefined): string;
 export declare function secretFields(auth: string | AuthScheme | null | undefined): SecretField[];
 export declare function isMultilineSecret(field: string): boolean;
+/** A field's label in the account's form: a further key's is the definition's own. */
+export declare function secretLabel(auth: string | AuthScheme | null | undefined, field: SecretField): string;
+/** The noun a sentence names a field by: a further key's own name, else the desktop's noun. */
+export declare function secretWhat(auth: string | AuthScheme | null | undefined, field: SecretField): string;
 export declare function needsAccount(auth: string | AuthScheme | null | undefined): boolean;
 export declare function connectApplies(auth: string | AuthScheme | null | undefined): boolean;
 /** The verb an account row shows, and the rest its menu lists. */
@@ -31,7 +35,7 @@ export declare function isYours(origin: Origin | null | undefined): boolean;
 export declare function originWords(origin: Origin | null | undefined): string;
 export declare function connectorLine(row: ConnectorRow | null | undefined): string;
 export declare function accountRows(accounts: ConnectorAccountRow[] | null | undefined): ConnectorAccountRow[];
-export declare function secretsLine(row: ConnectorAccountRow | null | undefined, auth: string): { tone: "ok" | "warn" | "quiet"; text: string };
+export declare function secretsLine(row: ConnectorAccountRow | null | undefined, auth: string | AuthScheme): { tone: "ok" | "warn" | "quiet"; text: string };
 export declare function oauthLine(row: ConnectorAccountRow | null | undefined, now: number): string | null;
 export declare function checkLine(check: AccountCheck | null | undefined, name?: string): { tone: Tone; text: string };
 export declare function connectWords(port: number | string): string;

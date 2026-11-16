@@ -50,6 +50,7 @@ async fn api_key_in_header_with_prefix() {
                 name: "X-Api-Key".into(),
             },
             prefix: Some("Token ".into()),
+            extra_keys: vec![],
         },
         Stored::default().with(Field::ApiKey, "k-123"),
     )
@@ -68,6 +69,7 @@ async fn api_key_in_query() {
         AuthSpec::ApiKey {
             place: KeyPlace::Query { name: "key".into() },
             prefix: None,
+            extra_keys: vec![],
         },
         Stored::default().with(Field::ApiKey, "k-456"),
     )

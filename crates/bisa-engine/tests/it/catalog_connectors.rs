@@ -401,7 +401,10 @@ fn slack_expects_ok_on_every_call_and_linear_sends_its_key_bare_and_expects_no_e
     assert!(matches!(spec.auth, AuthSpec::ApiKey { .. }));
     apply(
         &spec.auth,
-        &Credential::ApiKey(Secret::new("lin_api_not_real")),
+        &Credential::ApiKey {
+            key: Secret::new("lin_api_not_real"),
+            extra: vec![],
+        },
         &mut viewer,
         &SignContext {
             now: 0,

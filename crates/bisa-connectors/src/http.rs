@@ -21,8 +21,8 @@ pub struct Request {
     pub timeout: Duration,
     /// Header names whose values are credentials — hidden in `Debug`.
     pub hidden_headers: Vec<String>,
-    /// A query parameter carrying a credential — hidden in `Debug`.
-    pub secret_query: Option<String>,
+    /// The query parameters carrying a credential — hidden in `Debug`.
+    pub secret_query: Vec<String>,
 }
 
 impl Request {
@@ -34,7 +34,7 @@ impl Request {
             body: None,
             timeout,
             hidden_headers: vec!["authorization".into()],
-            secret_query: None,
+            secret_query: Vec::new(),
         }
     }
 
@@ -47,15 +47,15 @@ impl Request {
 
     /// The URL with a credential-carrying query value replaced by `…`.
     pub fn shown_url(&self) -> String {
-        let Some(secret) = self.secret_query.as_deref() else {
+        if self.secret_query.is_empty() {
             return self.url.to_string();
-        };
+        }
         let mut shown = self.url.clone();
         let pairs: Vec<(String, String)> = self
             .url
             .query_pairs()
             .map(|(k, v)| {
-                let v = if k == secret {
+                let v = if self.secret_query.iter().any(|secret| k == secret.as_str()) {
                     "…".to_string()
                 } else {
                     v.into_owned()

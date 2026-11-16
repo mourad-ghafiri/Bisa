@@ -657,12 +657,25 @@ fn body_of(body: &OperationBody) -> cx::CallBody {
 pub fn auth_spec(auth: &AuthScheme) -> cx::AuthSpec {
     match auth {
         AuthScheme::None => cx::AuthSpec::None,
-        AuthScheme::ApiKey { place, prefix } => cx::AuthSpec::ApiKey {
-            place: match place {
-                KeyPlace::Header { name } => cx::KeyPlace::Header { name: name.clone() },
-                KeyPlace::Query { name } => cx::KeyPlace::Query { name: name.clone() },
-            },
+        AuthScheme::ApiKey {
+            place,
+            prefix,
+            extra_keys,
+        } => cx::AuthSpec::ApiKey {
+            place: key_place(place),
             prefix: prefix.clone(),
+            extra_keys: extra_keys
+                .iter()
+                // A field the crate has no word for is one this build cannot
+                // send; the validator admits only fields both sides know.
+                .filter_map(|k| {
+                    Some(cx::ExtraKey {
+                        field: cx::Field::parse(k.secret.as_str())?,
+                        place: key_place(&k.place),
+                        prefix: k.prefix.clone(),
+                    })
+                })
+                .collect(),
         },
         AuthScheme::Bearer => cx::AuthSpec::Bearer,
         AuthScheme::Basic => cx::AuthSpec::Basic,
@@ -682,10 +695,7 @@ pub fn auth_spec(auth: &AuthScheme) -> cx::AuthSpec {
             pkce: *pkce,
             extra: extra.clone(),
             client_id_param: client_id_param.clone(),
-            scope_join: match scope_join {
-                bisa_core::ScopeJoin::Space => cx::ScopeJoin::Space,
-                bisa_core::ScopeJoin::Comma => cx::ScopeJoin::Comma,
-            },
+            scope_join: scope_join_of(*scope_join),
             code_challenge: match code_challenge {
                 bisa_core::ChallengeEncoding::Base64url => cx::ChallengeEncoding::Base64url,
                 bisa_core::ChallengeEncoding::Hex => cx::ChallengeEncoding::Hex,
@@ -705,6 +715,38 @@ pub fn auth_spec(auth: &AuthScheme) -> cx::AuthSpec {
             header: header.clone(),
             ttl_secs: *ttl_secs,
         },
+        AuthScheme::ClientCredentials {
+            token_url,
+            scopes,
+            scope_join,
+            token_auth,
+            grant_type,
+            params,
+        } => cx::AuthSpec::ClientCredentials {
+            token_url: token_url.clone(),
+            scopes: scopes.clone(),
+            scope_join: scope_join_of(*scope_join),
+            token_auth: match token_auth {
+                bisa_core::TokenAuth::Form => cx::TokenAuth::Form,
+                bisa_core::TokenAuth::Basic => cx::TokenAuth::Basic,
+            },
+            grant_type: grant_type.clone(),
+            params: params.clone(),
+        },
+    }
+}
+
+fn key_place(place: &KeyPlace) -> cx::KeyPlace {
+    match place {
+        KeyPlace::Header { name } => cx::KeyPlace::Header { name: name.clone() },
+        KeyPlace::Query { name } => cx::KeyPlace::Query { name: name.clone() },
+    }
+}
+
+fn scope_join_of(join: bisa_core::ScopeJoin) -> cx::ScopeJoin {
+    match join {
+        bisa_core::ScopeJoin::Space => cx::ScopeJoin::Space,
+        bisa_core::ScopeJoin::Comma => cx::ScopeJoin::Comma,
     }
 }
 
@@ -1775,6 +1817,69 @@ mod tests {
             auth_spec(&oauth),
             cx::AuthSpec::OAuth2 { pkce: true, .. }
         ));
+    }
+
+    /// Every scheme a definition may name reaches the crate in the same
+    /// words: each further key with its field and place, a grant with its
+    /// dialect, a signed token with its algorithm.
+    #[test]
+    fn every_auth_scheme_maps_to_the_crates_own_words() {
+        let scheme = |json: serde_json::Value| -> cx::AuthSpec {
+            auth_spec(&serde_json::from_value::<AuthScheme>(json).unwrap())
+        };
+        use serde_json::json;
+        assert_eq!(
+            scheme(json!({
+                "scheme": "api_key",
+                "place": {"in": "query", "name": "key"},
+                "prefix": "k:",
+                "extra_keys": [{"secret": "app_key", "label": "App", "place": {"in": "header", "name": "X-App"}, "prefix": "a:"}]
+            })),
+            cx::AuthSpec::ApiKey {
+                place: cx::KeyPlace::Query { name: "key".into() },
+                prefix: Some("k:".into()),
+                extra_keys: vec![cx::ExtraKey {
+                    field: cx::Field::AppKey,
+                    place: cx::KeyPlace::Header {
+                        name: "X-App".into()
+                    },
+                    prefix: Some("a:".into()),
+                }],
+            }
+        );
+        // Every field a definition may keep a key under is one the crate can send.
+        for field in bisa_core::SecretField::ALL {
+            assert!(cx::Field::parse(field.as_str()).is_some(), "{field}");
+        }
+        for (said, read) in [
+            ("form", cx::TokenAuth::Form),
+            ("basic", cx::TokenAuth::Basic),
+        ] {
+            assert_eq!(
+                scheme(json!({
+                    "scheme": "client_credentials",
+                    "token_url": "https://a/token",
+                    "scopes": ["read"],
+                    "scope_join": "comma",
+                    "token_auth": said,
+                    "params": {"audience": "x"}
+                })),
+                cx::AuthSpec::ClientCredentials {
+                    token_url: "https://a/token".into(),
+                    scopes: vec!["read".into()],
+                    scope_join: cx::ScopeJoin::Comma,
+                    token_auth: read,
+                    grant_type: "client_credentials".into(),
+                    params: BTreeMap::from([("audience".to_string(), "x".to_string())]),
+                }
+            );
+        }
+        for (said, read) in [("ES256", cx::JwtAlg::Es256), ("RS256", cx::JwtAlg::Rs256)] {
+            assert!(matches!(
+                scheme(json!({"scheme": "jwt", "alg": said, "claims": {"iss": "x"}})),
+                cx::AuthSpec::Jwt { alg, ttl_secs, .. } if alg == read && ttl_secs == bisa_core::DEFAULT_JWT_TTL_SECS
+            ));
+        }
     }
 
     /// The roster names every connector, its accounts by label — whether

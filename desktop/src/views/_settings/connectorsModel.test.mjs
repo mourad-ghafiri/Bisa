@@ -83,22 +83,34 @@ test("every secret field the core knows has a label, and every scheme lists only
  * from one scheme to another there fails here.
  */
 function rustSchemeFields() {
-  const m = RUST.match(/pub fn fields\(&self\) -> &'static \[SecretField\] \{([\s\S]*?)\n {4}\}/);
-  assert.ok(m, "AuthScheme::fields is declared in connector.rs");
+  return rustSchemeArms("fields");
+}
+
+/**
+ * One of `AuthScheme`'s field lists (`fields`, `required`) read out of the
+ * Rust, by scheme. A key scheme's arm is `Self::keys(extra_keys)` — the
+ * first key's field, then each further key's — read here as the first alone.
+ */
+function rustSchemeArms(method) {
+  const m = RUST.match(new RegExp(`pub fn ${method}\\(&self\\) -> Vec<SecretField> \\{([\\s\\S]*?)\\n {4}\\}`));
+  assert.ok(m, `AuthScheme::${method} is declared in connector.rs`);
   const snake = (v) => v.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
   const out = {};
-  for (const arm of m[1].matchAll(/AuthScheme::(\w+)(?: \{ \.\. \})? => &\[([\s\S]*?)\]/g)) {
-    out[snake(arm[1])] = [...arm[2].matchAll(/SecretField::(\w+)/g)].map((f) => snake(f[1]));
+  for (const arm of m[1].matchAll(/AuthScheme::(\w+)(?: \{[^}]*\})? =>\s*\{?\s*(vec!\[([\s\S]*?)\]|Self::keys\(extra_keys\))/g)) {
+    out[snake(arm[1])] = arm[2].startsWith("Self::keys") ? ["api_key"] : [...arm[3].matchAll(/SecretField::(\w+)/g)].map((f) => snake(f[1]));
   }
+  assert.match(RUST, /fn keys\(extra_keys: &\[ExtraKey\]\) -> Vec<SecretField> \{\s*std::iter::once\(SecretField::ApiKey\)\s*\.chain\(extra_keys\.iter\(\)\.map\(\|k\| k\.secret\)\)/, "a key scheme holds its first key, then each further key's field");
   return out;
 }
 
-test("the scheme's fields mirror AuthScheme::fields — the refresh token alone left out, since nobody types one", () => {
+test("the scheme's fields mirror AuthScheme::fields — less the tokens nobody types: a refresh token, and the one a client-credentials grant answers", () => {
   const rust = rustSchemeFields();
   assert.deepEqual(Object.keys(rust).sort(), Object.keys(SECRET_FIELDS_BY_SCHEME).sort(), "the same schemes");
+  const typed = (scheme, f) => f !== "refresh_token" && !(scheme === "client_credentials" && f === "access_token");
   for (const [scheme, fields] of Object.entries(rust)) {
-    assert.deepEqual(SECRET_FIELDS_BY_SCHEME[scheme], fields.filter((f) => f !== "refresh_token"), scheme);
+    assert.deepEqual(SECRET_FIELDS_BY_SCHEME[scheme], fields.filter((f) => typed(scheme, f)), scheme);
   }
+  assert.deepEqual(SECRET_FIELDS_BY_SCHEME.client_credentials, ["client_id", "client_secret"]);
   assert.deepEqual(secretFields("none"), []);
   assert.deepEqual(secretFields({ scheme: "bearer" }), ["token"]);
   assert.deepEqual(secretFields({ scheme: "jwt", alg: "ES256" }), ["private_key"]);
@@ -434,22 +446,9 @@ import {
 } from "./connectorsModel.mjs";
 
 test("the fields a scheme cannot work without mirror AuthScheme::required — an OAuth client is its id alone, a PKCE client has no secret to ask for", () => {
-  const m = RUST.match(/pub fn required\(&self\) -> &'static \[SecretField\] \{([\s\S]*?)\n    \}/);
-  assert.ok(m, "AuthScheme::required is declared in connector.rs");
-  const arm = (variant) => {
-    const hit = m[1].match(new RegExp(`AuthScheme::${variant}[^=]*=> &\\[([^\\]]*)\\]`));
-    assert.ok(hit, `required() has an arm for ${variant}`);
-    return hit[1]
-      .split(",")
-      .map((s) => s.trim().replace(/^SecretField::/, ""))
-      .filter(Boolean)
-      .map((v) => v.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
-  };
-  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.api_key, arm("ApiKey"));
-  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.bearer, arm("Bearer"));
-  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.basic, arm("Basic"));
-  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.oauth2, arm("OAuth2"));
-  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.jwt, arm("Jwt"));
+  const rust = rustSchemeArms("required");
+  assert.deepEqual(Object.keys(rust).sort(), Object.keys(REQUIRED_SECRETS_BY_SCHEME).sort(), "the same schemes");
+  for (const [scheme, fields] of Object.entries(rust)) assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME[scheme], fields, scheme);
   assert.deepEqual(requiredSecrets("none"), []);
   assert.deepEqual(requiredSecrets({ scheme: "oauth2" }), ["client_id"]);
   // The line asks for what is required, in the words a person reads — never the wire's.
@@ -466,7 +465,7 @@ test("a scheme reads as its name, and a connector's facts are separate things sa
   assert.equal(schemeLabel({ scheme: "oauth2" }), "OAuth 2");
   assert.equal(schemeLabel("api_key"), "API key");
   assert.equal(schemeLabel("none"), "No sign-in");
-  assert.equal(schemeLabel("client_credentials"), "client_credentials", "a scheme this desktop does not know is said as the node said it");
+  assert.equal(schemeLabel("signed_request"), "signed_request", "a scheme this desktop does not know is said as the node said it");
   const row = { auth: "oauth2", hosts: ["a.example", "b.example"], operations: [{ writes: false }, { writes: true }], accounts: 2 };
   assert.deepEqual(connectorFacts(row), ["OAuth 2", "a.example, b.example", "2 operations, 1 writes", "2 accounts here"]);
   assert.equal(connectorLine(row), connectorFacts(row).join(" · "));
@@ -565,4 +564,47 @@ test("an account never connected says nothing of a token: the expiry line is a c
   const facts = { expires_at: null, expired: false, scope: null };
   assert.equal(oauthLine({ secrets_set: ["client_id"], oauth: facts }, 1000), null);
   assert.equal(oauthLine({ secrets_set: ["client_id", "access_token"], oauth: facts }, 1000), "token without an expiry");
+});
+
+// --- the two auth abilities: a second key, a client-credentials login -------
+
+import { secretLabel, secretWhat } from "./connectorsModel.mjs";
+
+const TWO_KEYS = {
+  scheme: "api_key",
+  place: { in: "header", name: "DD-API-KEY" },
+  extra_keys: [{ secret: "app_key", label: "Application key", place: { in: "header", name: "DD-APPLICATION-KEY" } }],
+};
+
+test("a key scheme with more keys asks for each: the account's form, what is still wanted, and the definition's own name for it", () => {
+  assert.deepEqual(secretFields(TWO_KEYS), ["api_key", "app_key"]);
+  assert.deepEqual(requiredSecrets(TWO_KEYS), ["api_key", "app_key"]);
+  // The scheme's word alone — a list row's — knows only the first key.
+  assert.deepEqual(secretFields("api_key"), ["api_key"]);
+  assert.deepEqual(secretFields({ scheme: "api_key", place: { in: "query", name: "k" } }), ["api_key"], "a definition from before there were more");
+  // The form labels a further key as its platform does; any other field keeps the desktop's own word.
+  assert.equal(secretLabel(TWO_KEYS, "app_key"), "Application key");
+  assert.equal(secretLabel(TWO_KEYS, "api_key"), SECRET_FIELD_LABEL.api_key);
+  assert.equal(secretLabel("api_key", "app_key"), SECRET_FIELD_LABEL.app_key);
+  assert.equal(secretWhat(TWO_KEYS, "app_key"), "Application key");
+  assert.equal(secretWhat(TWO_KEYS, "api_key"), "API key");
+  // One key of two is said as held, the other as still wanted — by its platform's name.
+  assert.deepEqual(secretsLine({ secrets_set: ["api_key"], token_source: "file" }, TWO_KEYS), { tone: "warn", text: "API key in a 0600 file under identity/ — Application key still wanted" });
+  assert.equal(secretsLine({ secrets_set: ["api_key", "app_key"], token_source: "file" }, TWO_KEYS).tone, "ok");
+  assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, TWO_KEYS), { tone: "warn", text: "No secret set yet — API key, Application key wanted." });
+});
+
+test("a client-credentials account is its client: no Connect, no token to type, and the token the grant answers is nothing a person set", () => {
+  const grant = { scheme: "client_credentials", token_url: "https://auth.example.com/token" };
+  assert.equal(schemeLabel(grant), "Client credentials");
+  assert.equal(needsAccount(grant), true);
+  assert.equal(connectApplies(grant), false, "there is no consent page to open");
+  assert.deepEqual(secretFields(grant), ["client_id", "client_secret"]);
+  assert.deepEqual(requiredSecrets(grant), ["client_id", "client_secret"]);
+  assert.deepEqual(secretsLine({ secrets_set: ["client_id"], token_source: "file" }, grant), { tone: "warn", text: "OAuth client id in a 0600 file under identity/ — OAuth client secret still wanted" });
+  const whole = secretsLine({ secrets_set: ["access_token", "client_id", "client_secret"], token_source: "keyring" }, grant);
+  assert.equal(whole.tone, "ok");
+  assert.ok(!whole.text.includes("access token"), whole.text);
+  // A row of such an account offers Check, never Connect.
+  assert.equal(accountVerbs({ default: true, secrets_set: ["client_id", "client_secret"] }, connectApplies(grant)).main, "check");
 });

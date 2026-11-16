@@ -14,7 +14,10 @@ import { t, tx } from "../../i18n/l10n.mjs";
  * `AuthScheme::fields()`, mirrored here so the dialog asks for exactly what
  * the scheme uses. An OAuth2 account also takes a pasted `access_token` for
  * a platform whose token a person already holds; a `jwt` account holds the
- * private key the platform signs each request with.
+ * private key the platform signs each request with. A `client_credentials`
+ * account is its client's id and secret: the access token is the platform's
+ * answer to those two, never typed. A key scheme's further keys are the
+ * definition's own (`extra_keys`) — `secretFields` adds them.
  */
 export const SECRET_FIELDS_BY_SCHEME = Object.freeze({
   none: [],
@@ -23,6 +26,7 @@ export const SECRET_FIELDS_BY_SCHEME = Object.freeze({
   basic: ["username", "password"],
   oauth2: ["client_id", "client_secret", "access_token"],
   jwt: ["private_key"],
+  client_credentials: ["client_id", "client_secret"],
 });
 
 /**
@@ -37,11 +41,22 @@ export const REQUIRED_SECRETS_BY_SCHEME = Object.freeze({
   basic: ["username", "password"],
   oauth2: ["client_id"],
   jwt: ["private_key"],
+  client_credentials: ["client_id", "client_secret"],
 });
 
-/** The fields a scheme cannot work without. */
+/**
+ * The further keys a key scheme's definition names (`extra_keys`) — none
+ * for a scheme known by its word alone, or written before there were any.
+ * @returns {{secret: string, label: string}[]}
+ */
+function extraKeys(auth) {
+  if (!auth || typeof auth === "string" || auth.scheme !== "api_key") return [];
+  return Array.isArray(auth.extra_keys) ? auth.extra_keys : [];
+}
+
+/** The fields a scheme cannot work without — every key of a key scheme. */
 export function requiredSecrets(auth) {
-  return [...(REQUIRED_SECRETS_BY_SCHEME[schemeWord(auth)] ?? [])];
+  return [...(REQUIRED_SECRETS_BY_SCHEME[schemeWord(auth)] ?? []), ...extraKeys(auth).map((k) => k.secret)];
 }
 
 /** A scheme by the name a person knows it by. */
@@ -52,6 +67,7 @@ const SCHEME_LABEL = Object.freeze({
   basic: t("settings-connectors-scheme-basic"),
   oauth2: t("settings-connectors-scheme-oauth2"),
   jwt: t("settings-connectors-scheme-jwt"),
+  client_credentials: t("settings-connectors-scheme-client-credentials"),
 });
 
 /** The scheme's name; one this desktop does not know — a newer node's — is said as the node said it. */
@@ -71,6 +87,7 @@ export const SECRET_FIELD_LABEL = Object.freeze({
   access_token: t("settings-connectors-access-token-pasted-optional"),
   refresh_token: t("settings-connectors-refresh-token"),
   private_key: t("settings-connectors-private-key-pem"),
+  app_key: t("settings-connectors-app-key"),
 });
 
 /**
@@ -88,7 +105,21 @@ export const SECRET_FIELD_WHAT = Object.freeze({
   access_token: t("settings-connectors-what-access-token"),
   refresh_token: t("settings-connectors-what-refresh-token"),
   private_key: t("settings-connectors-what-private-key"),
+  app_key: t("settings-connectors-what-app-key"),
 });
+
+/**
+ * A field's label in the account's form: a further key's is the definition's
+ * own — the platform's name for it — any other the desktop's word.
+ */
+export function secretLabel(auth, field) {
+  return extraKeys(auth).find((k) => k.secret === field)?.label || (SECRET_FIELD_LABEL[field] ?? field);
+}
+
+/** The noun a sentence names a field by: a further key's own name, else the desktop's noun. */
+export function secretWhat(auth, field) {
+  return extraKeys(auth).find((k) => k.secret === field)?.label || (SECRET_FIELD_WHAT[field] ?? field);
+}
 
 /**
  * The fields whose value spans lines — a PEM block — and so take a text area
@@ -107,9 +138,9 @@ export function schemeWord(auth) {
   return typeof auth === "string" ? auth : (auth.scheme ?? "none");
 }
 
-/** The secret fields a scheme's account can hold. */
+/** The secret fields a scheme's account can hold — a key scheme's further keys after its first. */
 export function secretFields(auth) {
-  return [...(SECRET_FIELDS_BY_SCHEME[schemeWord(auth)] ?? [])];
+  return [...(SECRET_FIELDS_BY_SCHEME[schemeWord(auth)] ?? []), ...extraKeys(auth).map((k) => k.secret)];
 }
 
 /** Whether a scheme needs an account at all. */
@@ -243,7 +274,7 @@ export function accountRows(accounts) {
 /**
  * Which secret fields an account holds and where they live — never a value.
  * @param {import("../../types").ConnectorAccountRow | null | undefined} row
- * @param {string} auth the connector's scheme word
+ * @param {string | object} auth the connector's scheme — the definition's when it is read (a key scheme's further keys are named there), else its word
  * @returns {{tone: "ok" | "warn" | "quiet", text: string}}
  */
 export function secretsLine(row, auth) {
@@ -253,7 +284,7 @@ export function secretsLine(row, auth) {
   // What the scheme cannot work without — never a field it merely accepts —
   // and each by the noun a person reads, never the wire's word.
   const wanted = requiredSecrets(auth);
-  const nouns = (fields) => fields.map((f) => SECRET_FIELD_WHAT[f] ?? f).join(", ");
+  const nouns = (fields) => fields.map((f) => secretWhat(auth, f)).join(", ");
   if (set.length === 0) {
     return { tone: wanted.length === 0 ? "quiet" : "warn", text: wanted.length === 0 ? t("settings-connectors-secret-needed") : t("settings-connectors-secret-set-yet-wanted", { wanted: nouns(wanted) }) };
   }
@@ -265,7 +296,9 @@ export function secretsLine(row, auth) {
     const shown = set.filter((f) => f !== "refresh_token");
     return { tone: connected ? "ok" : "warn", text: t("settings-connectors-oauth-held", { words, held: nouns(shown), where }) };
   }
-  const held = t("settings-connectors-held-where", { held: nouns(set), where });
+  // The token a client-credentials grant answers is the platform's, kept by the node: nothing a person set.
+  const typed = schemeWord(auth) === "client_credentials" ? set.filter((f) => f !== "access_token") : set;
+  const held = t("settings-connectors-held-where", { held: nouns(typed), where });
   return { tone: missing.length === 0 ? "ok" : "warn", text: missing.length > 0 ? t("settings-connectors-held-still-wanted", { held, missing: nouns(missing) }) : held };
 }
 

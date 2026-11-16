@@ -27,6 +27,7 @@ async fn error_text_never_contains_the_secret() {
         AuthSpec::ApiKey {
             place: KeyPlace::Query { name: "key".into() },
             prefix: None,
+            extra_keys: vec![],
         },
     );
     let err = client
@@ -107,7 +108,7 @@ fn a_request_and_a_secret_never_print_their_credential() {
         url::Url::parse(&format!("https://api.example.com/x?key={KEY}&q=1")).unwrap(),
         std::time::Duration::from_secs(1),
     );
-    req.secret_query = Some("key".into());
+    req.secret_query = vec!["key".into()];
     req.headers
         .push(("authorization".into(), format!("Bearer {KEY}")));
     req.headers.push(("x-api-key".into(), KEY.into()));
@@ -186,6 +187,7 @@ async fn an_answer_never_carries_the_secret_the_call_was_made_with() {
         AuthSpec::ApiKey {
             place: KeyPlace::Query { name: "key".into() },
             prefix: None,
+            extra_keys: vec![],
         },
     );
     spec.select = Some("item".into());
@@ -238,6 +240,7 @@ fn spec_for_error(stub: &Stub) -> bisa_connectors::spec::CallSpec {
         AuthSpec::ApiKey {
             place: KeyPlace::Query { name: "key".into() },
             prefix: None,
+            extra_keys: vec![],
         },
     )
 }

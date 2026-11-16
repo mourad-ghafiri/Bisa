@@ -532,6 +532,12 @@
     "KeyPlace": {
       "$ref": "#/definitions/KeyPlace"
     },
+    "ExtraKey": {
+      "$ref": "#/definitions/ExtraKey"
+    },
+    "SecretField": {
+      "$ref": "#/definitions/SecretField"
+    },
     "ScopeJoin": {
       "$ref": "#/definitions/ScopeJoin"
     },
@@ -540,6 +546,9 @@
     },
     "JwtAlg": {
       "$ref": "#/definitions/JwtAlg"
+    },
+    "TokenAuth": {
+      "$ref": "#/definitions/TokenAuth"
     },
     "ConnectorOperationDef": {
       "$ref": "#/definitions/ConnectorOperationDef"
@@ -570,9 +579,6 @@
     },
     "Paging": {
       "$ref": "#/definitions/Paging"
-    },
-    "SecretField": {
-      "$ref": "#/definitions/SecretField"
     },
     "ConnectorRow": {
       "$ref": "#/definitions/ConnectorRow"
@@ -10720,6 +10726,13 @@
                 "null"
               ]
             },
+            "extra_keys": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ExtraKey"
+              },
+              "description": "The keys a platform asks for beside the first — an application\nkey next to the API key, say — each a secret field of the account\nsent in its own place. Empty for every definition written before\nthere were any, which reads and writes as it did."
+            },
             "scheme": {
               "type": "string",
               "const": "api_key"
@@ -10854,6 +10867,57 @@
             "claims"
           ],
           "description": "A token the platform signs itself at each request and sends as\n`Authorization: Bearer` — the signed-assertion scheme behind service\naccounts and developer APIs. The account holds the private key (PEM,\nPKCS#8; PKCS#1 for RSA); `claims` and `header` are templates over\n`{account.<param>}` (`iss = \"{account.issuer}\"`, `kid =\n\"{account.key_id}\"`); `iat` and `exp` (`iat + ttl_secs`) are the\nclock's, `alg` and `typ` the signer's."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "token_url": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scope_join": {
+              "description": "How the scopes are joined in the token request.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ScopeJoin"
+                }
+              ]
+            },
+            "token_auth": {
+              "description": "Where the client's id and secret travel in the token request.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TokenAuth"
+                }
+              ]
+            },
+            "grant_type": {
+              "type": "string",
+              "description": "The grant's name: `client_credentials` unless the platform spells\nits own."
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "More pairs of the token request's form, each a template over\n`{account.<param>}` (`account_id = \"{account.account_id}\"`)."
+            },
+            "scheme": {
+              "type": "string",
+              "const": "client_credentials"
+            }
+          },
+          "required": [
+            "scheme",
+            "token_url"
+          ],
+          "description": "The client-credentials grant (RFC 6749 §4.4): the account holds a\nclient's id and secret, and the platform trades them for an access\ntoken at `token_url` — no browser, no consent page. The token is\nasked for when a call needs one, kept with its expiry, and asked for\nagain when it lapses or the platform refuses it."
         }
       ],
       "description": "How a request proves who is calling."
@@ -10896,6 +10960,67 @@
         }
       ],
       "description": "Where an API key goes."
+    },
+    "ExtraKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secret": {
+          "description": "The account's secret field the key is kept under — any but the\nfirst key's own and the ones a flow writes ([`ExtraKey::admits`]).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SecretField"
+            }
+          ]
+        },
+        "label": {
+          "type": "string",
+          "description": "The platform's own name for the key (`Application key`)."
+        },
+        "place": {
+          "$ref": "#/definitions/KeyPlace"
+        },
+        "prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "secret",
+        "label",
+        "place"
+      ],
+      "description": "One more key of an `api_key` scheme: which secret field of the account\nholds it, what a person calls it, and where it is sent."
+    },
+    "SecretField": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "api_key",
+            "token",
+            "username",
+            "password",
+            "client_id",
+            "client_secret",
+            "access_token",
+            "refresh_token"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "private_key",
+          "description": "A signing key in PEM, for the `jwt` scheme."
+        },
+        {
+          "type": "string",
+          "const": "app_key",
+          "description": "A second key beside the API key — an application key, say."
+        }
+      ],
+      "description": "The secret fields an account may hold; which ones a scheme needs is\n[`AuthScheme::fields`]. The wire words are the keystore's field names."
     },
     "ScopeJoin": {
       "oneOf": [
@@ -10941,6 +11066,21 @@
         }
       ],
       "description": "The signing algorithms a `jwt` scheme may name, by their JOSE words."
+    },
+    "TokenAuth": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "form",
+          "description": "In the form, as `client_id` and `client_secret`."
+        },
+        {
+          "type": "string",
+          "const": "basic",
+          "description": "In an `Authorization: Basic` header."
+        }
+      ],
+      "description": "Where a client's id and secret travel in a token request."
     },
     "ConnectorOperationDef": {
       "type": "object",
@@ -11351,29 +11491,6 @@
         "max_pages"
       ],
       "description": "How a read pages: the optional `text` parameter the cursor rides in, the\ndotted path in the answer that names the next cursor, and the most pages\none call reads (1 to `MAX_PAGES`)."
-    },
-    "SecretField": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "api_key",
-            "token",
-            "username",
-            "password",
-            "client_id",
-            "client_secret",
-            "access_token",
-            "refresh_token"
-          ]
-        },
-        {
-          "type": "string",
-          "const": "private_key",
-          "description": "A signing key in PEM, for the `jwt` scheme."
-        }
-      ],
-      "description": "The secret fields an account may hold; which ones a scheme needs is\n[`AuthScheme::fields`]. The wire words are the keystore's field names."
     },
     "ConnectorRow": {
       "type": "object",

@@ -517,7 +517,10 @@ A custom connector is the same TOML through `bisa connector new --from <file>` o
 JSON through `POST /connectors` — validated first, refused by name, and removable only while no
 account and no workflow step names it. A body says its `kind` (`json`, `form`, `multipart`, `raw`),
 a parameter may be a `file` the run's checkout holds, and `jwt` is the scheme for a platform that
-hands out a private key ([the guide](../guide/connectors.md#bodies-files-and-signed-tokens)).
+hands out a private key ([the guide](../guide/connectors.md#bodies-files-and-signed-tokens)). A
+platform that asks for two keys names the second under `extra_keys`; one that logs a server-side
+app in with a client id and secret is `client_credentials`
+([the guide](../guide/connectors.md#more-than-one-key-and-a-clients-own-login)).
 
 A new **way a call holds up** — a field of the operation like `timeout_secs`, `idempotency` or
 `page` — is a change in `crates/bisa-core/src/connector.rs` (the field, its `validate` rules), in

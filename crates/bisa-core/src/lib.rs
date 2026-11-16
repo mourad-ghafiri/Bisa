@@ -120,10 +120,10 @@ pub use collab_settings::{
 };
 pub use connector::{
     is_media_type, AccountAuth, AuthScheme, ChallengeEncoding, Connector, ConnectorAccount,
-    ConnectorProblem, Expect, HttpMethod, Idempotency, JwtAlg, KeyPlace, Operation, OperationBody,
-    OutputSpec, Paging, ParamDef, ParamKind, Part, PartSource, ScopeJoin, SecretField,
-    TemplateSite, DEFAULT_CLIENT_ID_PARAM, DEFAULT_JWT_TTL_SECS, MAX_CONNECTOR_BYTES,
-    MAX_JWT_TTL_SECS, MAX_OPERATION_TIMEOUT_SECS, MAX_PAGES,
+    ConnectorProblem, Expect, ExtraKey, HttpMethod, Idempotency, JwtAlg, KeyPlace, Operation,
+    OperationBody, OutputSpec, Paging, ParamDef, ParamKind, Part, PartSource, ScopeJoin,
+    SecretField, TemplateSite, TokenAuth, DEFAULT_CLIENT_ID_PARAM, DEFAULT_JWT_TTL_SECS,
+    MAX_CONNECTOR_BYTES, MAX_JWT_TTL_SECS, MAX_OPERATION_TIMEOUT_SECS, MAX_PAGES,
 };
 pub use conversation::{
     validate_title as validate_conversation_title, Conversation, ConversationError,

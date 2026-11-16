@@ -54,6 +54,9 @@ pub enum AuthSpec {
         place: KeyPlace,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prefix: Option<String>,
+        /// The keys sent beside the first, each from a field of its own.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extra_keys: Vec<ExtraKey>,
     },
     /// `Authorization: Bearer <token>` from a pasted long-lived token.
     Bearer,
@@ -94,6 +97,57 @@ pub enum AuthSpec {
         header: BTreeMap<String, String>,
         ttl_secs: u64,
     },
+    /// The client-credentials grant: the account's client id and secret are
+    /// traded at `token_url` for an access token, which is kept with its
+    /// expiry and asked for again when it lapses or is refused.
+    ClientCredentials {
+        token_url: String,
+        #[serde(default)]
+        scopes: Vec<String>,
+        #[serde(default)]
+        scope_join: ScopeJoin,
+        #[serde(default)]
+        token_auth: TokenAuth,
+        /// The grant's name in the token request.
+        grant_type: String,
+        /// More pairs of the token request, templates over `{account.…}`.
+        #[serde(default)]
+        params: BTreeMap<String, String>,
+    },
+}
+
+impl AuthSpec {
+    /// Whether the scheme's credential is an access token this crate asks
+    /// a token endpoint for — and so can ask for again.
+    pub fn mints_tokens(&self) -> bool {
+        matches!(
+            self,
+            AuthSpec::OAuth2 { .. } | AuthSpec::ClientCredentials { .. }
+        )
+    }
+}
+
+/// One more key of an `api_key` scheme: the account's field that holds it,
+/// and where it travels.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ExtraKey {
+    pub field: crate::creds::Field,
+    pub place: KeyPlace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+}
+
+/// Where a client's id and secret travel in a token request.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenAuth {
+    /// In the form, as `client_id` and `client_secret`.
+    #[default]
+    Form,
+    /// In an `Authorization: Basic` header.
+    Basic,
 }
 
 fn yes() -> bool {
