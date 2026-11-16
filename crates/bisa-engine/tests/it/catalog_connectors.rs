@@ -38,6 +38,11 @@ fn account_of(slug: &str) -> BTreeMap<String, Value> {
     match slug {
         "jira" | "confluence" => BTreeMap::from([("site".to_string(), json!("acme"))]),
         "trello" => BTreeMap::from([("key".to_string(), json!("app-key"))]),
+        "sentry" => BTreeMap::from([
+            ("region".to_string(), json!("de")),
+            ("organization".to_string(), json!("acme")),
+        ]),
+        "pagerduty" => BTreeMap::from([("email".to_string(), json!("ops@acme.example"))]),
         _ => BTreeMap::new(),
     }
 }
@@ -550,4 +555,551 @@ fn trello_carries_its_app_key_on_every_query_and_gmail_sends_a_raw_message() {
     let listed = request(&gmail, "list_messages", &[("max", "20")]);
     assert_eq!(query(&listed)["maxResults"], "20");
     assert!(!query(&listed).contains_key("q"));
+}
+
+// --- engineering and operations: GitHub, GitLab, Bitbucket, Sentry, PagerDuty, Discord ---
+
+/// The request with the account's credential on it, as a call sends it.
+fn signed(def: &Connector, mut req: Request, credential: Credential) -> Request {
+    let spec = call_spec(def, &def.operations[0], Duration::from_secs(1));
+    apply(
+        &spec.auth,
+        &credential,
+        &mut req,
+        &SignContext {
+            now: 0,
+            account: &account_of(def.id.as_str()),
+        },
+    )
+    .unwrap();
+    req
+}
+
+fn key(value: &str) -> Credential {
+    Credential::ApiKey {
+        key: Secret::new(value),
+        extra: vec![],
+    }
+}
+
+/// Every operation of a connector, built with a placeholder for each
+/// required parameter.
+fn every_request(def: &Connector) -> Vec<(String, Request)> {
+    def.operations
+        .iter()
+        .map(|op| {
+            let params: Vec<(&str, &str)> = op
+                .params
+                .iter()
+                .filter(|p| p.required)
+                .map(|p| {
+                    let value = match p.kind {
+                        bisa_core::ParamKind::Number => "7",
+                        _ => "x",
+                    };
+                    (p.name.as_str(), value)
+                })
+                .collect();
+            (op.id.to_string(), request(def, op.id.as_str(), &params))
+        })
+        .collect()
+}
+
+/// What changes something says so, and nothing in the six deletes.
+#[test]
+fn the_engineering_connectors_mark_every_write_and_delete_nothing() {
+    for slug in [
+        "github",
+        "gitlab",
+        "bitbucket",
+        "sentry",
+        "pagerduty",
+        "discord",
+    ] {
+        let d = def(slug);
+        for op in &d.operations {
+            assert_ne!(
+                op.method,
+                bisa_core::HttpMethod::Delete,
+                "{slug}.{}: no built-in deletes",
+                op.id
+            );
+            assert_eq!(
+                op.writes,
+                op.method != bisa_core::HttpMethod::Get,
+                "{slug}.{}: a call that is not a GET is a write, and says so",
+                op.id
+            );
+        }
+    }
+}
+
+#[test]
+fn github_pins_its_version_on_every_call_and_sends_a_bearer() {
+    let d = def("github");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("api.github.com"), "{op}");
+        assert_eq!(
+            req.header("accept"),
+            Some("application/vnd.github+json"),
+            "{op}"
+        );
+        assert_eq!(
+            req.header("x-github-api-version"),
+            Some("2022-11-28"),
+            "{op}"
+        );
+    }
+    let me = signed(
+        &d,
+        request(&d, "user", &[]),
+        Credential::Bearer(Secret::new("github_pat_not_real")),
+    );
+    assert_eq!(me.url.path(), "/user");
+    assert_eq!(
+        me.header("authorization"),
+        Some("Bearer github_pat_not_real")
+    );
+    assert_eq!(
+        me.header("user-agent"),
+        Some("bisa"),
+        "GitHub refuses a request with none"
+    );
+
+    let listed = request(
+        &d,
+        "list_issues",
+        &[
+            ("owner", "octocat"),
+            ("repo", "hello-world"),
+            ("state", "all"),
+            ("max", "50"),
+        ],
+    );
+    assert_eq!(listed.url.path(), "/repos/octocat/hello-world/issues");
+    assert_eq!(query(&listed)["state"], "all");
+    assert_eq!(query(&listed)["per_page"], "50");
+    let bare = request(
+        &d,
+        "list_issues",
+        &[("owner", "octocat"), ("repo", "hello-world")],
+    );
+    assert!(
+        query(&bare).is_empty(),
+        "GitHub's own defaults: open, thirty"
+    );
+
+    let one = request(
+        &d,
+        "get_issue",
+        &[
+            ("owner", "octocat"),
+            ("repo", "hello-world"),
+            ("number", "42"),
+        ],
+    );
+    assert_eq!(one.url.path(), "/repos/octocat/hello-world/issues/42");
+    let pulls = request(
+        &d,
+        "list_pulls",
+        &[("owner", "octocat"), ("repo", "hello-world")],
+    );
+    assert_eq!(pulls.url.path(), "/repos/octocat/hello-world/pulls");
+
+    let found = request(
+        &d,
+        "search_issues",
+        &[("q", "repo:octocat/hello-world is:issue is:open")],
+    );
+    assert_eq!(found.url.path(), "/search/issues");
+    assert_eq!(
+        query(&found)["q"],
+        "repo:octocat/hello-world is:issue is:open"
+    );
+    let search = d
+        .operation(&OperationId::new("search_issues").unwrap())
+        .unwrap();
+    assert_eq!(search.output.select.as_deref(), Some("items"));
+
+    let created = request(
+        &d,
+        "create_issue",
+        &[
+            ("owner", "octocat"),
+            ("repo", "hello-world"),
+            ("title", "It broke"),
+        ],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/repos/octocat/hello-world/issues");
+    assert_eq!(
+        body(&created),
+        json!({"title": "It broke"}),
+        "no body typed, none sent"
+    );
+    let said = request(
+        &d,
+        "comment",
+        &[
+            ("owner", "octocat"),
+            ("repo", "hello-world"),
+            ("number", "42"),
+            ("body", "On it."),
+        ],
+    );
+    assert_eq!(
+        said.url.path(),
+        "/repos/octocat/hello-world/issues/42/comments"
+    );
+    assert_eq!(body(&said), json!({"body": "On it."}));
+}
+
+#[test]
+fn gitlab_sends_its_token_in_its_own_header_and_encodes_a_projects_path() {
+    let d = def("gitlab");
+    let me = signed(&d, request(&d, "user", &[]), key("glpat-not-real"));
+    assert_eq!(me.url.as_str(), "https://gitlab.com/api/v4/user");
+    assert_eq!(me.header("private-token"), Some("glpat-not-real"));
+    assert_eq!(me.header("authorization"), None);
+
+    // A project named by its path: the slash is the path's, encoded.
+    let listed = request(
+        &d,
+        "list_issues",
+        &[
+            ("project", "acme/web app"),
+            ("state", "opened"),
+            ("max", "50"),
+        ],
+    );
+    assert_eq!(
+        listed.url.path(),
+        "/api/v4/projects/acme%2Fweb%20app/issues",
+        "GitLab reads a namespaced path URL-encoded"
+    );
+    assert_eq!(query(&listed)["state"], "opened");
+    assert_eq!(query(&listed)["per_page"], "50");
+    let by_id = request(&d, "get_issue", &[("project", "42"), ("iid", "5")]);
+    assert_eq!(by_id.url.path(), "/api/v4/projects/42/issues/5");
+
+    let mine = request(&d, "projects", &[]);
+    assert_eq!(query(&mine)["membership"], "true");
+    assert_eq!(query(&mine)["simple"], "true");
+    assert!(!query(&mine).contains_key("search"));
+
+    let merges = request(
+        &d,
+        "list_merge_requests",
+        &[("project", "42"), ("state", "merged")],
+    );
+    assert_eq!(merges.url.path(), "/api/v4/projects/42/merge_requests");
+    assert_eq!(query(&merges)["state"], "merged");
+
+    let created = request(
+        &d,
+        "create_issue",
+        &[("project", "42"), ("title", "It broke")],
+    );
+    assert_eq!(created.url.path(), "/api/v4/projects/42/issues");
+    assert_eq!(created.header("content-type"), Some("application/json"));
+    assert_eq!(body(&created), json!({"title": "It broke"}));
+    let noted = request(
+        &d,
+        "comment_issue",
+        &[("project", "42"), ("iid", "5"), ("body", "On it.")],
+    );
+    assert_eq!(noted.url.path(), "/api/v4/projects/42/issues/5/notes");
+    assert_eq!(body(&noted), json!({"body": "On it."}));
+    let reviewed = request(
+        &d,
+        "comment_merge_request",
+        &[("project", "42"), ("iid", "7"), ("body", "Looks right.")],
+    );
+    assert_eq!(
+        reviewed.url.path(),
+        "/api/v4/projects/42/merge_requests/7/notes"
+    );
+}
+
+#[test]
+fn bitbucket_signs_in_with_basic_and_reads_a_page_under_values() {
+    let d = def("bitbucket");
+    let me = signed(
+        &d,
+        request(&d, "user", &[]),
+        Credential::Basic {
+            username: "me@acme.example".into(),
+            password: Secret::new("not-a-real-token"),
+        },
+    );
+    assert_eq!(me.url.as_str(), "https://api.bitbucket.org/2.0/user");
+    assert!(me
+        .header("authorization")
+        .is_some_and(|a| a.starts_with("Basic ")));
+
+    let repos = request(
+        &d,
+        "repositories",
+        &[("workspace", "acme"), ("role", "member")],
+    );
+    assert_eq!(repos.url.path(), "/2.0/repositories/acme");
+    assert_eq!(query(&repos)["role"], "member");
+    assert!(
+        !query(&repos).contains_key("pagelen"),
+        "the operation declares no page size"
+    );
+    let pulls = request(
+        &d,
+        "pull_requests",
+        &[("workspace", "acme"), ("repo", "web")],
+    );
+    assert_eq!(pulls.url.path(), "/2.0/repositories/acme/web/pullrequests");
+    assert!(
+        query(&pulls).is_empty(),
+        "open only, by Bitbucket's own default"
+    );
+    let merged = request(
+        &d,
+        "pull_requests",
+        &[("workspace", "acme"), ("repo", "web"), ("state", "MERGED")],
+    );
+    assert_eq!(query(&merged)["state"], "MERGED");
+    for op in ["repositories", "pull_requests"] {
+        let op = d.operation(&OperationId::new(op).unwrap()).unwrap();
+        assert_eq!(op.output.select.as_deref(), Some("values"), "{}", op.id);
+    }
+    let one = request(
+        &d,
+        "pull_request",
+        &[("workspace", "acme"), ("repo", "web"), ("id", "12")],
+    );
+    assert_eq!(one.url.path(), "/2.0/repositories/acme/web/pullrequests/12");
+    let said = request(
+        &d,
+        "comment_pull_request",
+        &[
+            ("workspace", "acme"),
+            ("repo", "web"),
+            ("id", "12"),
+            ("text", "Looks right."),
+        ],
+    );
+    assert_eq!(
+        said.url.path(),
+        "/2.0/repositories/acme/web/pullrequests/12/comments"
+    );
+    assert_eq!(body(&said), json!({"content": {"raw": "Looks right."}}));
+    assert!(
+        d.operations.iter().all(|op| !op.path.contains("/issues")),
+        "the issue tracker is not in Atlassian's published description"
+    );
+}
+
+#[test]
+fn sentry_calls_the_accounts_region_and_carries_the_organization_in_every_path() {
+    let d = def("sentry");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("de.sentry.io"), "{op}");
+        assert!(
+            req.url.path().starts_with("/api/0/organizations/acme/"),
+            "{op}: {}",
+            req.url.path()
+        );
+        assert!(
+            req.url.path().ends_with('/'),
+            "{op}: Sentry's paths end in a slash"
+        );
+    }
+    let projects = signed(
+        &d,
+        request(&d, "projects", &[]),
+        Credential::Bearer(Secret::new("sntryu_not_real")),
+    );
+    assert_eq!(projects.url.path(), "/api/0/organizations/acme/projects/");
+    assert_eq!(
+        projects.header("authorization"),
+        Some("Bearer sntryu_not_real")
+    );
+
+    let unresolved = request(&d, "issues", &[]);
+    assert!(
+        !query(&unresolved).contains_key("query"),
+        "no query sent: Sentry applies is:unresolved itself"
+    );
+    let errors = request(
+        &d,
+        "issues",
+        &[
+            ("query", "is:unresolved level:error"),
+            ("period", "24h"),
+            ("max", "25"),
+        ],
+    );
+    assert_eq!(errors.url.path(), "/api/0/organizations/acme/issues/");
+    assert_eq!(query(&errors)["query"], "is:unresolved level:error");
+    assert_eq!(query(&errors)["statsPeriod"], "24h");
+    assert_eq!(query(&errors)["limit"], "25");
+    let events = request(&d, "issue_events", &[("issue", "123"), ("max", "10")]);
+    assert_eq!(
+        events.url.path(),
+        "/api/0/organizations/acme/issues/123/events/"
+    );
+    assert_eq!(query(&events)["per_page"], "10");
+
+    let resolved = request(
+        &d,
+        "update_issue",
+        &[("issue", "123"), ("status", "resolved")],
+    );
+    assert_eq!(resolved.method.as_str(), "PUT");
+    assert_eq!(resolved.url.path(), "/api/0/organizations/acme/issues/123/");
+    assert_eq!(
+        body(&resolved),
+        json!({"status": "resolved"}),
+        "only the attributes submitted are modified"
+    );
+    assert_eq!(d.hosts, vec!["*.sentry.io"]);
+}
+
+#[test]
+fn pagerduty_sends_its_key_as_a_token_names_the_version_and_writes_as_the_accounts_user() {
+    let d = def("pagerduty");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("api.pagerduty.com"), "{op}");
+        assert_eq!(
+            req.header("accept"),
+            Some("application/vnd.pagerduty+json;version=2"),
+            "{op}"
+        );
+        let writes = req.method.as_str() != "GET";
+        assert_eq!(
+            req.header("from"),
+            writes.then_some("ops@acme.example"),
+            "{op}: a write is made as the account's user, a read names nobody"
+        );
+    }
+    let check = signed(&d, request(&d, "abilities", &[]), key("u+notARealKey"));
+    assert_eq!(check.url.path(), "/abilities");
+    assert_eq!(
+        check.header("authorization"),
+        Some("Token token=u+notARealKey")
+    );
+
+    let open = request(
+        &d,
+        "incidents",
+        &[
+            ("status", "triggered"),
+            ("max", "50"),
+            ("sort", "created_at:desc"),
+        ],
+    );
+    let q = query(&open);
+    assert_eq!(q["statuses[]"], "triggered");
+    assert_eq!(q["limit"], "50");
+    assert_eq!(q["sort_by"], "created_at:desc");
+    assert!(
+        !q.contains_key("since"),
+        "the last month, by PagerDuty's own default"
+    );
+    let on_call = request(
+        &d,
+        "oncalls",
+        &[("earliest", "true"), ("policy", "PABC123")],
+    );
+    assert_eq!(query(&on_call)["earliest"], "true");
+    assert_eq!(query(&on_call)["escalation_policy_ids[]"], "PABC123");
+    for (op, member) in [
+        ("abilities", "abilities"),
+        ("incidents", "incidents"),
+        ("incident", "incident"),
+        ("oncalls", "oncalls"),
+        ("services", "services"),
+        ("create_incident", "incident"),
+        ("add_note", "note"),
+    ] {
+        let op = d.operation(&OperationId::new(op).unwrap()).unwrap();
+        assert_eq!(op.output.select.as_deref(), Some(member), "{}", op.id);
+    }
+
+    let created = request(
+        &d,
+        "create_incident",
+        &[
+            ("title", "The site is down"),
+            ("service", "PWIXJZS"),
+            ("details", "502 from the edge."),
+        ],
+    );
+    assert_eq!(created.url.path(), "/incidents");
+    assert_eq!(
+        body(&created),
+        json!({"incident": {
+            "type": "incident",
+            "title": "The site is down",
+            "service": {"id": "PWIXJZS", "type": "service_reference"},
+            "body": {"type": "incident_body", "details": "502 from the edge."}
+        }}),
+        "no urgency typed, none sent: the service's own rule decides"
+    );
+    let noted = request(
+        &d,
+        "add_note",
+        &[("id", "PT4KHLK"), ("content", "Rolled back.")],
+    );
+    assert_eq!(noted.url.path(), "/incidents/PT4KHLK/notes");
+    assert_eq!(body(&noted), json!({"note": {"content": "Rolled back."}}));
+}
+
+#[test]
+fn discord_signs_as_a_bot_names_itself_as_discord_asks_and_pins_v10() {
+    let d = def("discord");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("discord.com"), "{op}");
+        assert!(req.url.path().starts_with("/api/v10/"), "{op}");
+        let agent = req.header("user-agent").unwrap_or_default();
+        assert!(
+            agent.starts_with("DiscordBot (https://") && agent.ends_with(')'),
+            "{op}: `DiscordBot ($url, $versionNumber)`, got {agent:?}"
+        );
+    }
+    let me = signed(&d, request(&d, "me", &[]), key("bot-token-not-real"));
+    assert_eq!(me.url.path(), "/api/v10/users/@me");
+    assert_eq!(me.header("authorization"), Some("Bot bot-token-not-real"));
+    assert_eq!(
+        me.headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+            .count(),
+        1,
+        "the definition's user agent stands; the client adds none beside it"
+    );
+
+    let servers = request(&d, "guilds", &[("max", "50")]);
+    assert_eq!(servers.url.path(), "/api/v10/users/@me/guilds");
+    assert_eq!(query(&servers)["limit"], "50");
+    let channels = request(&d, "channels", &[("guild", "81384788765712384")]);
+    assert_eq!(
+        channels.url.path(),
+        "/api/v10/guilds/81384788765712384/channels"
+    );
+    let read = request(&d, "messages", &[("channel", "41771983423143937")]);
+    assert_eq!(
+        read.url.path(),
+        "/api/v10/channels/41771983423143937/messages"
+    );
+    assert!(
+        query(&read).is_empty(),
+        "fifty, newest first, by Discord's own default"
+    );
+    let sent = request(
+        &d,
+        "send_message",
+        &[
+            ("channel", "41771983423143937"),
+            ("content", "Deploy finished."),
+        ],
+    );
+    assert_eq!(sent.method.as_str(), "POST");
+    assert_eq!(body(&sent), json!({"content": "Deploy finished."}));
 }

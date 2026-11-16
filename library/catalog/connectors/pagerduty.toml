@@ -1,0 +1,240 @@
+# Built-in connector: PagerDuty — incidents, on-calls and services over REST API v2.
+#
+# A REST API key travels as `Authorization: Token token=<key>`, and every
+# request names the version in `Accept: application/vnd.pagerduty+json;
+# version=2`. Opening an incident and adding a note carry `From`, the email
+# of a user of the account — an account parameter here, since it is the same
+# on every write. Requests go to the US service region's address, which
+# PagerDuty forwards to the EU region for an EU account (it recommends the
+# EU address itself, `api.eu.pagerduty.com`: a custom connector's host). A
+# list answers 25 unless told otherwise, 100 at most; incidents cover the
+# last month unless dates are given. The check lists the account's
+# abilities: `GET /users/me` refuses an account-level key, and the
+# reference names no kind of key for this one.
+#
+# Reference: https://docs.pagerduty.com/developer/versioning
+# Reference: https://docs.pagerduty.com/developer/pagination
+# Reference: https://docs.pagerduty.com/developer/rest-api-rate-limits
+# Reference: https://docs.pagerduty.com/developer/errors
+# Reference: https://docs.pagerduty.com/get-started/service-regions
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/abilities/list-abilities
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/incidents/list-incidents
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/incidents/create-incident
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/incidents/create-incident-note
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/on-calls/list-on-calls
+# Reference: https://docs.pagerduty.com/developer/api/reference/rest/services/list-services
+# Reference: https://github.com/PagerDuty/api-schema/blob/main/reference/REST/openapiv3.json
+
+[connector]
+name = "PagerDuty"
+description = "List incidents, on-calls and services, read an incident, open one, add a note. Paste a REST API key; the account names the email of a user the writes are made as."
+tags = ["ops", "engineering"]
+base_url = "https://api.pagerduty.com"
+hosts = ["api.pagerduty.com"]
+check = "abilities"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "Authorization" }
+prefix = "Token token="
+
+[[connector.params]]
+name = "email"
+label = "User email"
+required = true
+doc = "The email of a user of the PagerDuty account: who an incident opened here, or a note added, is recorded as from."
+
+[[connector.operations]]
+id = "abilities"
+name = "List abilities"
+description = "What the account's plan can do, by name — the one call that proves the key works."
+method = "get"
+path = "/abilities"
+headers = { Accept = "application/vnd.pagerduty+json;version=2" }
+
+[connector.operations.output]
+select = "abilities"
+
+[[connector.operations]]
+id = "incidents"
+name = "List incidents"
+description = "Incidents of the last month, or between two dates."
+method = "get"
+path = "/incidents"
+query = { "statuses[]" = "{params.status}", "urgencies[]" = "{params.urgency}", "service_ids[]" = "{params.service}", since = "{params.since}", until = "{params.until}", sort_by = "{params.sort}", limit = "{params.max}" }
+headers = { Accept = "application/vnd.pagerduty+json;version=2" }
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "triggered, acknowledged or resolved; every status when unsaid."
+
+[[connector.operations.params]]
+name = "urgency"
+label = "Urgency"
+doc = "high or low."
+
+[[connector.operations.params]]
+name = "service"
+label = "Service id"
+doc = "Only this service's incidents."
+
+[[connector.operations.params]]
+name = "since"
+label = "Since"
+doc = "The start of the range, ISO 8601; a month back when unsaid, six months at most."
+
+[[connector.operations.params]]
+name = "until"
+label = "Until"
+doc = "The end of the range, ISO 8601."
+
+[[connector.operations.params]]
+name = "sort"
+label = "Sort"
+doc = "A field and a direction: created_at:desc. Fields: incident_number, created_at, resolved_at, urgency."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many incidents, up to 100; PagerDuty answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "incidents"
+
+[[connector.operations]]
+id = "incident"
+name = "Get incident"
+description = "One incident by its id or its number."
+method = "get"
+path = "/incidents/{params.id}"
+headers = { Accept = "application/vnd.pagerduty+json;version=2" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Incident"
+required = true
+doc = "The incident's id (PT4KHLK) or its number."
+
+[connector.operations.output]
+select = "incident"
+
+[[connector.operations]]
+id = "oncalls"
+name = "List on-calls"
+description = "Who is on call now, by escalation policy and level."
+method = "get"
+path = "/oncalls"
+query = { "schedule_ids[]" = "{params.schedule}", "escalation_policy_ids[]" = "{params.policy}", earliest = "{params.earliest}", limit = "{params.max}" }
+headers = { Accept = "application/vnd.pagerduty+json;version=2" }
+
+[[connector.operations.params]]
+name = "schedule"
+label = "Schedule id"
+doc = "Only this schedule's on-calls."
+
+[[connector.operations.params]]
+name = "policy"
+label = "Escalation policy id"
+doc = "Only this escalation policy's on-calls."
+
+[[connector.operations.params]]
+name = "earliest"
+label = "Earliest only"
+kind = "bool"
+doc = "Only the earliest on-call for each policy, level and user."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many on-calls, up to 100; PagerDuty answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "oncalls"
+
+[[connector.operations]]
+id = "services"
+name = "List services"
+description = "The account's services, by name."
+method = "get"
+path = "/services"
+query = { query = "{params.query}", limit = "{params.max}" }
+headers = { Accept = "application/vnd.pagerduty+json;version=2" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Name"
+doc = "Only the services whose name matches."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many services, up to 100; PagerDuty answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "services"
+
+[[connector.operations]]
+id = "create_incident"
+name = "Create incident"
+description = "Open an incident on a service, as the account's user. It notifies whoever is on call."
+method = "post"
+path = "/incidents"
+headers = { Accept = "application/vnd.pagerduty+json;version=2", From = "{account.email}" }
+body = { kind = "json", value = { incident = { type = "incident", title = "{params.title}", service = { id = "{params.service}", type = "service_reference" }, urgency = "{params.urgency}", body = { type = "incident_body", details = "{params.details}" } } } }
+writes = true
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "What is wrong, one line."
+
+[[connector.operations.params]]
+name = "service"
+label = "Service id"
+required = true
+doc = "The service the incident is on, as List services answers it (PWIXJZS)."
+
+[[connector.operations.params]]
+name = "details"
+label = "Details"
+required = true
+doc = "What is known so far."
+
+[[connector.operations.params]]
+name = "urgency"
+label = "Urgency"
+doc = "high or low; the service's own rule when unsaid."
+
+[connector.operations.output]
+select = "incident"
+
+[[connector.operations]]
+id = "add_note"
+name = "Add note"
+description = "Add a note to an incident, as the account's user."
+method = "post"
+path = "/incidents/{params.id}/notes"
+headers = { Accept = "application/vnd.pagerduty+json;version=2", From = "{account.email}" }
+body = { kind = "json", value = { note = { content = "{params.content}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Incident"
+required = true
+doc = "The incident's id."
+
+[[connector.operations.params]]
+name = "content"
+label = "Note"
+required = true
+doc = "The note's text."
+
+[connector.operations.output]
+select = "note"

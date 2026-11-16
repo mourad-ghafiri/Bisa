@@ -1,0 +1,226 @@
+# Built-in connector: GitHub — issues, pull requests and comments over the REST API.
+#
+# Pinned to `X-GitHub-Api-Version: 2022-11-28`, which GitHub supports until
+# March 10, 2028 (a request without the header reads as that version; a
+# version no longer supported answers 410). Every request carries the
+# recommended `Accept: application/vnd.github+json`; the `User-Agent` GitHub
+# requires is the client's own. A token is sent as `Authorization: Bearer`.
+# The REST API counts every pull request as an issue: a list of issues holds
+# them too, each marked by its `pull_request` key.
+#
+# Reference: https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/about-the-rest-api/api-versions?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/issues/comments?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28
+# Reference: https://docs.github.com/en/rest/search/search?apiVersion=2022-11-28
+
+[connector]
+name = "GitHub"
+description = "List and search issues and pull requests, read one, open an issue, comment. Paste a personal access token with access to the repositories; opening an issue or commenting needs read and write on their issues."
+tags = ["engineering", "management"]
+base_url = "https://api.github.com"
+hosts = ["api.github.com"]
+check = "user"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "user"
+name = "Authenticated user"
+description = "The user the token belongs to — the one call that proves the token works."
+method = "get"
+path = "/user"
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+
+[[connector.operations]]
+id = "list_issues"
+name = "List issues"
+description = "A repository's issues, newest first. GitHub counts pull requests as issues: each one here carries a pull_request key."
+method = "get"
+path = "/repos/{params.owner}/{params.repo}/issues"
+query = { state = "{params.state}", labels = "{params.labels}", per_page = "{params.max}" }
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+
+[[connector.operations.params]]
+name = "owner"
+label = "Owner"
+required = true
+doc = "The account that owns the repository: octocat for octocat/hello-world."
+
+[[connector.operations.params]]
+name = "repo"
+label = "Repository"
+required = true
+doc = "The repository's name, without the owner."
+
+[[connector.operations.params]]
+name = "state"
+label = "State"
+doc = "open, closed or all; GitHub answers open when unsaid."
+
+[[connector.operations.params]]
+name = "labels"
+label = "Labels"
+doc = "Comma-separated label names; an issue must carry every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many issues, up to 100; GitHub answers 30 unless told otherwise."
+
+[[connector.operations]]
+id = "get_issue"
+name = "Get issue"
+description = "One issue or pull request by its number."
+method = "get"
+path = "/repos/{params.owner}/{params.repo}/issues/{params.number}"
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+
+[[connector.operations.params]]
+name = "owner"
+label = "Owner"
+required = true
+doc = "The account that owns the repository."
+
+[[connector.operations.params]]
+name = "repo"
+label = "Repository"
+required = true
+doc = "The repository's name, without the owner."
+
+[[connector.operations.params]]
+name = "number"
+label = "Number"
+kind = "number"
+required = true
+doc = "The issue's number, as in #42."
+
+[[connector.operations]]
+id = "list_pulls"
+name = "List pull requests"
+description = "A repository's pull requests, newest first."
+method = "get"
+path = "/repos/{params.owner}/{params.repo}/pulls"
+query = { state = "{params.state}", per_page = "{params.max}" }
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+
+[[connector.operations.params]]
+name = "owner"
+label = "Owner"
+required = true
+doc = "The account that owns the repository."
+
+[[connector.operations.params]]
+name = "repo"
+label = "Repository"
+required = true
+doc = "The repository's name, without the owner."
+
+[[connector.operations.params]]
+name = "state"
+label = "State"
+doc = "open, closed or all; GitHub answers open when unsaid."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many pull requests, up to 100; GitHub answers 30 unless told otherwise."
+
+[[connector.operations]]
+id = "search_issues"
+name = "Search issues and pull requests"
+description = "Issues and pull requests matching GitHub's search syntax, best match first. Thirty searches a minute."
+method = "get"
+path = "/search/issues"
+query = { q = "{params.q}", per_page = "{params.max}" }
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+
+[[connector.operations.params]]
+name = "q"
+label = "Query"
+required = true
+doc = "GitHub's search syntax: repo:octocat/hello-world is:issue is:open label:bug"
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many results, up to 100; GitHub answers 30 unless told otherwise."
+
+[connector.operations.output]
+select = "items"
+
+[[connector.operations]]
+id = "create_issue"
+name = "Create issue"
+description = "Open an issue in a repository."
+method = "post"
+path = "/repos/{params.owner}/{params.repo}/issues"
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+body = { kind = "json", value = { title = "{params.title}", body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "owner"
+label = "Owner"
+required = true
+doc = "The account that owns the repository."
+
+[[connector.operations.params]]
+name = "repo"
+label = "Repository"
+required = true
+doc = "The repository's name, without the owner."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The issue's title, one line."
+
+[[connector.operations.params]]
+name = "body"
+label = "Body"
+doc = "Markdown."
+
+[[connector.operations]]
+id = "comment"
+name = "Comment"
+description = "Add a comment to an issue or a pull request."
+method = "post"
+path = "/repos/{params.owner}/{params.repo}/issues/{params.number}/comments"
+headers = { Accept = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28" }
+body = { kind = "json", value = { body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "owner"
+label = "Owner"
+required = true
+doc = "The account that owns the repository."
+
+[[connector.operations.params]]
+name = "repo"
+label = "Repository"
+required = true
+doc = "The repository's name, without the owner."
+
+[[connector.operations.params]]
+name = "number"
+label = "Number"
+kind = "number"
+required = true
+doc = "The issue's or pull request's number."
+
+[[connector.operations.params]]
+name = "body"
+label = "Comment"
+required = true
+doc = "Markdown."

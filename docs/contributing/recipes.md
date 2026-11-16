@@ -500,7 +500,7 @@ the one Settings presses — and `revision`, the stamp the engine reads at start
 
 1. The file — its header opening with `# Reference:` lines naming the platform documentation each
    operation was checked against — then its row in `CATALOG_CONNECTORS`
-   (`crates/bisa-store/src/catalog.rs`), the slug in `the_catalog_ships_fifteen_connectors` and its
+   (`crates/bisa-store/src/catalog.rs`), the slug in `the_catalog_ships_these_connectors` and its
    `revision` in `the_catalog_connector_revisions_are_pinned`. **A change to a shipped file bumps its
    `revision`**: that is what carries the change to an installed copy at the next engine start.
 2. `every_connector_is_well_formed` runs `Connector::validate` on it, checks its tags, that every

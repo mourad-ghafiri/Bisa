@@ -1,0 +1,224 @@
+# Built-in connector: GitLab — projects, issues, merge requests and notes on gitlab.com over REST API v4.
+#
+# The hosted service only: a connector's host is declared, so a self-managed
+# instance is a custom connector with the same operations and its own host.
+# A personal, project or group access token travels in the `PRIVATE-TOKEN`
+# header, the one GitLab recommends. A project is named by its numeric id or
+# by its path, URL-encoded (`group%2Fproject`) — the client encodes the
+# slashes of the path given. A read needs the `read_api` scope, a write
+# `api`. Lists answer 20 a page unless told otherwise, 100 at most.
+#
+# Reference: https://docs.gitlab.com/api/rest/
+# Reference: https://docs.gitlab.com/api/rest/authentication/
+# Reference: https://docs.gitlab.com/security/tokens/access_token_scopes/
+# Reference: https://docs.gitlab.com/api/users/
+# Reference: https://docs.gitlab.com/api/projects/
+# Reference: https://docs.gitlab.com/api/issues/
+# Reference: https://docs.gitlab.com/api/merge_requests/
+# Reference: https://docs.gitlab.com/api/notes/
+
+[connector]
+name = "GitLab"
+description = "List projects, issues and merge requests on gitlab.com, read an issue, open one, add a note. Paste an access token: read_api to read, api to write."
+tags = ["engineering", "management"]
+base_url = "https://gitlab.com/api/v4"
+hosts = ["gitlab.com"]
+check = "user"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "PRIVATE-TOKEN" }
+
+[[connector.operations]]
+id = "user"
+name = "Current user"
+description = "The user the token belongs to — the one call that proves the token works."
+method = "get"
+path = "/user"
+
+[[connector.operations]]
+id = "projects"
+name = "List projects"
+description = "The projects the token's user is a member of, with a few fields each."
+method = "get"
+path = "/projects"
+query = { membership = "true", simple = "true", search = "{params.search}", per_page = "{params.max}" }
+
+[[connector.operations.params]]
+name = "search"
+label = "Search"
+doc = "Part of a project's path, name or description; any case."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many projects, up to 100; GitLab answers 20 unless told otherwise."
+
+[[connector.operations]]
+id = "list_issues"
+name = "List issues"
+description = "A project's issues, newest first."
+method = "get"
+path = "/projects/{params.project}/issues"
+query = { state = "{params.state}", labels = "{params.labels}", search = "{params.search}", per_page = "{params.max}" }
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "state"
+label = "State"
+doc = "opened or closed; every issue when unsaid."
+
+[[connector.operations.params]]
+name = "labels"
+label = "Labels"
+doc = "Comma-separated label names; an issue must carry every one."
+
+[[connector.operations.params]]
+name = "search"
+label = "Search"
+doc = "Words looked for in the title and the description."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many issues, up to 100; GitLab answers 20 unless told otherwise."
+
+[[connector.operations]]
+id = "get_issue"
+name = "Get issue"
+description = "One issue of a project, by the number the project gave it."
+method = "get"
+path = "/projects/{params.project}/issues/{params.iid}"
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "iid"
+label = "Issue number"
+kind = "number"
+required = true
+doc = "The issue's number inside its project, as in #42."
+
+[[connector.operations]]
+id = "list_merge_requests"
+name = "List merge requests"
+description = "A project's merge requests, newest first."
+method = "get"
+path = "/projects/{params.project}/merge_requests"
+query = { state = "{params.state}", per_page = "{params.max}" }
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "state"
+label = "State"
+doc = "opened, closed, locked or merged; every merge request when unsaid."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many merge requests, up to 100; GitLab answers 20 unless told otherwise."
+
+[[connector.operations]]
+id = "create_issue"
+name = "Create issue"
+description = "Open an issue in a project."
+method = "post"
+path = "/projects/{params.project}/issues"
+body = { kind = "json", value = { title = "{params.title}", description = "{params.description}", labels = "{params.labels}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The issue's title, one line."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "Markdown."
+
+[[connector.operations.params]]
+name = "labels"
+label = "Labels"
+doc = "Comma-separated label names."
+
+[[connector.operations]]
+id = "comment_issue"
+name = "Note on an issue"
+description = "Add a note to an issue. GitLab runs and removes any quick action in it."
+method = "post"
+path = "/projects/{params.project}/issues/{params.iid}/notes"
+body = { kind = "json", value = { body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "iid"
+label = "Issue number"
+kind = "number"
+required = true
+doc = "The issue's number inside its project."
+
+[[connector.operations.params]]
+name = "body"
+label = "Note"
+required = true
+doc = "Markdown."
+
+[[connector.operations]]
+id = "comment_merge_request"
+name = "Note on a merge request"
+description = "Add a note to a merge request — on the whole of it, not on a line."
+method = "post"
+path = "/projects/{params.project}/merge_requests/{params.iid}/notes"
+body = { kind = "json", value = { body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "project"
+label = "Project"
+required = true
+doc = "The project's numeric id, or its path: group/project."
+
+[[connector.operations.params]]
+name = "iid"
+label = "Merge request number"
+kind = "number"
+required = true
+doc = "The merge request's number inside its project, as in !7."
+
+[[connector.operations.params]]
+name = "body"
+label = "Note"
+required = true
+doc = "Markdown."

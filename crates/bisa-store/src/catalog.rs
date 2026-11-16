@@ -197,12 +197,28 @@ pub const CATALOG_PETS: &[BuiltinPet] = &[
 /// credential; an account is added on the machine that has one.
 const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
+        "bitbucket",
+        include_str!("../../../library/catalog/connectors/bitbucket.toml"),
+    ),
+    (
         "confluence",
         include_str!("../../../library/catalog/connectors/confluence.toml"),
     ),
     (
+        "discord",
+        include_str!("../../../library/catalog/connectors/discord.toml"),
+    ),
+    (
         "facebook-pages",
         include_str!("../../../library/catalog/connectors/facebook-pages.toml"),
+    ),
+    (
+        "github",
+        include_str!("../../../library/catalog/connectors/github.toml"),
+    ),
+    (
+        "gitlab",
+        include_str!("../../../library/catalog/connectors/gitlab.toml"),
     ),
     (
         "gmail",
@@ -235,6 +251,14 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "obsidian",
         include_str!("../../../library/catalog/connectors/obsidian.toml"),
+    ),
+    (
+        "pagerduty",
+        include_str!("../../../library/catalog/connectors/pagerduty.toml"),
+    ),
+    (
+        "sentry",
+        include_str!("../../../library/catalog/connectors/sentry.toml"),
     ),
     (
         "slack",
@@ -2485,13 +2509,17 @@ mod bundle_tests {
     /// Pinned so a file added or dropped is noticed here, not on a user's
     /// machine.
     #[test]
-    fn the_catalog_ships_fifteen_connectors() {
+    fn the_catalog_ships_these_connectors() {
         let slugs: Vec<&str> = CATALOG.connectors.iter().map(|(s, _)| *s).collect();
         assert_eq!(
             slugs,
             [
+                "bitbucket",
                 "confluence",
+                "discord",
                 "facebook-pages",
+                "github",
+                "gitlab",
                 "gmail",
                 "google-calendar",
                 "google-drive",
@@ -2500,6 +2528,8 @@ mod bundle_tests {
                 "linear",
                 "notion",
                 "obsidian",
+                "pagerduty",
+                "sentry",
                 "slack",
                 "tiktok",
                 "trello",
@@ -2528,16 +2558,36 @@ mod bundle_tests {
                 )
             })
             .collect();
-        let want: [(&str, u32, &str); 15] = [
+        let want: [(&str, u32, &str); 21] = [
+            (
+                "bitbucket",
+                1,
+                "cecefe971073f48afefe3ed1a069d1b4d78f42b7297aac9e89ff66ed68ff296f",
+            ),
             (
                 "confluence",
                 1,
                 "ac51416e9c945ea5f5b3327a8e027f5537f2314d7e623a88607fe0d8009932b1",
             ),
             (
+                "discord",
+                1,
+                "1b31df9b4170695c18e3333bfae78fe60f3fa4daf3230d47c5fec69ebdd5d35e",
+            ),
+            (
                 "facebook-pages",
                 1,
                 "4490152857eaa11615a2bc9073123c376762d78cc5b9725b8aed3c575ee718e1",
+            ),
+            (
+                "github",
+                1,
+                "da18d2d8b91a74335cc663b3d8366d7254b81d78b9498125a33d1ee3b3a969d5",
+            ),
+            (
+                "gitlab",
+                1,
+                "446bef7227ec3b78d8a2afd1a50f52e2c7dc65168e2f23facf1339ef4c25958e",
             ),
             (
                 "gmail",
@@ -2578,6 +2628,16 @@ mod bundle_tests {
                 "obsidian",
                 1,
                 "6c9ccd3d09beb4717e71108b025fcebe7c5a81b8c11bdc62bce2a5934ce0f126",
+            ),
+            (
+                "pagerduty",
+                1,
+                "c6bcd9ab9289d6281730a9b752d21b77aaaa328bc00c2ab6fab09ade25a36232",
+            ),
+            (
+                "sentry",
+                1,
+                "93204802c2c839c97f7256ab154c4a6896011e43dc7a298fe238f7b84be08ddc",
             ),
             (
                 "slack",

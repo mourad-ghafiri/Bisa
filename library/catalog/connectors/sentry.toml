@@ -1,0 +1,154 @@
+# Built-in connector: Sentry — projects, issues and their events on hosted Sentry.
+#
+# The hosted service only: the account names its data storage location,
+# whose domain the API is called on — `us.sentry.io` or `de.sentry.io` — and
+# the organization's slug, which every path here carries. A self-hosted
+# Sentry is a custom connector with its own host. An auth token is sent as
+# `Authorization: Bearer`; listing projects needs `org:read`, reading issues
+# `event:read`, updating one `event:write` — scopes an internal
+# integration's token can hold. The issue list applies `is:unresolved`
+# unless a query is given. Sentry documents no endpoint that adds a comment
+# to an issue, so none is defined here. The per-project issue list is
+# deprecated for the organization's, which is the one called.
+#
+# Reference: https://docs.sentry.io/api/
+# Reference: https://docs.sentry.io/api/auth/
+# Reference: https://docs.sentry.io/api/requests/
+# Reference: https://docs.sentry.io/account/auth-tokens/
+# Reference: https://docs.sentry.io/organization/data-storage-location/
+# Reference: https://docs.sentry.io/api/organizations/list-an-organizations-projects/
+# Reference: https://docs.sentry.io/api/events/list-an-organizations-issues/
+# Reference: https://docs.sentry.io/api/events/retrieve-an-issue/
+# Reference: https://docs.sentry.io/api/events/update-an-issue/
+# Reference: https://docs.sentry.io/api/events/list-an-issues-events/
+# Reference: https://docs.sentry.io/api/ratelimits/
+
+[connector]
+name = "Sentry"
+description = "List an organization's projects and issues, read an issue and its events, resolve or assign one. The account names the region and the organization; paste an auth token with org:read and event:read, and event:write to update."
+tags = ["engineering", "ops"]
+base_url = "https://{account.region}.sentry.io"
+hosts = ["*.sentry.io"]
+check = "projects"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.params]]
+name = "region"
+label = "Region"
+required = true
+doc = "Where the organization's data is stored: us for the United States, de for the European Union."
+
+[[connector.params]]
+name = "organization"
+label = "Organization"
+required = true
+doc = "The organization's slug, as in <slug>.sentry.io."
+
+[[connector.operations]]
+id = "projects"
+name = "List projects"
+description = "The organization's projects — the one call that proves the token works."
+method = "get"
+path = "/api/0/organizations/{account.organization}/projects/"
+query = { query = "{params.query}", per_page = "{params.max}" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Filter"
+doc = "Part of a project's name or slug."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many projects; 100 when unsaid, which is also the most."
+
+[[connector.operations]]
+id = "issues"
+name = "List issues"
+description = "The organization's issues — the unresolved ones unless a query says otherwise."
+method = "get"
+path = "/api/0/organizations/{account.organization}/issues/"
+query = { query = "{params.query}", statsPeriod = "{params.period}", sort = "{params.sort}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+doc = "Sentry's search syntax: is:unresolved level:error. Sentry applies is:unresolved when none is given."
+
+[[connector.operations.params]]
+name = "period"
+label = "Period"
+doc = "How far back to look: a number and d, h, m, s or w — 24h, 14d."
+
+[[connector.operations.params]]
+name = "sort"
+label = "Sort"
+doc = "date, freq, inbox, new, recommended, trends or user."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many issues, up to 100."
+
+[[connector.operations]]
+id = "issue"
+name = "Get issue"
+description = "One issue by its id."
+method = "get"
+path = "/api/0/organizations/{account.organization}/issues/{params.issue}/"
+
+[[connector.operations.params]]
+name = "issue"
+label = "Issue id"
+required = true
+doc = "The issue's numeric id, as an issue list answers it."
+
+[[connector.operations]]
+id = "issue_events"
+name = "List an issue's events"
+description = "The events grouped under an issue, newest first."
+method = "get"
+path = "/api/0/organizations/{account.organization}/issues/{params.issue}/events/"
+query = { per_page = "{params.max}" }
+
+[[connector.operations.params]]
+name = "issue"
+label = "Issue id"
+required = true
+doc = "The issue's numeric id."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many events; 100 when unsaid, which is also the most."
+
+[[connector.operations]]
+id = "update_issue"
+name = "Update issue"
+description = "Resolve, reopen, ignore or assign an issue; only what is given changes."
+method = "put"
+path = "/api/0/organizations/{account.organization}/issues/{params.issue}/"
+body = { kind = "json", value = { status = "{params.status}", assignedTo = "{params.assigned_to}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "issue"
+label = "Issue id"
+required = true
+doc = "The issue's numeric id."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "resolved, unresolved, ignored or resolvedInNextRelease."
+
+[[connector.operations.params]]
+name = "assigned_to"
+label = "Assign to"
+doc = "A username, an email, user:<id> or team:<id>."

@@ -10,6 +10,22 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Six more built-in connectors — engineering and operations** (21 in the catalog), each pinned
+  to its platform's own documentation, cited in the file, with reads and ordinary creates only —
+  nothing deletes, merges or closes on its own, and every write is marked as one:
+  - **GitHub** — issues and pull requests listed and searched, one read, an issue opened, a
+    comment added; `X-GitHub-Api-Version: 2022-11-28` on every call.
+  - **GitLab** (gitlab.com) — projects, issues, merge requests, an issue opened, a note on an
+    issue or a merge request; a project by its id or its path.
+  - **Bitbucket** (Cloud) — a workspace's repositories, pull requests, a comment on one; signed
+    in with the account's email and an API token. No issue tracker: its operations are not in
+    Atlassian's published API description.
+  - **Sentry** (hosted) — projects, issues and their events, an issue resolved, reopened, ignored
+    or assigned; the account names the region and the organization.
+  - **PagerDuty** — incidents, on-calls, services, an incident opened, a note added; writes are
+    made as the user the account names.
+  - **Discord** — a bot's servers, channels and recent messages, a message posted.
+
 - **Two more ways a connector signs in**, both additive — a definition written before them reads,
   writes and behaves as it did, and a node on an earlier release sets one that uses them aside as
   it does any field it does not know.

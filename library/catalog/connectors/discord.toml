@@ -1,0 +1,115 @@
+# Built-in connector: Discord — a bot's servers, channels and messages over HTTP API v10.
+#
+# A bot token travels as `Authorization: Bot <token>`. Discord asks every
+# client for a `User-Agent` of the form `DiscordBot ($url, $versionNumber)`
+# and may block a request without one, so each operation sets it. The
+# version is in the path: v10, which Discord lists as available. Ids are
+# snowflakes, always strings. Reading a channel's messages needs View
+# Channel and Read Message History there; an app that has not configured
+# Discord's privileged Message Content access reads messages with empty
+# content. A message's text is up to 2000 characters.
+#
+# Reference: https://docs.discord.com/developers/reference
+# Reference: https://docs.discord.com/developers/topics/rate-limits
+# Reference: https://docs.discord.com/developers/resources/user
+# Reference: https://docs.discord.com/developers/resources/guild
+# Reference: https://docs.discord.com/developers/resources/message
+
+[connector]
+name = "Discord"
+description = "List a bot's servers and their channels, read a channel's recent messages, post one. Paste the bot's token; the bot must be in the server and allowed to see the channel."
+tags = ["ops", "management"]
+base_url = "https://discord.com/api/v10"
+hosts = ["discord.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "Authorization" }
+prefix = "Bot "
+
+[[connector.operations]]
+id = "me"
+name = "Current user"
+description = "The bot's own user — the one call that proves the token works."
+method = "get"
+path = "/users/@me"
+headers = { "User-Agent" = "DiscordBot (https://bisa.dev, 1)" }
+
+[[connector.operations]]
+id = "guilds"
+name = "List servers"
+description = "The servers the bot is a member of."
+method = "get"
+path = "/users/@me/guilds"
+query = { limit = "{params.max}" }
+headers = { "User-Agent" = "DiscordBot (https://bisa.dev, 1)" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many servers, 1 to 200; Discord answers 200 unless told otherwise."
+
+[[connector.operations]]
+id = "channels"
+name = "List channels"
+description = "A server's channels the bot may view. Threads are not among them."
+method = "get"
+path = "/guilds/{params.guild}/channels"
+headers = { "User-Agent" = "DiscordBot (https://bisa.dev, 1)" }
+
+[[connector.operations.params]]
+name = "guild"
+label = "Server id"
+required = true
+doc = "The server's id, as List servers answers it."
+
+[[connector.operations]]
+id = "messages"
+name = "List messages"
+description = "A channel's messages, newest first."
+method = "get"
+path = "/channels/{params.channel}/messages"
+query = { limit = "{params.max}", after = "{params.after}" }
+headers = { "User-Agent" = "DiscordBot (https://bisa.dev, 1)" }
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "The channel's id, as List channels answers it."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many messages, 1 to 100; Discord answers 50 unless told otherwise."
+
+[[connector.operations.params]]
+name = "after"
+label = "After"
+doc = "Only messages after this message's id."
+
+[[connector.operations]]
+id = "send_message"
+name = "Send message"
+description = "Post a message to a channel as the bot."
+method = "post"
+path = "/channels/{params.channel}/messages"
+headers = { "User-Agent" = "DiscordBot (https://bisa.dev, 1)" }
+body = { kind = "json", value = { content = "{params.content}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "The channel's id."
+
+[[connector.operations.params]]
+name = "content"
+label = "Message"
+required = true
+doc = "The message's text, up to 2000 characters."
