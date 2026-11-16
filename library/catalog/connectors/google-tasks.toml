@@ -1,0 +1,191 @@
+# Built-in connector: Google Tasks — task lists and their tasks over the Tasks REST API.
+#
+# Google's installed-app flow (see gmail.toml), scope `tasks`. The API is
+# served on `tasks.googleapis.com`. A task's `status` is "needsAction" or
+# "completed"; its `due` is an RFC 3339 timestamp of which "only date
+# information is recorded". A list answers 20 tasks unless told otherwise,
+# 100 at most, and shows completed ones a first-party app hid only when
+# `showHidden` is true as well. The page does not say whether `items` is
+# left out of an answer with nothing in it, so both lists read a missing
+# `items` as empty. A patch sends only what the step set.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/workspace/tasks/reference/rest
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasklists/list
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/list
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/get
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/insert
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/patch
+# Reference: https://developers.google.com/workspace/tasks/reference/rest/v1/tasks
+
+[connector]
+name = "Google Tasks"
+description = "List task lists and their tasks, add a task, and update or complete one. Connect with your own Google OAuth client, the Tasks API on."
+tags = ["planning", "ops"]
+base_url = "https://tasks.googleapis.com"
+hosts = ["tasks.googleapis.com"]
+check = "task_lists"
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/tasks"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "task_lists"
+name = "Task lists"
+description = "The account's task lists — the one call that proves it works."
+method = "get"
+path = "/tasks/v1/users/@me/lists"
+query = { maxResults = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many lists to return; Google answers up to 1000 unless told otherwise."
+
+[connector.operations.output]
+select = "items"
+or_empty = true
+
+[[connector.operations]]
+id = "list_tasks"
+name = "List tasks"
+description = "The tasks of a list, with their titles, notes, due dates and status."
+method = "get"
+path = "/tasks/v1/lists/{params.list}/tasks"
+query = { maxResults = "{params.max}", showCompleted = "{params.completed}", showHidden = "{params.hidden}", dueMin = "{params.due_from}", dueMax = "{params.due_to}" }
+
+[[connector.operations.params]]
+name = "list"
+label = "Task list id"
+required = true
+doc = "The id task_lists returned."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many tasks to return; Google's default is 20, and 100 is the most."
+
+[[connector.operations.params]]
+name = "completed"
+label = "Show completed"
+kind = "bool"
+doc = "Whether completed tasks are returned; Google returns them unless told not to."
+
+[[connector.operations.params]]
+name = "hidden"
+label = "Show hidden"
+kind = "bool"
+doc = "Also needed to see tasks completed in Google's own apps; off unless set."
+
+[[connector.operations.params]]
+name = "due_from"
+label = "Due from"
+doc = "An RFC 3339 moment, 2026-09-07T00:00:00Z; empty for no lower bound."
+
+[[connector.operations.params]]
+name = "due_to"
+label = "Due until"
+doc = "An RFC 3339 moment; empty for no upper bound."
+
+[connector.operations.output]
+select = "items"
+or_empty = true
+
+[[connector.operations]]
+id = "get_task"
+name = "Get task"
+description = "One task."
+method = "get"
+path = "/tasks/v1/lists/{params.list}/tasks/{params.task}"
+
+[[connector.operations.params]]
+name = "list"
+label = "Task list id"
+required = true
+doc = "The id task_lists returned."
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The id list_tasks returned."
+
+[[connector.operations]]
+id = "create_task"
+name = "Create task"
+description = "Add a task to a list."
+method = "post"
+path = "/tasks/v1/lists/{params.list}/tasks"
+body = { kind = "json", value = { title = "{params.title}", notes = "{params.notes}", due = "{params.due}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "Task list id"
+required = true
+doc = "The id task_lists returned."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "At most 1024 characters."
+
+[[connector.operations.params]]
+name = "notes"
+label = "Notes"
+doc = "Free text under the title, at most 8192 characters; empty for none."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+doc = "An RFC 3339 moment, 2026-09-07T00:00:00Z; only its date is kept."
+
+[[connector.operations]]
+id = "update_task"
+name = "Update task"
+description = "Change a task's title, notes, due date or status; what is left empty stays as it is."
+method = "patch"
+path = "/tasks/v1/lists/{params.list}/tasks/{params.task}"
+body = { kind = "json", value = { title = "{params.title}", notes = "{params.notes}", due = "{params.due}", status = "{params.status}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "Task list id"
+required = true
+doc = "The id task_lists returned."
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The id list_tasks returned."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+doc = "The new title, at most 1024 characters; empty to keep it."
+
+[[connector.operations.params]]
+name = "notes"
+label = "Notes"
+doc = "The new notes, at most 8192 characters; empty to keep them."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+doc = "An RFC 3339 moment; only its date is kept. Empty to keep it."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "completed to complete the task, needsAction to reopen it; empty to keep it."

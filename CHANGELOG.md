@@ -10,6 +10,27 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Six more built-in connectors — documents, tasks, mail and files** (27 in the catalog), each
+  pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
+  only — nothing deletes, and every write is marked as one:
+  - **Google Sheets** — a spreadsheet's sheets, a range read, rows appended, a range written, a
+    spreadsheet created. Values are read as if typed unless the step says `RAW`.
+  - **Google Docs** — a document read, a blank one created by its title, text added at its end.
+  - **Google Tasks** — task lists, a list's tasks, a task added, updated or completed.
+  - **Outlook Mail** — a mailbox listed and filtered, one message read, a plain-text message sent
+    to one address.
+  - **Outlook Calendar** — the default calendar's events between two moments, one read, one
+    created; nobody is invited.
+  - **OneDrive** — folders listed, an item's details, a search, a folder created (a name already
+    taken gets a new one). No upload and no download yet: Microsoft's reference does not say
+    whether an upload replaces a file of the same name, and a download answers a redirect to a
+    host the definition does not declare.
+
+  The three Microsoft connectors sign in on the identity platform's `common` tenant with PKCE and
+  `offline_access`; the guide says what to register. **Sheets and Docs name no *Check***: neither
+  API has a read that takes no id, so connecting is the proof — the two are named in the tests
+  that hold every other built-in to a check.
+
 - **Six more built-in connectors — engineering and operations** (21 in the catalog), each pinned
   to its platform's own documentation, cited in the file, with reads and ordinary creates only —
   nothing deletes, merges or closes on its own, and every write is marked as one:

@@ -1,0 +1,158 @@
+# Built-in connector: OneDrive — a person's files and folders over Microsoft Graph.
+#
+# The Microsoft identity platform's flow on the `common` tenant (see
+# outlook-mail.toml). A folder answers 200 children a page unless `$top`
+# says otherwise, under `value`. Search takes its text in single quotes
+# inside the path and matches "filename, metadata, and file content"; the
+# reference does not say how an apostrophe in the text is escaped. A new
+# folder is created with `conflictBehavior` "rename", so a name already
+# taken gets a new one and nothing is replaced. Two things are left out: an
+# upload, because the reference does not say whether a PUT to a name
+# already taken replaces the file; and a download, which answers a 302 to a
+# host this definition does not declare.
+#
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/reply-url
+# Reference: https://learn.microsoft.com/en-us/graph/onedrive-addressing-driveitems
+# Reference: https://learn.microsoft.com/en-us/graph/api/drive-get?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-search?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-post-children?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0
+
+[connector]
+name = "OneDrive"
+description = "List a OneDrive's folders, read an item's details, search files and create a folder. Connect with your own Microsoft Entra app registration; the consent screen asks for Files.ReadWrite."
+tags = ["content", "data"]
+base_url = "https://graph.microsoft.com"
+hosts = ["graph.microsoft.com"]
+check = "drive"
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+scopes = ["offline_access", "Files.ReadWrite"]
+pkce = true
+
+[[connector.operations]]
+id = "drive"
+name = "Drive"
+description = "The account's drive, its owner and its quota — the one call that proves it works."
+method = "get"
+path = "/v1.0/me/drive"
+
+[[connector.operations]]
+id = "list_root"
+name = "List root"
+description = "The files and folders at the top of the drive."
+method = "get"
+path = "/v1.0/me/drive/root/children"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many items to return; Graph's default is 200."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "list_children"
+name = "List folder"
+description = "The files and folders inside a folder."
+method = "get"
+path = "/v1.0/me/drive/items/{params.id}/children"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Folder id"
+required = true
+doc = "The folder's item id, as a list returned it."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many items to return; Graph's default is 200."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "get_item"
+name = "Get item"
+description = "One file's or folder's details: name, size, dates and where it lives."
+method = "get"
+path = "/v1.0/me/drive/items/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Item id"
+required = true
+doc = "The item id, as a list or a search returned it."
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Files and folders in the drive whose name, metadata or content matches."
+method = "get"
+path = "/v1.0/me/drive/root/search(q='{params.q}')"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "q"
+label = "Search"
+required = true
+doc = "The words to look for: Contoso Project. No apostrophe."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many items to return; empty for Graph's own page size."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "create_folder"
+name = "Create folder"
+description = "Create a folder inside another; a name already taken gets a new one."
+method = "post"
+path = "/v1.0/me/drive/items/{params.parent}/children"
+body = { kind = "json", value = { name = "{params.name}", folder = {}, "@microsoft.graph.conflictBehavior" = "rename" } }
+writes = true
+
+[[connector.operations.params]]
+name = "parent"
+label = "Parent folder id"
+required = true
+doc = "The item id of the folder to create it in."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The folder's name; it cannot end with a period."
+
+[[connector.operations]]
+id = "create_root_folder"
+name = "Create folder at the top"
+description = "Create a folder at the top of the drive; a name already taken gets a new one."
+method = "post"
+path = "/v1.0/me/drive/root/children"
+body = { kind = "json", value = { name = "{params.name}", folder = {}, "@microsoft.graph.conflictBehavior" = "rename" } }
+writes = true
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The folder's name; it cannot end with a period."

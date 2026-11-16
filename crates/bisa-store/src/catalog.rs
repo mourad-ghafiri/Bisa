@@ -229,8 +229,20 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/google-calendar.toml"),
     ),
     (
+        "google-docs",
+        include_str!("../../../library/catalog/connectors/google-docs.toml"),
+    ),
+    (
         "google-drive",
         include_str!("../../../library/catalog/connectors/google-drive.toml"),
+    ),
+    (
+        "google-sheets",
+        include_str!("../../../library/catalog/connectors/google-sheets.toml"),
+    ),
+    (
+        "google-tasks",
+        include_str!("../../../library/catalog/connectors/google-tasks.toml"),
     ),
     (
         "instagram",
@@ -251,6 +263,18 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "obsidian",
         include_str!("../../../library/catalog/connectors/obsidian.toml"),
+    ),
+    (
+        "onedrive",
+        include_str!("../../../library/catalog/connectors/onedrive.toml"),
+    ),
+    (
+        "outlook-calendar",
+        include_str!("../../../library/catalog/connectors/outlook-calendar.toml"),
+    ),
+    (
+        "outlook-mail",
+        include_str!("../../../library/catalog/connectors/outlook-mail.toml"),
     ),
     (
         "pagerduty",
@@ -2522,12 +2546,18 @@ mod bundle_tests {
                 "gitlab",
                 "gmail",
                 "google-calendar",
+                "google-docs",
                 "google-drive",
+                "google-sheets",
+                "google-tasks",
                 "instagram",
                 "jira",
                 "linear",
                 "notion",
                 "obsidian",
+                "onedrive",
+                "outlook-calendar",
+                "outlook-mail",
                 "pagerduty",
                 "sentry",
                 "slack",
@@ -2558,7 +2588,7 @@ mod bundle_tests {
                 )
             })
             .collect();
-        let want: [(&str, u32, &str); 21] = [
+        let want: [(&str, u32, &str); 27] = [
             (
                 "bitbucket",
                 1,
@@ -2600,9 +2630,24 @@ mod bundle_tests {
                 "bb14f74346630b53248e76127d5ca4243c5bc2333909713103d64d89b0bdc022",
             ),
             (
+                "google-docs",
+                1,
+                "b0d0a6e141dbfbd6f11c07b4227c9a1a6f9ba357a1664d8c48a6e1d8581293b4",
+            ),
+            (
                 "google-drive",
                 1,
                 "fb04d786921363f04c20295894ebd90fcb32e2d31d50430b92e81504fdd28a93",
+            ),
+            (
+                "google-sheets",
+                1,
+                "37740e5f5d45177b1bbf5c6aa816bd0a682dccf553fc9de33efbca34c378c5c8",
+            ),
+            (
+                "google-tasks",
+                1,
+                "205ff4b9adbb4d37e265665dd48f7537d612acca17dd3cfaf5e3bc2d0a287594",
             ),
             (
                 "instagram",
@@ -2628,6 +2673,21 @@ mod bundle_tests {
                 "obsidian",
                 1,
                 "6c9ccd3d09beb4717e71108b025fcebe7c5a81b8c11bdc62bce2a5934ce0f126",
+            ),
+            (
+                "onedrive",
+                1,
+                "3eb302e6cd0634b6049757a964e4d8d8387c07b1576c94d6241b5c4b25269037",
+            ),
+            (
+                "outlook-calendar",
+                1,
+                "c32a5eb864d4639a2f246863406a1333d467d9699abed5d1a39aa6116dad2ab5",
+            ),
+            (
+                "outlook-mail",
+                1,
+                "3d2587ac43a1f061f53e0e69cd59b6cf98a35a84887a2178337cb739d94468d3",
             ),
             (
                 "pagerduty",
@@ -2695,6 +2755,10 @@ mod bundle_tests {
         }
     }
 
+    /// The built-ins that name no check: Google's Sheets and Docs APIs have
+    /// no read that takes no spreadsheet or document id.
+    const CHECKLESS: [&str; 2] = ["google-docs", "google-sheets"];
+
     /// Every built-in connector validates by the same rules a custom one
     /// does, carries catalog tags, describes every operation, and names a
     /// `check` operation a person can press — the one request Settings makes
@@ -2736,16 +2800,31 @@ mod bundle_tests {
                     );
                 }
             }
-            let check = c
-                .check
-                .as_ref()
-                .unwrap_or_else(|| panic!("connector {slug}: no check operation"));
-            let op = c.operation(check).unwrap();
-            assert!(
-                !op.writes,
-                "connector {slug}: the check operation {} writes",
-                op.id
-            );
+            match c.check.as_ref() {
+                Some(check) => {
+                    let op = c.operation(check).unwrap();
+                    assert!(
+                        !op.writes,
+                        "connector {slug}: the check operation {} writes",
+                        op.id
+                    );
+                }
+                // A platform with no read that takes no parameter has
+                // nothing a person could press: named here, and held to it.
+                None => {
+                    assert!(
+                        CHECKLESS.contains(&slug),
+                        "connector {slug}: no check operation"
+                    );
+                    for op in c.operations.iter().filter(|op| !op.writes) {
+                        assert!(
+                            op.params.iter().any(|p| p.required && p.default.is_none()),
+                            "connector {slug}: {} could be its check",
+                            op.id
+                        );
+                    }
+                }
+            }
             // An optional parameter in a JSON body is exactly one leaf — a
             // member the client drops when the parameter is left empty.
             for (site, leaf) in c.templates() {

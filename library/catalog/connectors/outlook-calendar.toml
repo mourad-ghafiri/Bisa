@@ -1,0 +1,125 @@
+# Built-in connector: Outlook Calendar — events in a person's calendar over Microsoft Graph.
+#
+# The Microsoft identity platform's flow on the `common` tenant (see
+# outlook-mail.toml). A calendar view needs both ends of its range, in ISO
+# 8601; a value with no offset "is interpreted as UTC", and the events come
+# back in UTC. An event's `start` and `end` each take a `dateTime` and a
+# `timeZone`, here one zone for both, named the way Outlook names them. The
+# reference does not state a default or a largest `$top` for a view.
+# Creating an event with attendees sends invitations, so none is taken
+# here: the event lands on the account's own calendar.
+#
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/reply-url
+# Reference: https://learn.microsoft.com/en-us/graph/query-parameters
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-list-calendars?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-list-calendarview?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/event-get?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-post-events?view=graph-rest-1.0
+
+[connector]
+name = "Outlook Calendar"
+description = "List an Outlook or Microsoft 365 calendar's events between two moments, read one and create one. Connect with your own Microsoft Entra app registration; the consent screen asks for Calendars.ReadWrite."
+tags = ["planning", "ops"]
+base_url = "https://graph.microsoft.com"
+hosts = ["graph.microsoft.com"]
+check = "calendars"
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+scopes = ["offline_access", "Calendars.ReadWrite"]
+pkce = true
+
+[[connector.operations]]
+id = "calendars"
+name = "Calendars"
+description = "The account's calendars — the one call that proves it works."
+method = "get"
+path = "/v1.0/me/calendars"
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "list_events"
+name = "List events"
+description = "The default calendar's events between two moments, recurring ones expanded."
+method = "get"
+path = "/v1.0/me/calendar/calendarView"
+query = { startDateTime = "{params.from}", endDateTime = "{params.to}", "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+required = true
+doc = "An ISO 8601 moment, 2026-09-07T00:00:00-08:00; with no offset it is read as UTC."
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+required = true
+doc = "An ISO 8601 moment; with no offset it is read as UTC."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many events to return; empty for Graph's own page size."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "get_event"
+name = "Get event"
+description = "One event in full."
+method = "get"
+path = "/v1.0/me/events/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Event id"
+required = true
+doc = "The id list_events returned."
+
+[[connector.operations]]
+id = "create_event"
+name = "Create event"
+description = "Put an event on the account's default calendar; nobody is invited."
+method = "post"
+path = "/v1.0/me/events"
+body = { kind = "json", value = { subject = "{params.subject}", body = { contentType = "Text", content = "{params.description}" }, start = { dateTime = "{params.start}", timeZone = "{params.timezone}" }, end = { dateTime = "{params.end}", timeZone = "{params.timezone}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "subject"
+label = "Title"
+required = true
+doc = "The title as it shows on the calendar."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+required = true
+doc = "Plain text under the title."
+
+[[connector.operations.params]]
+name = "start"
+label = "Starts"
+required = true
+doc = "A local date and time in the time zone below: 2026-09-07T12:00:00."
+
+[[connector.operations.params]]
+name = "end"
+label = "Ends"
+required = true
+doc = "A local date and time in the time zone below."
+
+[[connector.operations.params]]
+name = "timezone"
+label = "Time zone"
+required = true
+doc = "A time zone by the name Outlook gives it: Pacific Standard Time."

@@ -1,0 +1,82 @@
+# Built-in connector: Google Docs — read a document, create one and add text to it over the Docs REST API.
+#
+# Google's installed-app flow (see gmail.toml), scope `documents`. The API is
+# served on `docs.googleapis.com` and has three methods: get, create and
+# batchUpdate. None is a read that takes no document id, so this definition
+# names no `check`: connecting is the proof. A create keeps only the title —
+# "other fields in the request, including any provided content, are
+# ignored". Text is added with one `insertText` request at the end of the
+# body: an `endOfSegmentLocation` whose empty `segmentId` "signifies the
+# document's body", in the first tab when no tab is named.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/workspace/docs/api/reference/rest
+# Reference: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/get
+# Reference: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/create
+# Reference: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/batchUpdate
+# Reference: https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request
+
+[connector]
+name = "Google Docs"
+description = "Read a document, create one by its title and add text at its end. Connect with your own Google OAuth client, the Docs API on."
+tags = ["content", "business"]
+base_url = "https://docs.googleapis.com"
+hosts = ["docs.googleapis.com"]
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/documents"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "get_document"
+name = "Get document"
+description = "One document in full: its title and its structured content."
+method = "get"
+path = "/v1/documents/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Document id"
+required = true
+doc = "The document's id, the long token in its URL."
+
+[[connector.operations]]
+id = "create_document"
+name = "Create document"
+description = "Create a blank document by its title."
+method = "post"
+path = "/v1/documents"
+body = { kind = "json", value = { title = "{params.title}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The title as it will show in Docs: Meeting notes."
+
+[[connector.operations]]
+id = "append_text"
+name = "Append text"
+description = "Add text at the end of a document's body."
+method = "post"
+path = "/v1/documents/{params.id}:batchUpdate"
+body = { kind = "json", value = { requests = [{ insertText = { text = "{params.text}", endOfSegmentLocation = { segmentId = "" } } }] } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Document id"
+required = true
+doc = "The document's id, the long token in its URL."
+
+[[connector.operations.params]]
+name = "text"
+label = "Text"
+required = true
+doc = "Plain text; a line break inside it starts a new paragraph. Space and line breaks at its two ends are not sent."

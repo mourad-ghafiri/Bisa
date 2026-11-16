@@ -1,0 +1,155 @@
+# Built-in connector: Google Sheets — read and write a spreadsheet's cells over the Sheets REST API.
+#
+# Google's installed-app flow (see gmail.toml), scope `spreadsheets`. The API
+# is served on `sheets.googleapis.com`. It has no read that takes no
+# spreadsheet id — every method but create names one — so this definition
+# names no `check`: connecting is the proof, and the first read says the
+# rest. A range is A1 notation and rides in the path; a write must name a
+# `valueInputOption`, and `INPUT_VALUE_OPTION_UNSPECIFIED` "must not be
+# used", so USER_ENTERED is sent unless the step says RAW. A read answers
+# the whole ValueRange: Google's pages do not say whether `values` is left
+# out of an empty range, so nothing is selected from it. Reading leaves out
+# empty trailing rows and columns.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/create
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/append
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values
+# Reference: https://developers.google.com/workspace/sheets/api/reference/rest/v4/ValueInputOption
+
+[connector]
+name = "Google Sheets"
+description = "Read a spreadsheet's cells, append rows, write a range and create a spreadsheet. Connect with your own Google OAuth client, the Sheets API on."
+tags = ["data", "business"]
+base_url = "https://sheets.googleapis.com"
+hosts = ["sheets.googleapis.com"]
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "get_spreadsheet"
+name = "Get spreadsheet"
+description = "A spreadsheet's title and its sheets, without the cells."
+method = "get"
+path = "/v4/spreadsheets/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Spreadsheet id"
+required = true
+doc = "The spreadsheet's id, the long token in its URL."
+
+[[connector.operations]]
+id = "read_values"
+name = "Read values"
+description = "The cells of a range, row by row; empty trailing rows and columns are left out."
+method = "get"
+path = "/v4/spreadsheets/{params.id}/values/{params.range}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Spreadsheet id"
+required = true
+doc = "The spreadsheet's id, the long token in its URL."
+
+[[connector.operations.params]]
+name = "range"
+label = "Range"
+required = true
+doc = "A1 notation: Sheet1!A1:D20, or a sheet's name for all of it."
+
+[[connector.operations]]
+id = "append_values"
+name = "Append rows"
+description = "Add rows after the last row of the table found in a range."
+method = "post"
+path = "/v4/spreadsheets/{params.id}/values/{params.range}:append"
+query = { valueInputOption = "{params.input}" }
+body = { kind = "json", value = { values = "{params.values}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Spreadsheet id"
+required = true
+doc = "The spreadsheet's id, the long token in its URL."
+
+[[connector.operations.params]]
+name = "range"
+label = "Range"
+required = true
+doc = "A1 notation of where the table is looked for: Sheet1!A1, or a sheet's name."
+
+[[connector.operations.params]]
+name = "values"
+label = "Rows"
+kind = "json"
+required = true
+doc = "A JSON array of rows, each an array of cells: [[\"Ada\", 36], [\"Grace\", 45]]."
+
+[[connector.operations.params]]
+name = "input"
+label = "Read the values as"
+default = "USER_ENTERED"
+doc = "USER_ENTERED reads each value as if typed into the sheet; RAW stores it as given."
+
+[[connector.operations]]
+id = "update_values"
+name = "Write a range"
+description = "Write cells over a range, replacing what the cells held."
+method = "put"
+path = "/v4/spreadsheets/{params.id}/values/{params.range}"
+query = { valueInputOption = "{params.input}" }
+body = { kind = "json", value = { values = "{params.values}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Spreadsheet id"
+required = true
+doc = "The spreadsheet's id, the long token in its URL."
+
+[[connector.operations.params]]
+name = "range"
+label = "Range"
+required = true
+doc = "A1 notation of the cells to write: Sheet1!A2:B3."
+
+[[connector.operations.params]]
+name = "values"
+label = "Rows"
+kind = "json"
+required = true
+doc = "A JSON array of rows, each an array of cells; an empty string empties a cell."
+
+[[connector.operations.params]]
+name = "input"
+label = "Read the values as"
+default = "USER_ENTERED"
+doc = "USER_ENTERED reads each value as if typed into the sheet; RAW stores it as given."
+
+[[connector.operations]]
+id = "create_spreadsheet"
+name = "Create spreadsheet"
+description = "Create an empty spreadsheet by its title."
+method = "post"
+path = "/v4/spreadsheets"
+body = { kind = "json", value = { properties = { title = "{params.title}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The title as it will show in Sheets: Q3 pipeline."

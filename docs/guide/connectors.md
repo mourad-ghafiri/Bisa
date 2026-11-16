@@ -44,7 +44,7 @@ glyph — `✓`, `✗`, or `·` for nothing asked yet — and `--json` carries i
 `--timeout-secs` (1 to 60; 20 unsaid) for the platform and says *connected*, *refused* or
 *unreachable* with the status and the reason.
 
-**OAuth2** (Google, X, TikTok). Register your own OAuth client at the platform — nothing ships
+**OAuth2** (Google, Microsoft, X, TikTok). Register your own OAuth client at the platform — nothing ships
 with one — with the redirect URI `http://127.0.0.1:4478/connectors/oauth/callback` (the port is
 `connectors.oauth.port`, a machine setting), enter its client id and secret on the account, then
 press *Connect*: the browser opens the platform's consent page, the node listens on that loopback
@@ -60,6 +60,18 @@ browser back to loopback shows a *paste the code* field instead (`bisa connector
 <connector> <account>` prints the URL and waits for the code). A long-lived token you already hold
 can always be entered as the `access_token` field directly.
 
+**Microsoft** (Outlook Mail, Outlook Calendar, OneDrive). The three sign in on the Microsoft
+identity platform's `common` tenant, which admits work or school accounts and personal Microsoft
+accounts. Microsoft's pages do not say what `common` answers an app registered for one directory
+only; should the sign-in refuse one, a custom connector whose two URLs name the tenant is the
+way. Add the redirect under *Mobile and desktop applications*:
+Microsoft's portal does not take an `http://127.0.0.1` redirect in its text box and has it added
+in the app manifest's `replyUrlsWithType`. A desktop app is a public client, which Microsoft says
+must not use a secret — leave the account's client secret empty. The consent screen asks for
+`offline_access` beside each connector's permissions, which is what brings a refresh token
+([redirect URIs](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url),
+[auth code flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow)).
+
 ## The built-ins
 
 | Connector | Auth | What to create at the platform | Operations | Reference |
@@ -67,7 +79,13 @@ can always be entered as the `access_token` field directly.
 | `gmail` | OAuth2 | a Google Cloud OAuth client (desktop app) with the Gmail API on, scopes `gmail.readonly` and `gmail.send` | `profile` (check), `list_messages`, `get_message`, `send_message` — the message as a base64url RFC 2822 string | [OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app), [Gmail API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list) |
 | `google-drive` | OAuth2 | the same client, the Drive API on, scope `drive` | `about` (check), `list_files`, `get_file`, `create_file` | [Drive API](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list) |
 | `google-calendar` | OAuth2 | the same client, the Calendar API on, scope `calendar` | `calendar_list` (check), `list_events`, `create_event` (`calendar` is `primary` for your own) | [Calendar API](https://developers.google.com/workspace/calendar/api/v3/reference/events/list) |
+| `google-sheets` | OAuth2 | the same client, the Sheets API on, scope `spreadsheets` | `get_spreadsheet`, `read_values` (a range in A1 notation; the whole value range is the answer), `append_values`, `update_values` (both read each value as if typed unless `input` is `RAW`), `create_spreadsheet` — no check: the API has no read that takes no spreadsheet id | [Sheets API](https://developers.google.com/workspace/sheets/api/reference/rest), [values](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values) |
+| `google-docs` | OAuth2 | the same client, the Docs API on, scope `documents` | `get_document`, `create_document` (blank, by its title), `append_text` (at the end of the body) — no check: the API has no read that takes no document id | [Docs API](https://developers.google.com/workspace/docs/api/reference/rest), [requests](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request) |
+| `google-tasks` | OAuth2 | the same client, the Tasks API on, scope `tasks` | `task_lists` (check), `list_tasks`, `get_task`, `create_task`, `update_task` (`status` `completed` completes one; only what is set is sent) | [Tasks API](https://developers.google.com/workspace/tasks/reference/rest), [task](https://developers.google.com/workspace/tasks/reference/rest/v1/tasks) |
 | `youtube` | OAuth2 | the same client, the YouTube Data API on, scope `youtube.readonly` | `my_channel` (check), `search`, `channel`, `video` | [YouTube Data API](https://developers.google.com/youtube/v3/docs/search/list) |
+| `outlook-mail` | OAuth2 (PKCE) | a Microsoft Entra app registration (see *Microsoft* above), delegated permissions `User.Read`, `Mail.Read`, `Mail.Send` | `me` (check), `list_messages` (ten unless *At most* says otherwise; an OData `filter`), `get_message`, `send_mail` (plain text, one recipient) | [auth code flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow), [messages](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0), [sendMail](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0) |
+| `outlook-calendar` | OAuth2 (PKCE) | the same registration, delegated permission `Calendars.ReadWrite` | `calendars` (check), `list_events` (the default calendar between two moments, recurring events expanded), `get_event`, `create_event` (one named time zone for both ends; nobody is invited) | [calendar view](https://learn.microsoft.com/en-us/graph/api/user-list-calendarview?view=graph-rest-1.0), [create event](https://learn.microsoft.com/en-us/graph/api/user-post-events?view=graph-rest-1.0) |
+| `onedrive` | OAuth2 (PKCE) | the same registration, delegated permission `Files.ReadWrite` | `drive` (check), `list_root`, `list_children`, `get_item`, `search`, `create_folder`, `create_root_folder` (a name already taken gets a new one) — no upload and no download yet | [children](https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0), [search](https://learn.microsoft.com/en-us/graph/api/driveitem-search?view=graph-rest-1.0), [create folder](https://learn.microsoft.com/en-us/graph/api/driveitem-post-children?view=graph-rest-1.0) |
 | `slack` | bearer | a Slack app with a bot token (`xoxb-…`) and the scopes its operations need (`chat:write`, `channels:read`, `channels:history`); an app outside the Slack Marketplace reads history under a stricter limit | `auth_test` (check), `post_message`, `list_channels`, `channel_history` — every answer must say `ok: true` | [Web API](https://docs.slack.dev/apis/web-api/), [conversations.history](https://docs.slack.dev/reference/methods/conversations.history) |
 | `x` | OAuth2 (PKCE) | an X developer app with OAuth 2.0 user context, scopes `tweet.read tweet.write users.read offline.access`; the API on `api.x.com`, the consent page on `x.com` | `me` (check), `post`, `search_recent` | [OAuth 2.0](https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/authorization-code), [users/me](https://docs.x.com/x-api/users/user-lookup-me) |
 | `facebook-pages` | bearer | a long-lived page access token from a Meta app; the Graph API at v26.0 | `me` (check), `page_posts`, `publish_post` | [Pages API](https://developers.facebook.com/docs/pages-api/posts), [versioning](https://developers.facebook.com/docs/graph-api/guides/versioning) |
@@ -87,7 +105,7 @@ can always be entered as the `access_token` field directly.
 | `discord` | API key in the `Authorization` header, as `Bot <token>` | a bot's token; the bot in the server and allowed to see the channel (reading message text needs Discord's privileged Message Content access configured for the app) | `me` (check), `guilds`, `channels`, `messages`, `send_message` | [API reference](https://docs.discord.com/developers/reference), [messages](https://docs.discord.com/developers/resources/message) |
 
 `bisa connector show <slug>` prints every operation with its parameters and what each selects
-from the answer; [`reference/catalog.md`](../reference/catalog.md#connectors-21) lists them too.
+from the answer; [`reference/catalog.md`](../reference/catalog.md#connectors-27) lists them too.
 Each file under `library/catalog/connectors/` opens with `# Reference:` lines naming the platform
 documentation it was checked against, and carries a `revision` the platform reads at the engine's
 start: an installed copy below the bundle's revision is refreshed — its accounts, secrets and

@@ -105,12 +105,38 @@ fn authorize(def: &Connector) -> BTreeMap<String, String> {
     q
 }
 
+/// The built-ins that name no check: Google's Sheets and Docs APIs have no
+/// read that takes no spreadsheet or document id.
+const CHECKLESS: [&str; 2] = ["google-docs", "google-sheets"];
+
+/// A path as the platform reads it, percent-decoded.
+fn decoded(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap();
+            out.push(u8::from_str_radix(hex, 16).unwrap());
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap()
+}
+
 /// Every built-in's check builds with no parameter at all — what *Check*
 /// sends — and its host is one the definition declares.
 #[test]
 fn every_check_builds_with_no_parameters_against_a_declared_host() {
     for (slug, _) in CATALOG.connectors {
         let d = def(slug);
+        if CHECKLESS.contains(slug) {
+            assert_eq!(d.check, None, "{slug}");
+            continue;
+        }
         let check = d.check.clone().expect("a check");
         let req = request(&d, check.as_str(), &[]);
         // `host[:port]`, as the judge is given it.
@@ -480,7 +506,15 @@ fn tiktok_spells_oauth_its_own_way_and_expects_the_ok_code() {
 
 #[test]
 fn google_asks_for_offline_consent_with_pkce_and_every_oauth_scheme_declares_its_own_hosts() {
-    for slug in ["gmail", "google-calendar", "google-drive", "youtube"] {
+    for slug in [
+        "gmail",
+        "google-calendar",
+        "google-docs",
+        "google-drive",
+        "google-sheets",
+        "google-tasks",
+        "youtube",
+    ] {
         let d = def(slug);
         let consent = authorize(&d);
         assert_eq!(consent["@host"], "accounts.google.com", "{slug}");
@@ -1102,4 +1136,474 @@ fn discord_signs_as_a_bot_names_itself_as_discord_asks_and_pins_v10() {
     );
     assert_eq!(sent.method.as_str(), "POST");
     assert_eq!(body(&sent), json!({"content": "Deploy finished."}));
+}
+
+// --- documents and mail: Google Sheets, Docs, Tasks; Outlook Mail, Calendar; OneDrive ---
+
+const OFFICE: [&str; 6] = [
+    "google-sheets",
+    "google-docs",
+    "google-tasks",
+    "outlook-mail",
+    "outlook-calendar",
+    "onedrive",
+];
+
+/// What changes something says so, and nothing in the six deletes.
+#[test]
+fn the_office_connectors_mark_every_write_and_delete_nothing() {
+    for slug in OFFICE {
+        let d = def(slug);
+        for op in &d.operations {
+            assert_ne!(
+                op.method,
+                bisa_core::HttpMethod::Delete,
+                "{slug}.{}: no built-in deletes",
+                op.id
+            );
+            assert_eq!(
+                op.writes,
+                op.method != bisa_core::HttpMethod::Get,
+                "{slug}.{}: a call that is not a GET is a write, and says so",
+                op.id
+            );
+        }
+    }
+}
+
+/// Sheets and Docs have no read without an id, so they name no check — and
+/// they are the only built-ins that do not.
+#[test]
+fn only_sheets_and_docs_name_no_check() {
+    let without: Vec<&str> = CATALOG
+        .connectors
+        .iter()
+        .map(|(slug, _)| *slug)
+        .filter(|slug| def(slug).check.is_none())
+        .collect();
+    assert_eq!(without, CHECKLESS);
+}
+
+#[test]
+fn google_sheets_carries_a_range_in_the_path_and_names_how_a_write_is_read() {
+    let d = def("google-sheets");
+    assert_eq!(d.base_url, "https://sheets.googleapis.com");
+    let meta = request(&d, "get_spreadsheet", &[("id", "1BxiMVs0XRA5")]);
+    assert_eq!(meta.url.path(), "/v4/spreadsheets/1BxiMVs0XRA5");
+    assert!(query(&meta).is_empty(), "no grid data unless asked");
+
+    let read = request(
+        &d,
+        "read_values",
+        &[("id", "1BxiMVs0XRA5"), ("range", "Sheet1!A1:D20")],
+    );
+    assert_eq!(read.method.as_str(), "GET");
+    assert_eq!(
+        decoded(read.url.path()),
+        "/v4/spreadsheets/1BxiMVs0XRA5/values/Sheet1!A1:D20"
+    );
+    let spaced = request(
+        &d,
+        "read_values",
+        &[("id", "1BxiMVs0XRA5"), ("range", "Q3 plan!A1/B2")],
+    );
+    assert_eq!(
+        spaced.url.path().matches('/').count(),
+        5,
+        "a slash in a range stays inside its segment: {}",
+        spaced.url.path()
+    );
+    assert_eq!(
+        decoded(spaced.url.path()),
+        "/v4/spreadsheets/1BxiMVs0XRA5/values/Q3 plan!A1/B2"
+    );
+    assert_eq!(
+        def("google-sheets")
+            .operation(&OperationId::new("read_values").unwrap())
+            .unwrap()
+            .output
+            .select,
+        None,
+        "the whole ValueRange: Google does not say `values` is always there"
+    );
+
+    let append = request(
+        &d,
+        "append_values",
+        &[
+            ("id", "1BxiMVs0XRA5"),
+            ("range", "Sheet1!A1"),
+            ("values", r#"[["Ada", 36], ["Grace", 45]]"#),
+        ],
+    );
+    assert_eq!(append.method.as_str(), "POST");
+    assert_eq!(
+        decoded(append.url.path()),
+        "/v4/spreadsheets/1BxiMVs0XRA5/values/Sheet1!A1:append"
+    );
+    assert_eq!(
+        query(&append),
+        BTreeMap::from([("valueInputOption".to_string(), "USER_ENTERED".to_string())]),
+        "a ValueInputOption must be named; USER_ENTERED unless the step says"
+    );
+    assert_eq!(
+        body(&append),
+        json!({"values": [["Ada", 36], ["Grace", 45]]})
+    );
+
+    let write = request(
+        &d,
+        "update_values",
+        &[
+            ("id", "1BxiMVs0XRA5"),
+            ("range", "Sheet1!A2:B2"),
+            ("values", r#"[["=1+1", ""]]"#),
+            ("input", "RAW"),
+        ],
+    );
+    assert_eq!(write.method.as_str(), "PUT");
+    assert_eq!(
+        decoded(write.url.path()),
+        "/v4/spreadsheets/1BxiMVs0XRA5/values/Sheet1!A2:B2"
+    );
+    assert_eq!(query(&write)["valueInputOption"], "RAW");
+    assert_eq!(body(&write), json!({"values": [["=1+1", ""]]}));
+
+    let created = request(&d, "create_spreadsheet", &[("title", "Q3 pipeline")]);
+    assert_eq!(created.url.path(), "/v4/spreadsheets");
+    assert_eq!(
+        body(&created),
+        json!({"properties": {"title": "Q3 pipeline"}})
+    );
+}
+
+#[test]
+fn google_docs_creates_by_title_and_appends_at_the_end_of_the_body() {
+    let d = def("google-docs");
+    assert_eq!(d.base_url, "https://docs.googleapis.com");
+    assert_eq!(
+        d.operations
+            .iter()
+            .map(|op| op.id.to_string())
+            .collect::<Vec<_>>(),
+        ["get_document", "create_document", "append_text"],
+        "the API's three methods, and no more"
+    );
+    let read = request(&d, "get_document", &[("id", "195j9eDD3ccgjQ")]);
+    assert_eq!(read.url.path(), "/v1/documents/195j9eDD3ccgjQ");
+    let created = request(&d, "create_document", &[("title", "Meeting notes")]);
+    assert_eq!(created.url.path(), "/v1/documents");
+    assert_eq!(body(&created), json!({"title": "Meeting notes"}));
+
+    let appended = request(
+        &d,
+        "append_text",
+        &[
+            ("id", "195j9eDD3ccgjQ"),
+            ("text", "Decided: ship.\nNext: tell the team."),
+        ],
+    );
+    assert_eq!(appended.method.as_str(), "POST");
+    assert_eq!(
+        decoded(appended.url.path()),
+        "/v1/documents/195j9eDD3ccgjQ:batchUpdate"
+    );
+    assert_eq!(
+        body(&appended),
+        json!({"requests": [{"insertText": {
+            "text": "Decided: ship.\nNext: tell the team.",
+            "endOfSegmentLocation": {"segmentId": ""}
+        }}]}),
+        "an empty segment id is the document's body"
+    );
+}
+
+#[test]
+fn google_tasks_reads_a_missing_list_as_empty_and_patches_only_what_was_set() {
+    let d = def("google-tasks");
+    assert_eq!(d.base_url, "https://tasks.googleapis.com");
+    let lists = request(&d, "task_lists", &[]);
+    assert_eq!(decoded(lists.url.path()), "/tasks/v1/users/@me/lists");
+    assert!(query(&lists).is_empty());
+    for op in ["task_lists", "list_tasks"] {
+        let out = &d.operation(&OperationId::new(op).unwrap()).unwrap().output;
+        assert_eq!(out.select.as_deref(), Some("items"), "{op}");
+        assert!(out.or_empty, "{op}: an answer with no `items` is no tasks");
+    }
+
+    let tasks = request(&d, "list_tasks", &[("list", "MDk4")]);
+    assert_eq!(tasks.url.path(), "/tasks/v1/lists/MDk4/tasks");
+    assert!(query(&tasks).is_empty(), "Google's own defaults");
+    let narrowed = request(
+        &d,
+        "list_tasks",
+        &[
+            ("list", "MDk4"),
+            ("max", "100"),
+            ("completed", "false"),
+            ("hidden", "true"),
+            ("due_from", "2026-09-07T00:00:00Z"),
+        ],
+    );
+    assert_eq!(
+        query(&narrowed),
+        BTreeMap::from([
+            ("maxResults".to_string(), "100".to_string()),
+            ("showCompleted".to_string(), "false".to_string()),
+            ("showHidden".to_string(), "true".to_string()),
+            ("dueMin".to_string(), "2026-09-07T00:00:00Z".to_string()),
+        ])
+    );
+    let one = request(&d, "get_task", &[("list", "MDk4"), ("task", "abc")]);
+    assert_eq!(one.url.path(), "/tasks/v1/lists/MDk4/tasks/abc");
+
+    let created = request(
+        &d,
+        "create_task",
+        &[("list", "MDk4"), ("title", "Send the invoice")],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/tasks/v1/lists/MDk4/tasks");
+    assert_eq!(body(&created), json!({"title": "Send the invoice"}));
+
+    let done = request(
+        &d,
+        "update_task",
+        &[("list", "MDk4"), ("task", "abc"), ("status", "completed")],
+    );
+    assert_eq!(done.method.as_str(), "PATCH");
+    assert_eq!(done.url.path(), "/tasks/v1/lists/MDk4/tasks/abc");
+    assert_eq!(
+        body(&done),
+        json!({"status": "completed"}),
+        "patch semantics: what the step left empty is not sent"
+    );
+}
+
+/// Microsoft's identity platform, as its pages describe a desktop app's
+/// flow: the `common` tenant, PKCE, scopes joined by a space, a refresh
+/// token only with `offline_access`, and one host for both ends.
+#[test]
+fn microsoft_signs_in_on_the_common_tenant_with_pkce_and_asks_for_a_refresh_token() {
+    for (slug, permission) in [
+        ("outlook-mail", "Mail.Send"),
+        ("outlook-calendar", "Calendars.ReadWrite"),
+        ("onedrive", "Files.ReadWrite"),
+    ] {
+        let d = def(slug);
+        let consent = authorize(&d);
+        assert_eq!(consent["@host"], "login.microsoftonline.com", "{slug}");
+        assert_eq!(consent["response_type"], "code", "{slug}");
+        assert_eq!(consent["code_challenge_method"], "S256", "{slug}");
+        assert_eq!(consent["client_id"], "the-client", "{slug}");
+        assert_eq!(
+            consent["redirect_uri"], "http://127.0.0.1:4478/connectors/oauth/callback",
+            "{slug}"
+        );
+        let scopes: Vec<&str> = consent["scope"].split(' ').collect();
+        assert!(scopes.contains(&"offline_access"), "{slug}: {scopes:?}");
+        assert!(scopes.contains(&permission), "{slug}: {scopes:?}");
+        assert!(
+            !consent.contains_key("access_type"),
+            "{slug}: Google's word"
+        );
+        assert_eq!(
+            d.oauth_hosts(),
+            vec!["login.microsoftonline.com".to_string()],
+            "{slug}"
+        );
+        let bisa_core::AuthScheme::OAuth2 {
+            authorization_url,
+            token_url,
+            ..
+        } = &d.auth
+        else {
+            panic!("{slug}: oauth2");
+        };
+        assert_eq!(
+            authorization_url,
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+        );
+        assert_eq!(
+            token_url,
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        );
+        for (op, req) in every_request(&d) {
+            assert_eq!(req.url.host_str(), Some("graph.microsoft.com"), "{op}");
+            assert!(req.url.path().starts_with("/v1.0/me"), "{slug}.{op}");
+        }
+    }
+}
+
+#[test]
+fn outlook_mail_pages_with_top_and_sends_one_plain_text_message() {
+    let d = def("outlook-mail");
+    assert_eq!(request(&d, "me", &[]).url.path(), "/v1.0/me");
+    let all = request(&d, "list_messages", &[]);
+    assert_eq!(all.url.path(), "/v1.0/me/messages");
+    assert!(query(&all).is_empty(), "ten, by Graph's own default");
+    let unread = request(
+        &d,
+        "list_messages",
+        &[("filter", "isRead eq false"), ("max", "25")],
+    );
+    assert_eq!(
+        query(&unread),
+        BTreeMap::from([
+            ("$filter".to_string(), "isRead eq false".to_string()),
+            ("$top".to_string(), "25".to_string()),
+        ]),
+        "the `$` is always written"
+    );
+    let one = request(&d, "get_message", &[("id", "AAMkAGI2=")]);
+    assert_eq!(decoded(one.url.path()), "/v1.0/me/messages/AAMkAGI2=");
+
+    let sent = request(
+        &d,
+        "send_mail",
+        &[
+            ("to", "frannis@contoso.com"),
+            ("subject", "Meet for lunch?"),
+            ("body", "The new cafeteria is open."),
+        ],
+    );
+    assert_eq!(sent.method.as_str(), "POST");
+    assert_eq!(sent.url.path(), "/v1.0/me/sendMail");
+    assert_eq!(
+        body(&sent),
+        json!({"message": {
+            "subject": "Meet for lunch?",
+            "body": {"contentType": "Text", "content": "The new cafeteria is open."},
+            "toRecipients": [{"emailAddress": {"address": "frannis@contoso.com"}}]
+        }})
+    );
+}
+
+#[test]
+fn outlook_calendar_reads_a_view_between_two_moments_and_invites_nobody() {
+    let d = def("outlook-calendar");
+    assert_eq!(
+        request(&d, "calendars", &[]).url.path(),
+        "/v1.0/me/calendars"
+    );
+    let view = request(
+        &d,
+        "list_events",
+        &[
+            ("from", "2026-09-07T00:00:00-08:00"),
+            ("to", "2026-09-14T00:00:00-08:00"),
+        ],
+    );
+    assert_eq!(view.url.path(), "/v1.0/me/calendar/calendarView");
+    assert_eq!(
+        query(&view),
+        BTreeMap::from([
+            (
+                "startDateTime".to_string(),
+                "2026-09-07T00:00:00-08:00".to_string()
+            ),
+            (
+                "endDateTime".to_string(),
+                "2026-09-14T00:00:00-08:00".to_string()
+            ),
+        ])
+    );
+    let one = request(&d, "get_event", &[("id", "AAMkAGI1=")]);
+    assert_eq!(decoded(one.url.path()), "/v1.0/me/events/AAMkAGI1=");
+
+    let created = request(
+        &d,
+        "create_event",
+        &[
+            ("subject", "Let's go for lunch"),
+            ("description", "Does noon work for you?"),
+            ("start", "2017-04-15T12:00:00"),
+            ("end", "2017-04-15T14:00:00"),
+            ("timezone", "Pacific Standard Time"),
+        ],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/v1.0/me/events");
+    let sent = body(&created);
+    assert_eq!(
+        sent,
+        json!({
+            "subject": "Let's go for lunch",
+            "body": {"contentType": "Text", "content": "Does noon work for you?"},
+            "start": {"dateTime": "2017-04-15T12:00:00", "timeZone": "Pacific Standard Time"},
+            "end": {"dateTime": "2017-04-15T14:00:00", "timeZone": "Pacific Standard Time"}
+        })
+    );
+    assert!(
+        sent.get("attendees").is_none(),
+        "attendees would be sent invitations"
+    );
+}
+
+#[test]
+fn onedrive_searches_inside_the_path_and_never_replaces_a_folder() {
+    let d = def("onedrive");
+    assert_eq!(request(&d, "drive", &[]).url.path(), "/v1.0/me/drive");
+    let top = request(&d, "list_root", &[("max", "50")]);
+    assert_eq!(top.url.path(), "/v1.0/me/drive/root/children");
+    assert_eq!(query(&top)["$top"], "50");
+    let inside = request(&d, "list_children", &[("id", "01BYE5RZ6QN3")]);
+    assert_eq!(
+        inside.url.path(),
+        "/v1.0/me/drive/items/01BYE5RZ6QN3/children"
+    );
+    assert!(query(&inside).is_empty(), "200, by Graph's own default");
+    let item = request(&d, "get_item", &[("id", "01BYE5RZ6QN3")]);
+    assert_eq!(item.url.path(), "/v1.0/me/drive/items/01BYE5RZ6QN3");
+
+    let found = request(&d, "search", &[("q", "Contoso Project")]);
+    assert_eq!(
+        decoded(found.url.path()),
+        "/v1.0/me/drive/root/search(q='Contoso Project')"
+    );
+    assert!(
+        !found.url.path().contains(' '),
+        "a space is percent-encoded: {}",
+        found.url.path()
+    );
+    // Text that would close the quote or leave the segment stays text.
+    let odd = request(&d, "search", &[("q", "a')/b")]);
+    assert_eq!(
+        odd.url.path().matches('/').count(),
+        5,
+        "one segment: {}",
+        odd.url.path()
+    );
+
+    for (op, params, path) in [
+        (
+            "create_folder",
+            vec![("parent", "01BYE5RZ6QN3"), ("name", "New Folder")],
+            "/v1.0/me/drive/items/01BYE5RZ6QN3/children",
+        ),
+        (
+            "create_root_folder",
+            vec![("name", "New Folder")],
+            "/v1.0/me/drive/root/children",
+        ),
+    ] {
+        let made = request(&d, op, &params);
+        assert_eq!(made.method.as_str(), "POST", "{op}");
+        assert_eq!(made.url.path(), path, "{op}");
+        assert_eq!(
+            body(&made),
+            json!({
+                "name": "New Folder",
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "rename"
+            }),
+            "{op}: a name already taken gets a new one"
+        );
+    }
+    assert!(
+        d.operations
+            .iter()
+            .all(|op| op.method != bisa_core::HttpMethod::Put),
+        "no upload: the reference does not say a PUT leaves a file that is there"
+    );
 }

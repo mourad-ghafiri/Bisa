@@ -496,7 +496,8 @@ and pages, `output.expect = { path, equals | absent, reason }` on a platform tha
 with a 200, a `path` parameter where a value is a slash-separated path on the platform, and an
 OAuth2 scheme's `client_id_param`, `scope_join` or `code_challenge` where the platform's spelling
 differs from the RFCs'), `check` — an operation with no required parameter that writes nothing,
-the one Settings presses — and `revision`, the stamp the engine reads at start.
+the one Settings presses (a platform with no such read names none, and its slug joins `CHECKLESS`
+in the two tests that hold the rest to one) — and `revision`, the stamp the engine reads at start.
 
 1. The file — its header opening with `# Reference:` lines naming the platform documentation each
    operation was checked against — then its row in `CATALOG_CONNECTORS`
@@ -504,7 +505,7 @@ the one Settings presses — and `revision`, the stamp the engine reads at start
    `revision` in `the_catalog_connector_revisions_are_pinned`. **A change to a shipped file bumps its
    `revision`**: that is what carries the change to an installed copy at the next engine start.
 2. `every_connector_is_well_formed` runs `Connector::validate` on it, checks its tags, that every
-   operation and parameter is described, that `check` is set and does not write, that an optional
+   operation and parameter is described, that `check` is set (or the slug is in `CHECKLESS`) and does not write, that an optional
    parameter in a JSON body is a whole leaf, and installs it into a scratch workspace — so a
    placeholder that names an undeclared parameter, a reserved header, a base host missing from
    `hosts`, or `insecure_tls` off loopback fails here.

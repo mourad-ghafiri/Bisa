@@ -1,0 +1,114 @@
+# Built-in connector: Outlook Mail — a person's mailbox over Microsoft Graph, read and send.
+#
+# The Microsoft identity platform's authorization-code flow with PKCE, on
+# the `common` tenant, which admits "both Microsoft accounts and work or
+# school accounts". Microsoft's pages do not say what `common` answers an
+# app registered for one directory only; should it refuse one, a custom
+# connector whose two URLs name the tenant is the way. Register the
+# redirect under "Mobile and desktop applications": a public client "must
+# not use secrets", so the account's client secret stays empty. The
+# portal's text box does not take
+# an `http://127.0.0.1` redirect — Microsoft has it added in the app
+# manifest's `replyUrlsWithType`. A refresh token comes only with
+# `offline_access`, and each refresh answers a new one. Graph's v1.0
+# endpoint; a list answers ten messages unless `$top` says otherwise (1 to
+# 1000), under `value`. `sendMail` answers 202 with no body, and that "doesn't
+# indicate that the request processing has completed". One recipient a call.
+#
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/reply-url
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/scopes-oidc
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens
+# Reference: https://learn.microsoft.com/en-us/graph/use-the-api
+# Reference: https://learn.microsoft.com/en-us/graph/query-parameters
+# Reference: https://learn.microsoft.com/en-us/graph/throttling
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0
+
+[connector]
+name = "Outlook Mail"
+description = "Read an Outlook or Microsoft 365 mailbox and send mail through Microsoft Graph. Connect with your own Microsoft Entra app registration; the consent screen asks for User.Read, Mail.Read and Mail.Send."
+tags = ["business", "ops"]
+base_url = "https://graph.microsoft.com"
+hosts = ["graph.microsoft.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+scopes = ["offline_access", "User.Read", "Mail.Read", "Mail.Send"]
+pkce = true
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The signed-in user — the one call that proves the account works."
+method = "get"
+path = "/v1.0/me"
+
+[[connector.operations]]
+id = "list_messages"
+name = "List messages"
+description = "Messages in the mailbox, with their subjects, senders and previews."
+method = "get"
+path = "/v1.0/me/messages"
+query = { "$filter" = "{params.filter}", "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "filter"
+label = "Filter"
+doc = "An OData filter over a message's properties; empty for every message."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many messages to return, 1 to 1000; Graph's default is 10."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "get_message"
+name = "Get message"
+description = "One message in full: its recipients and its body."
+method = "get"
+path = "/v1.0/me/messages/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Message id"
+required = true
+doc = "The id list_messages returned."
+
+[[connector.operations]]
+id = "send_mail"
+name = "Send mail"
+description = "Send a plain-text message to one address; a copy is kept in Sent Items."
+method = "post"
+path = "/v1.0/me/sendMail"
+body = { kind = "json", value = { message = { subject = "{params.subject}", body = { contentType = "Text", content = "{params.body}" }, toRecipients = [{ emailAddress = { address = "{params.to}" } }] } } }
+writes = true
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+required = true
+doc = "One email address."
+
+[[connector.operations.params]]
+name = "subject"
+label = "Subject"
+required = true
+doc = "The subject line."
+
+[[connector.operations.params]]
+name = "body"
+label = "Body"
+required = true
+doc = "The message as plain text."

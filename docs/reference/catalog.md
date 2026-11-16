@@ -150,7 +150,7 @@ Guides: [Workflows](../guide/workflows.md), [Events and gateways](../guide/event
 | **Standing health check** | `standing-health-check` | `command`, `interval`, `channel`, `project` | `manual`, `check` | 9 | Start → The check starts failing → Run the check → Healthy → Diagnose → Severe? → Open an incident → Post the finding → Handled | `ops` `quality` |
 | **Mobile release** | `mobile-release` | `release`, `project`, `tests` | `manual` | 8 | Start → Build and run on the devices → Tests pass → Code review → Shippable? → Submit to the stores? → Submit to the stores → Done | `delivery` `engineering` `mobile` |
 
-## Connectors (21)
+## Connectors (27)
 
 A connector is a declarative definition of one outside platform's API — its hosts, its auth scheme, a handful
 of its most useful operations — that a `connector` step calls. Nothing here holds a credential: an **account** is
@@ -168,12 +168,18 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 | **GitLab** | `gitlab` | `api_key` | `gitlab.com` | `user`, `projects`, `list_issues`, `get_issue`, `list_merge_requests`, `create_issue` *writes*, `comment_issue` *writes*, `comment_merge_request` *writes* | `engineering` `management` |
 | **Gmail** | `gmail` | `oauth2` | `gmail.googleapis.com` | `profile`, `list_messages`, `get_message`, `send_message` *writes* | `business` `ops` |
 | **Google Calendar** | `google-calendar` | `oauth2` | `www.googleapis.com` | `calendar_list`, `list_events`, `create_event` *writes* | `ops` `planning` |
+| **Google Docs** | `google-docs` | `oauth2` | `docs.googleapis.com` | `get_document`, `create_document` *writes*, `append_text` *writes* | `business` `content` |
 | **Google Drive** | `google-drive` | `oauth2` | `www.googleapis.com` | `about`, `list_files`, `get_file`, `create_file` *writes* | `content` `data` |
+| **Google Sheets** | `google-sheets` | `oauth2` | `sheets.googleapis.com` | `get_spreadsheet`, `read_values`, `append_values` *writes*, `update_values` *writes*, `create_spreadsheet` *writes* | `business` `data` |
+| **Google Tasks** | `google-tasks` | `oauth2` | `tasks.googleapis.com` | `task_lists`, `list_tasks`, `get_task`, `create_task` *writes*, `update_task` *writes* | `ops` `planning` |
 | **Instagram** | `instagram` | `bearer` | `graph.facebook.com` | `me`, `media`, `create_media` *writes*, `publish_media` *writes* | `content` `marketing` |
 | **Jira** | `jira` | `basic` | `*.atlassian.net` | `myself`, `search`, `get_issue`, `create_issue` *writes*, `transition` *writes*, `comment` *writes* | `engineering` `management` |
 | **Linear** | `linear` | `api_key` | `api.linear.app` | `viewer`, `issues`, `create_issue` *writes* | `engineering` `product` |
 | **Notion** | `notion` | `bearer` | `api.notion.com` | `me`, `search`, `get_page`, `create_page` *writes*, `query_database` | `planning` `writing` |
 | **Obsidian** | `obsidian` | `bearer` | `127.0.0.1:27124` | `status`, `list_vault`, `list_folder`, `read_note`, `search` | `research` `writing` |
+| **OneDrive** | `onedrive` | `oauth2` | `graph.microsoft.com` | `drive`, `list_root`, `list_children`, `get_item`, `search`, `create_folder` *writes*, `create_root_folder` *writes* | `content` `data` |
+| **Outlook Calendar** | `outlook-calendar` | `oauth2` | `graph.microsoft.com` | `calendars`, `list_events`, `get_event`, `create_event` *writes* | `ops` `planning` |
+| **Outlook Mail** | `outlook-mail` | `oauth2` | `graph.microsoft.com` | `me`, `list_messages`, `get_message`, `send_mail` *writes* | `business` `ops` |
 | **PagerDuty** | `pagerduty` | `api_key` | `api.pagerduty.com` | `abilities`, `incidents`, `incident`, `oncalls`, `services`, `create_incident` *writes*, `add_note` *writes* | `engineering` `ops` |
 | **Sentry** | `sentry` | `bearer` | `*.sentry.io` | `projects`, `issues`, `issue`, `issue_events`, `update_issue` *writes* | `engineering` `ops` |
 | **Slack** | `slack` | `bearer` | `slack.com` | `auth_test`, `post_message` *writes*, `list_channels`, `channel_history` | `management` `ops` |
