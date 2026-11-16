@@ -25,6 +25,41 @@ export const SECRET_FIELDS_BY_SCHEME = Object.freeze({
   jwt: ["private_key"],
 });
 
+/**
+ * The fields without which no call can be made — the core's
+ * `AuthScheme::required()`, mirrored: what a row says is *still wanted*. An
+ * OAuth2 client is its id alone; a PKCE client has no secret to ask for.
+ */
+export const REQUIRED_SECRETS_BY_SCHEME = Object.freeze({
+  none: [],
+  api_key: ["api_key"],
+  bearer: ["token"],
+  basic: ["username", "password"],
+  oauth2: ["client_id"],
+  jwt: ["private_key"],
+});
+
+/** The fields a scheme cannot work without. */
+export function requiredSecrets(auth) {
+  return [...(REQUIRED_SECRETS_BY_SCHEME[schemeWord(auth)] ?? [])];
+}
+
+/** A scheme by the name a person knows it by. */
+const SCHEME_LABEL = Object.freeze({
+  none: t("settings-connectors-scheme-none"),
+  api_key: t("settings-connectors-scheme-api-key"),
+  bearer: t("settings-connectors-scheme-bearer"),
+  basic: t("settings-connectors-scheme-basic"),
+  oauth2: t("settings-connectors-scheme-oauth2"),
+  jwt: t("settings-connectors-scheme-jwt"),
+});
+
+/** The scheme's name; one this desktop does not know — a newer node's — is said as the node said it. */
+export function schemeLabel(auth) {
+  const word = schemeWord(auth);
+  return SCHEME_LABEL[word] ?? word;
+}
+
 /** The one word for each field, as a form labels it. */
 export const SECRET_FIELD_LABEL = Object.freeze({
   api_key: t("settings-decisions-panel-api-key"),
@@ -91,19 +126,21 @@ export function connectApplies(auth) {
  * The verbs of one account row: the one it shows — *Connect* while an OAuth
  * account holds no token, *Check* otherwise — and the rest, in the order the
  * row's menu lists them. A row of five buttons read as a toolbar; one verb
- * and a menu reads as a row.
+ * and a menu reads as a row. A connector that names no check offers none:
+ * the row's verb is then its secrets.
  * @param {{ default: boolean, secrets_set: readonly string[] }} account
  * @param {boolean} oauth
- * @returns {{ main: "connect" | "check", more: ("connect" | "secrets" | "check" | "default" | "forget")[] }}
+ * @param {boolean} [hasCheck] whether the connector names a check operation
+ * @returns {{ main: "connect" | "check" | "secrets", more: ("connect" | "secrets" | "check" | "default" | "forget")[] }}
  */
-export function accountVerbs(account, oauth) {
+export function accountVerbs(account, oauth, hasCheck = true) {
   const connected = account.secrets_set.includes("access_token");
-  const main = oauth && !connected ? "connect" : "check";
+  const main = oauth && !connected ? "connect" : hasCheck ? "check" : "secrets";
   /** @type {("connect" | "secrets" | "check" | "default" | "forget")[]} */
   const more = [];
   if (oauth && connected) more.push("connect");
-  more.push("secrets");
-  if (main !== "check") more.push("check");
+  if (main !== "secrets") more.push("secrets");
+  if (hasCheck && main !== "check") more.push("check");
   if (!account.default) more.push("default");
   more.push("forget");
   return { main, more };
@@ -136,12 +173,63 @@ export function originWords(origin) {
  * @param {import("../../types").ConnectorRow | null | undefined} row
  */
 export function connectorLine(row) {
-  if (!row) return "";
+  return connectorFacts(row).join(" · ");
+}
+
+/**
+ * The same facts, each on its own — how it signs in, where it calls, what it
+ * offers, the accounts here — so a screen can set them apart and a reader
+ * hears four things, not one run of punctuation.
+ * @param {import("../../types").ConnectorRow | null | undefined} row
+ * @returns {string[]}
+ */
+export function connectorFacts(row) {
+  if (!row) return [];
   const ops = row.operations ?? [];
   const writes = ops.filter((o) => o.writes).length;
   const opWords = t("settings-connectors-operation-operations-writes-write", { ops: ops.length, writes, flag: (writes > 0) ? "yes" : "no" });
   const accounts = row.accounts === 0 ? t("settings-connectors-account-here") : t("settings-connectors-account-accounts-here", { accounts: row.accounts });
-  return `${schemeWord(row.auth)} · ${(row.hosts ?? []).join(", ")} · ${opWords} · ${accounts}`;
+  return [schemeLabel(row.auth), (row.hosts ?? []).join(", "), opWords, accounts];
+}
+
+/**
+ * A catalog connector's row in the Library, before it is installed: how it
+ * signs in and what it offers. Nothing for a node that does not say.
+ * @param {{auth: string, operations: number, writes: number} | null | undefined} facts
+ */
+export function catalogConnectorLine(facts) {
+  if (!facts) return "";
+  const ops = t("settings-connectors-operation-operations-writes-write", { ops: facts.operations, writes: facts.writes, flag: facts.writes > 0 ? "yes" : "no" });
+  return `${schemeLabel(facts.auth)} · ${ops}`;
+}
+
+/**
+ * The connectors a search leaves: every word of it found in what a person
+ * knows a connector by — its name, its id, what it is, its tags, its hosts.
+ * Nothing typed leaves them all.
+ * @template {{id: string, name?: string, description?: string, tags?: readonly string[], hosts?: readonly string[]}} R
+ * @param {readonly R[]} rows
+ * @param {string} query
+ * @returns {R[]}
+ */
+export function filterConnectors(rows, query) {
+  const words = (query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...rows];
+  return rows.filter((row) => {
+    const hay = [row.name, row.id, row.description, ...(row.tags ?? []), ...(row.hosts ?? [])].filter(Boolean).join("\n").toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
+/**
+ * Whether a connector's card opens by itself: where this machine holds an
+ * account, there is a health to see. The rest stay a line each — forty-five
+ * definitions are a list to scan, not forty-five forms — and a card's detail
+ * is read when it opens, never before.
+ * @param {{accounts?: number}} row
+ */
+export function startsOpen(row) {
+  return (row?.accounts ?? 0) > 0;
 }
 
 /**
@@ -162,18 +250,23 @@ export function secretsLine(row, auth) {
   if (!row) return { tone: "quiet", text: "" };
   const where = row.token_source === "keyring" ? t("settings-code-host-accounts-os-keyring") : t("settings-connectors-file-under-identity");
   const set = row.secrets_set ?? [];
-  const wanted = secretFields(auth).filter((f) => f !== "access_token");
+  // What the scheme cannot work without — never a field it merely accepts —
+  // and each by the noun a person reads, never the wire's word.
+  const wanted = requiredSecrets(auth);
+  const nouns = (fields) => fields.map((f) => SECRET_FIELD_WHAT[f] ?? f).join(", ");
   if (set.length === 0) {
-    return { tone: wanted.length === 0 ? "quiet" : "warn", text: wanted.length === 0 ? t("settings-connectors-secret-needed") : t("settings-connectors-secret-set-yet-wanted", { wanted: wanted.join(", ") }) };
+    return { tone: wanted.length === 0 ? "quiet" : "warn", text: wanted.length === 0 ? t("settings-connectors-secret-needed") : t("settings-connectors-secret-set-yet-wanted", { wanted: nouns(wanted) }) };
   }
   const missing = wanted.filter((f) => !set.includes(f));
   if (schemeWord(auth) === "oauth2") {
     const connected = set.includes("access_token");
     const words = connected ? t("settings-connectors-connected") : t("settings-connectors-client-set-connected-yet");
-    return { tone: connected ? "ok" : "warn", text: `${words} · ${set.join(", ")} ${where}` };
+    // The refresh token is the flow's own: held or not, it is nothing a person set.
+    const shown = set.filter((f) => f !== "refresh_token");
+    return { tone: connected ? "ok" : "warn", text: t("settings-connectors-oauth-held", { words, held: nouns(shown), where }) };
   }
-  const held = `${set.join(", ")} ${where}`;
-  return { tone: missing.length === 0 ? "ok" : "warn", text: missing.length > 0 ? t("settings-connectors-held-still-wanted", { held, missing: missing.join(", ") }) : held };
+  const held = t("settings-connectors-held-where", { held: nouns(set), where });
+  return { tone: missing.length === 0 ? "ok" : "warn", text: missing.length > 0 ? t("settings-connectors-held-still-wanted", { held, missing: nouns(missing) }) : held };
 }
 
 /**
@@ -185,6 +278,8 @@ export function secretsLine(row, auth) {
 export function oauthLine(row, now) {
   const facts = row?.oauth;
   if (!facts) return null;
+  // No token yet, nothing to say of one: *without an expiry* over an account never connected read as a token it held.
+  if (!(row.secrets_set ?? []).includes("access_token")) return null;
   const scope = facts.scope ? t("settings-connectors-scope-tail", { scope: facts.scope }) : "";
   if (facts.expires_at === null || facts.expires_at === undefined) return t("settings-connectors-token-without-expiry", { scope });
   if (facts.expired || facts.expires_at <= now) return t("settings-connectors-token-expired-refreshed-next-call", { scope });
@@ -220,17 +315,61 @@ export function checkLine(check, name = t("settings-connectors-platform")) {
   }
 }
 
+/** A held value as the text a form shows: a string as it is, anything else as its JSON. */
+function shown(value) {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 /**
  * What an account's form opens on: the label and each parameter as the text
- * a person edits — a value that is not a string shown as its JSON.
+ * a person edits — a value that is not a string shown as its JSON. With the
+ * definition's parameters (`declared`), only those: what the account holds
+ * and the definition no longer asks for is not a field of the form
+ * ([`strayParams`]).
  * @param {import("../../types").ConnectorAccountRow | null | undefined} account
+ * @param {readonly {name: string}[] | null} [declared] the definition's parameters, once read
  * @returns {{label: string, values: Record<string, string>}}
  */
-export function accountDraft(account) {
+export function accountDraft(account, declared = null) {
+  const names = declared ? new Set(declared.map((p) => p.name)) : null;
   return {
     label: account?.label ?? "",
-    values: Object.fromEntries(Object.entries(account?.params ?? {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)])),
+    values: Object.fromEntries(
+      Object.entries(account?.params ?? {})
+        .filter(([k]) => !names || names.has(k))
+        .map(([k, v]) => [k, shown(v)]),
+    ),
   };
+}
+
+/**
+ * What an account holds that its connector's definition no longer declares
+ * — a parameter a refreshed built-in dropped, or an edit of a custom one
+ * removed. The node refuses to save an account that still names one, so the
+ * form says them and a save lets go of them; before this, such an account
+ * could not be edited at all. Nothing before the definition is read.
+ * @param {import("../../types").ConnectorAccountRow | null | undefined} account
+ * @param {readonly {name: string}[] | null | undefined} declared
+ * @returns {{name: string, value: string}[]}
+ */
+export function strayParams(account, declared) {
+  if (!account || !declared) return [];
+  const names = new Set(declared.map((p) => p.name));
+  return Object.entries(account.params ?? {})
+    .filter(([k]) => !names.has(k))
+    .map(([name, v]) => ({ name, value: shown(v) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The required parameters a form leaves blank, by the name the form shows —
+ * what holds *Save*, and what it says is missing.
+ * @param {Record<string, string> | null | undefined} values
+ * @param {readonly {name: string, label?: string, required?: boolean}[] | null | undefined} params
+ * @returns {string[]}
+ */
+export function missingRequired(values, params) {
+  return (params ?? []).filter((p) => p.required && (values?.[p.name] ?? "").trim() === "").map((p) => p.label || p.name);
 }
 
 /**
@@ -244,14 +383,20 @@ export function accountDraft(account) {
  * held**: the form shows it as text, and an edit that only set a secret must
  * not turn `8443` into `"8443"`.
  * @param {{label: string, values: Record<string, string>, secrets: Record<string, string | undefined>}} draft
+ *
+ * With the definition's parameters (`declared`), only those are sent: one the
+ * definition no longer declares would have the node refuse the whole save.
  * @param {import("../../types").ConnectorAccountRow | null | undefined} account the account being edited, or null
+ * @param {readonly {name: string}[] | null} [declared] the definition's parameters, once read
  * @returns {import("../../types").NewConnectorAccount}
  */
-export function accountBody(draft, account) {
+export function accountBody(draft, account, declared = null) {
   const held = account?.params ?? {};
+  const names = declared ? new Set(declared.map((p) => p.name)) : null;
   /** @type {Record<string, unknown>} */
   const params = {};
   for (const [name, typed] of Object.entries(draft.values ?? {})) {
+    if (names && !names.has(name)) continue;
     if (typeof typed !== "string" || typed.trim() === "") continue;
     const was = held[name];
     params[name] = was !== undefined && typeof was !== "string" && JSON.stringify(was) === typed ? was : typed;
@@ -273,10 +418,11 @@ export function typedSecrets(secrets) {
  * the connector's definition read — until it is, the form cannot show the
  * parameters the connector asks for, and an account saved without them is
  * one the first call refuses.
- * @param {{label: string, busy: boolean, definitionRead: boolean}} state
+ * A required parameter left blank holds it too (`missing`, `missingRequired`).
+ * @param {{label: string, busy: boolean, definitionRead: boolean, missing?: readonly string[]}} state
  */
-export function maySaveAccount({ label, busy, definitionRead }) {
-  return !busy && definitionRead && label.trim() !== "";
+export function maySaveAccount({ label, busy, definitionRead, missing = [] }) {
+  return !busy && definitionRead && label.trim() !== "" && missing.length === 0;
 }
 
 /** The registry key of the loopback port the OAuth callback listens on — a machine setting. */
@@ -352,6 +498,34 @@ export function flowLanded(flow, row) {
   if ((row.oauth?.expires_at ?? null) !== flow.before.expiresAt) return true;
   if ((row.oauth?.scope ?? null) !== flow.before.scope) return true;
   return flow.before.health !== "unknown" && (row.health?.state ?? "unknown") === "unknown";
+}
+
+/**
+ * The connections still open, of those a card holds — one per account —
+ * against the accounts as they now read: a flow that landed, one whose time
+ * ran out and one whose account is gone each leave, said by the account's
+ * label (its id where the account is gone). Nothing moved, the same object
+ * back, so the card's state does not churn.
+ * @param {Record<string, import("./connectorsModel.d.mts").PendingFlow>} flows by account id
+ * @param {readonly import("../../types").ConnectorAccountRow[]} accounts
+ * @param {number} now unix seconds
+ * @returns {{flows: Record<string, import("./connectorsModel.d.mts").PendingFlow>, landed: string[], expired: string[], gone: string[]}}
+ */
+export function flowsSettled(flows, accounts, now) {
+  /** @type {Record<string, import("./connectorsModel.d.mts").PendingFlow>} */
+  const open = {};
+  const landed = [];
+  const expired = [];
+  const gone = [];
+  for (const [id, flow] of Object.entries(flows ?? {})) {
+    const row = accounts.find((a) => a.id === id);
+    if (!row) gone.push(id);
+    else if (flowLanded(flow, row)) landed.push(row.label);
+    else if (flowExpired(flow, now)) expired.push(row.label);
+    else open[id] = flow;
+  }
+  const moved = landed.length + expired.length + gone.length > 0;
+  return { flows: moved ? open : flows, landed, expired, gone };
 }
 
 /** Whether the flow's lifetime has passed: the node has forgotten it, and a code pasted now is refused. */

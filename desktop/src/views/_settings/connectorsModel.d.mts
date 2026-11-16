@@ -13,7 +13,18 @@ export declare function isMultilineSecret(field: string): boolean;
 export declare function needsAccount(auth: string | AuthScheme | null | undefined): boolean;
 export declare function connectApplies(auth: string | AuthScheme | null | undefined): boolean;
 /** The verb an account row shows, and the rest its menu lists. */
-export declare function accountVerbs(account: { default: boolean; secrets_set: readonly string[] }, oauth: boolean): { main: "connect" | "check"; more: ("connect" | "secrets" | "check" | "default" | "forget")[] };
+export declare function accountVerbs(account: { default: boolean; secrets_set: readonly string[] }, oauth: boolean, hasCheck?: boolean): { main: "connect" | "check" | "secrets"; more: ("connect" | "secrets" | "check" | "default" | "forget")[] };
+/** The fields a scheme cannot work without — the core's `AuthScheme::required()`. */
+export declare const REQUIRED_SECRETS_BY_SCHEME: Readonly<Record<SchemeWord, readonly SecretField[]>>;
+export declare function requiredSecrets(auth: string | AuthScheme | null | undefined): SecretField[];
+/** A scheme by the name a person knows it by; an unknown one as the node said it. */
+export declare function schemeLabel(auth: string | AuthScheme | null | undefined): string;
+/** A connector's facts, each on its own: how it signs in, where it calls, what it offers, the accounts here. */
+export declare function connectorFacts(row: ConnectorRow | null | undefined): string[];
+/** The connectors a search leaves: every word found in the name, id, description, tags or hosts. */
+export declare function filterConnectors<R extends { id: string; name?: string; description?: string; tags?: readonly string[]; hosts?: readonly string[] }>(rows: readonly R[], query: string): R[];
+/** Whether a card opens by itself: where this machine holds an account. */
+export declare function startsOpen(row: { accounts?: number }): boolean;
 export declare function redirectUri(port: number | string): string;
 /** Whether a connector is the person's own definition (`"local"`), not the catalog's. */
 export declare function isYours(origin: Origin | null | undefined): boolean;
@@ -40,7 +51,9 @@ export declare function pendingFlow(start: OAuthStart, account: ConnectorAccount
 export declare function flowLanded(flow: PendingFlow | null | undefined, row: ConnectorAccountRow | null | undefined): boolean;
 export declare function flowExpired(flow: PendingFlow | null | undefined, now: number): boolean;
 export declare function flowWords(flow: PendingFlow | null | undefined, now: number): string;
-export declare function mayPaste(state: { flow: PendingFlow | null; busy: boolean; now: number }): boolean;
+export declare function mayPaste(state: { flow: PendingFlow | null | undefined; busy: boolean; now: number }): boolean;
+/** The connections still open against the accounts as they now read; the same object back when nothing moved. */
+export declare function flowsSettled(flows: Record<string, PendingFlow>, accounts: readonly ConnectorAccountRow[], now: number): { flows: Record<string, PendingFlow>; landed: string[]; expired: string[]; gone: string[] };
 export declare function savedWords(body: NewConnectorAccount, account: ConnectorAccountRow | null | undefined): string;
 export declare function validationFor(seen: { text: string; validation: ConnectorValidation } | null | undefined, text: string): ConnectorValidation | null;
 export declare function renamedProblem(initialId: string | null | undefined, def: { id?: unknown } | null | undefined): string | null;
@@ -51,11 +64,15 @@ export interface AccountDraft {
   values: Record<string, string>;
   secrets: Partial<Record<SecretField, string>>;
 }
-export declare function accountDraft(account: ConnectorAccountRow | null | undefined): { label: string; values: Record<string, string> };
+export declare function accountDraft(account: ConnectorAccountRow | null | undefined, declared?: readonly { name: string }[] | null): { label: string; values: Record<string, string> };
+/** What an account holds that its definition no longer declares. */
+export declare function strayParams(account: ConnectorAccountRow | null | undefined, declared: readonly { name: string }[] | null | undefined): { name: string; value: string }[];
+/** The required parameters a form leaves blank, by the name the form shows. */
+export declare function missingRequired(values: Record<string, string> | null | undefined, params: readonly { name: string; label?: string; required?: boolean }[] | null | undefined): string[];
 /** `PUT /connectors/{cid}/accounts`, by name; a parameter held as a number or a switch and not retyped goes back as it was held. */
-export declare function accountBody(draft: AccountDraft, account: ConnectorAccountRow | null | undefined): NewConnectorAccount;
+export declare function accountBody(draft: AccountDraft, account: ConnectorAccountRow | null | undefined, declared?: readonly { name: string }[] | null): NewConnectorAccount;
 export declare function typedSecrets(secrets: Partial<Record<SecretField, string>> | null | undefined): Partial<Record<SecretField, string>>;
-export declare function maySaveAccount(state: { label: string; busy: boolean; definitionRead: boolean }): boolean;
+export declare function maySaveAccount(state: { label: string; busy: boolean; definitionRead: boolean; missing?: readonly string[] }): boolean;
 export declare const OAUTH_PORT_KEY: "connectors.oauth.port";
 /** The callback port as resolved, or null until the settings are read. */
 export declare function oauthPort(resolved: readonly ResolvedSetting[] | null | undefined): number | null;
@@ -72,3 +89,5 @@ export declare function secretsSetWords(fields: readonly string[]): string;
 export declare function forgottenWords(label: string): string;
 export declare function openedWords(): string;
 export declare function saveRefusedWords(count: number): string;
+/** A catalog connector's line in the Library: its sign-in and what it offers; empty when the node does not say. */
+export declare function catalogConnectorLine(facts: { auth: string; operations: number; writes: number } | null | undefined): string;

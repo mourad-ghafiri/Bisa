@@ -41,7 +41,9 @@ import { useConversationEvents } from "../../bus";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import { busyRows, definitionMoved } from "../rosterModel.mjs";
 import { api } from "../../api";
-import { useSearchValue } from "../../router";
+import { navigate, useSearchValue } from "../../router";
+import { settingsSearch } from "./settingsLink.mjs";
+import { catalogConnectorLine } from "./connectorsModel.mjs";
 import type { CatalogEntry, CatalogKind, Installed } from "../../types";
 import {
   Button,
@@ -358,6 +360,8 @@ function CatalogRow({
       </div>
 
       <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{e.description}</p>
+      {/* A connector says how it signs in and what it offers before it is installed — what decides whether it is the one wanted. */}
+      {catalogConnectorLine(e.connector) && <p className="mt-1 text-2xs text-text-dim">{catalogConnectorLine(e.connector)}</p>}
       <PlanLine plan={plan} />
       {expanded && <PlanList plan={plan} />}
     </Card>
@@ -411,6 +415,11 @@ function InstallReport({
               : t("settings-catalog-panel-created-definition-definitions-anything-needs-already", { total })}
           </p>
         </div>
+        {/* A connector just installed does nothing until an account is added: the door is here, where the receipt is read. */}
+        {installed.connectors.length > 0 && (
+          <Button size="sm" onClick={() => navigate({ name: "settings" }, settingsSearch("connectors"))}>
+            <ICON.account size={12} aria-hidden />{t("settings-catalog-panel-add-an-account")}</Button>
+        )}
         <Button size="sm" variant="ghost" onClick={onDismiss}>{t("settings-catalog-panel-dismiss")}</Button>
       </div>
       {total > 0 && (

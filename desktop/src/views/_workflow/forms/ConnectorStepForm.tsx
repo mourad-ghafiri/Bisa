@@ -21,12 +21,12 @@
  */
 
 import type { ConnectorOperationDef, ConnectorParamDef, InputDef, Step } from "../../../types";
-import { Button, Chip, Field, ICON, Labelled, Select, Switch } from "../../../ui";
+import { Field, ICON, Labelled, Select, Switch } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
-import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, paramHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, changes, connectorPickerHint, definitionHint, fixedValue, inputValue, operationGroups, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { ConnectorOptions, ParamRows } from "./ConnectorParts";
 import { JsonField } from "./JsonField";
-import { TemplateField } from "./TemplateField";
 import { t } from "../../../i18n/l10n.mjs";
 import { rich } from "../../../i18n/rich";
 
@@ -56,6 +56,15 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
   // A stray is judged against the definition, never against one not read yet.
   const stray = def ? strayParams(params, declared) : [];
   const unattended = step.unattended ?? false;
+  // What reads and what changes something, set apart in the picker.
+  const grouped = operationGroups(def?.operations);
+  const operationOption = (o: ConnectorOperationDef) => (
+    <option key={o.id} value={o.id}>
+      {t("workflow-connector-step-form-operation-option", { id: o.id, name: o.name, writes: "no" })}
+    </option>
+  );
+  // A field of the output is promised only under an output schema — what the core checks the answer against.
+  const promised = step.output_schema != null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -68,11 +77,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
             onChange={(e) => onChange(withConnector(step, e.target.value))}
           >
             <option value="">{t("workflow-connector-step-form-pick-connector")}</option>
-            {connectors.rows.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} · {c.id}
-              </option>
-            ))}
+            <ConnectorOptions rows={connectors.rows} />
             {connector !== null && notInstalled !== null && <option value={connector}>{notInstalled}</option>}
           </Select>
         </Field>
@@ -84,16 +89,14 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
             onChange={(e) => onChange(withOperation(step, e.target.value))}
           >
             <option value="">{t("workflow-connector-step-form-pick-operation")}</option>
-            {(def?.operations ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {t("workflow-connector-step-form-operation-option", { id: o.id, name: o.name, writes: o.writes ? "yes" : "no" })}
-              </option>
-            ))}
+            {grouped.reads.length > 0 && <optgroup label={t("workflow-connector-step-form-group-reads")}>{grouped.reads.map(operationOption)}</optgroup>}
+            {grouped.writes.length > 0 && <optgroup label={t("workflow-connector-step-form-group-writes")}>{grouped.writes.map(operationOption)}</optgroup>}
             {chosenOperation !== null && notItsOperation !== null && <option value={chosenOperation}>{notItsOperation}</option>}
           </Select>
         </Field>
       </div>
-      {operation?.writes && (
+      {/* A put, a patch or a delete changes something whatever its definition calls it — the engine holds it to the write rules, and so does this flag. */}
+      {operation && changes(operation) && (
         <div className="flex flex-col gap-2 rounded-control border border-warn/40 bg-warn-soft px-2 py-1.5">
           <p className="flex items-center gap-1.5 text-2xs text-warn">
             <ICON.warn size={12} aria-hidden />
@@ -128,42 +131,17 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
         </Select>
       </Field>
       <Labelled label={t("workflow-connector-step-form-parameters")} hint={declared.length === 0 ? t("workflow-connector-step-form-operation-takes-no-parameters") : t("workflow-connector-step-form-one-template-per-parameter-required-one", { TEMPLATE_HINT })}>
-        <div className="flex flex-col gap-2">
-          {declared.map((p) => (
-            <div key={p.name} className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-1.5">
-                <code className="font-mono text-2xs">{p.name}</code>
-                <Chip tone="quiet">{p.kind ?? "text"}</Chip>{/* for the machine: the parameter kind's wire word, drawn as p.kind is */}
-                {p.required && <Chip tone="warn">{t("workflow-connector-step-form-required")}</Chip>}
-                {paramHint(p) && <Chip tone="quiet">{t("workflow-connector-step-form-default", { value: paramHint(p) })}</Chip>}
-                <span className="truncate text-2xs text-text-dim">{p.label}</span>
-              </div>
-              <TemplateField
-                value={params[p.name] ?? ""}
-                rows={p.kind === "json" ? 3 : 1}
-                disabled={disabled}
-                ariaLabel={t("workflow-connector-step-form-parameter-named", { name: p.name })}
-                placeholder={paramHint(p) || undefined}
-                onCommit={(v) => setParam(p.name, v)}
-              />
-              {p.kind === "file" && <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-file-path-inside-checkout")}</span>}
-              {p.doc && <span className="text-2xs text-text-dim">{p.doc}</span>}
-            </div>
-          ))}
-          {stray.map((name) => (
-            <div key={name} className="flex items-center gap-1.5">
-              <code className="font-mono text-2xs text-danger">{name}</code>
-              <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-not-parameter-operation")}</span>
-              <Button size="sm" variant="ghost" disabled={disabled} onClick={() => setParam(name, "")}>{t("workflow-connector-step-form-remove")}</Button>
-            </div>
-          ))}
-        </div>
+        <ParamRows declared={declared} stray={stray} params={params} disabled={disabled} onParam={setParam} />
       </Labelled>
       {operation && (
         <p className="text-2xs text-text-dim">
           {operation.output?.select
-            ? rich("workflow-connector-step-form-output-selected", { selected: <code className="font-mono">{operation.output.select}</code> }, { step: step.id })
-            : t("workflow-connector-step-form-output-whole-answer", { step: step.id })}
+            ? promised
+              ? rich("workflow-connector-step-form-output-selected", { selected: <code className="font-mono">{operation.output.select}</code> }, { step: step.id })
+              : rich("workflow-connector-step-form-output-selected-whole", { selected: <code className="font-mono">{operation.output.select}</code> }, { step: step.id })
+            : promised
+              ? t("workflow-connector-step-form-output-whole-answer", { step: step.id })
+              : t("workflow-connector-step-form-output-answer-whole", { step: step.id })}
         </p>
       )}
       <JsonField

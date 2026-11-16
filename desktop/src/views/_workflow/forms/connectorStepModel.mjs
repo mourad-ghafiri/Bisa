@@ -117,7 +117,83 @@ export function strayConnector(connector, installed) {
  */
 export function strayOperation(operation, offered, all) {
   if (operation == null || all === null || offered.some((o) => o.id === operation)) return null;
-  return all.some((o) => o.id === operation) ? t("workflow-connector-step-form-writes-poll-only-reads", { operation }) : t("workflow-connector-step-form-not-one-of-its-operations", { operation });
+  const known = all.find((o) => o.id === operation);
+  if (!known) return t("workflow-connector-step-form-not-one-of-its-operations", { operation });
+  // Not offered though the connector has it: a poll's picker left it out, for taking a file or for writing.
+  return pollableWhyNot(known) === "file" ? t("workflow-connector-step-form-file-poll-no-checkout", { operation }) : t("workflow-connector-step-form-writes-poll-only-reads", { operation });
+}
+
+/** The methods that change something whatever a definition calls them — the core's `Operation::changes()`. */
+const CHANGING_METHODS = Object.freeze(["put", "patch", "delete"]);
+
+/**
+ * Whether a call of the operation is held to the write rules: what the
+ * definition says (`writes`), and any `put`, `patch` or `delete`.
+ * @param {{writes?: boolean, method?: string} | null | undefined} op
+ */
+export function changes(op) {
+  return Boolean(op?.writes) || CHANGING_METHODS.includes(String(op?.method ?? "").toLowerCase());
+}
+
+/**
+ * Why a poll may not name the operation, or `null` when it may: it changes
+ * something (`bad_poll`, and the engine's own refusal at the poll), or it
+ * takes a file — a poll has no checkout to read one from (`bad_poll`).
+ * @param {{writes?: boolean, method?: string, params?: readonly {kind?: string}[]} | null | undefined} op
+ * @returns {"writes" | "file" | null}
+ */
+export function pollableWhyNot(op) {
+  if (changes(op)) return "writes";
+  if ((op?.params ?? []).some((p) => p.kind === "file")) return "file";
+  return null;
+}
+
+/** Whether a start may poll the operation. */
+export function pollable(op) {
+  return pollableWhyNot(op) === null;
+}
+
+/**
+ * Whether a person must fill the parameter: required, and with no default
+ * an empty field would send in its place.
+ * @param {{required?: boolean, default?: unknown} | null | undefined} param
+ */
+export function isRequired(param) {
+  return Boolean(param?.required) && (param.default === undefined || param.default === null);
+}
+
+/**
+ * A connector's operations as a picker groups them: what reads, what
+ * changes something — each in the definition's own order.
+ * @template {{writes?: boolean, method?: string}} O
+ * @param {readonly O[] | null | undefined} operations
+ * @returns {{reads: O[], writes: O[]}}
+ */
+export function operationGroups(operations) {
+  const all = operations ?? [];
+  return { reads: all.filter((o) => !changes(o)), writes: all.filter((o) => changes(o)) };
+}
+
+/**
+ * The connectors installed here as a picker groups them, by name: those
+ * this machine holds an account for — a step naming one can run — then the
+ * rest. Forty-five in one run is a list nobody reads.
+ * @template {{name?: string, id: string, accounts?: number}} C
+ * @param {readonly C[]} rows
+ * @returns {{ready: C[], rest: C[]}}
+ */
+export function connectorGroups(rows) {
+  const byName = [...rows].sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
+  return { ready: byName.filter((c) => (c.accounts ?? 0) > 0), rest: byName.filter((c) => (c.accounts ?? 0) === 0) };
+}
+
+/**
+ * What is wrong with a poll's key, or `null`: a poll with none cannot tell
+ * one item from another, and the node refuses it (`bad_poll`).
+ * @param {string | null | undefined} key
+ */
+export function keyProblem(key) {
+  return (key ?? "").trim() === "" ? t("workflow-start-step-form-key-required") : null;
 }
 
 /**

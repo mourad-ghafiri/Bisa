@@ -13,3 +13,7 @@ export declare function listReloads(payload: { type?: string } | null | undefine
 export declare function detailReloads(payload: { type?: string; connector?: string } | null | undefined, id: string | null | undefined): boolean;
 /** The toast after *Check all*: null when every connector was read, else how many were not. */
 export declare function checkAllSummary(tally: { queued: number; unread: number }): string | null;
+/** *Check all* in one sentence: what did not answer as connected, and what could not be read; null when there is nothing to say. */
+export declare function checkAllReport(tally: { queued: number; unread: number; failed: readonly { connector: string; account: string; words: string }[] }): string | null;
+/** What the *Check all* button reads while idle, reading or checking. */
+export declare function checkAllLabel(pass: { phase: "idle" | "reading" | "checking"; done: number; total: number }): string;

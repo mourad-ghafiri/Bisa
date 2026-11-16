@@ -15,7 +15,7 @@ import { Checkbox, Field, Select, TextInput } from "../../ui";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { AssigneePicker } from "../_work/AssigneePicker";
 import { useConnectorDetail } from "./useConnectors";
-import { accountChoices, accountFieldNote, inputHint, type InputValues, type RunHome } from "./workflowForm.mjs";
+import { accountChoices, accountFieldNote, inputHint, strayAccountChoice, type InputValues, type RunHome } from "./workflowForm.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 /** An `account` input: this machine's accounts of the input's connector, the default first. */
@@ -24,10 +24,13 @@ function AccountField({ connector, value, disabled, onChange }: { connector: str
   const accounts = accountChoices(detail.data?.accounts);
   // A read that failed is said as such — never as a machine with no account.
   const note = accountFieldNote({ connector, loading: detail.loading, error: detail.error, count: accounts.length });
+  // An account the input holds and this machine no longer has is named in the picker — and the picker stays usable, so it can be put right.
+  const lost = strayAccountChoice(value, detail.data ? accounts : null);
   return (
     <>
-      <Select value={value} disabled={disabled || accounts.length === 0} onChange={(e) => onChange(e.target.value)}>
+      <Select value={value} disabled={disabled || (accounts.length === 0 && lost === null)} onChange={(e) => onChange(e.target.value)}>
         <option value="">{t("workflow-inputs-form-pick-account")}</option>
+        {lost !== null && <option value={value}>{lost}</option>}
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>
             {t("workflow-connector-step-form-account-option", { label: a.label, default: a.isDefault ? "yes" : "no" })}

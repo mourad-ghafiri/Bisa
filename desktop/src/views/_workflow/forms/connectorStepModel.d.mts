@@ -26,3 +26,13 @@ export declare function writeWords(unattended: boolean): string;
 export declare function paramHint(param: { name?: unknown; default?: unknown } | null | undefined): string;
 export declare const UNATTENDED_LABEL: string;
 export declare const UNATTENDED_HINT: string;
+/** Whether a call of the operation is held to the write rules: `writes`, or a put, patch or delete. */
+export declare function changes(op: { writes?: boolean; method?: string } | null | undefined): boolean;
+/** Why a poll may not name the operation, or null when it may. */
+export declare function pollableWhyNot(op: { writes?: boolean; method?: string; params?: readonly { kind?: string }[] } | null | undefined): "writes" | "file" | null;
+export declare function pollable(op: { writes?: boolean; method?: string; params?: readonly { kind?: string }[] } | null | undefined): boolean;
+/** Required, and with no default to send in its place. */
+export declare function isRequired(param: { required?: boolean; default?: unknown } | null | undefined): boolean;
+export declare function operationGroups<O extends { writes?: boolean; method?: string }>(operations: readonly O[] | null | undefined): { reads: O[]; writes: O[] };
+export declare function connectorGroups<C extends { id: string; name?: string; accounts?: number }>(rows: readonly C[]): { ready: C[]; rest: C[] };
+export declare function keyProblem(key: string | null | undefined): string | null;

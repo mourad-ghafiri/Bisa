@@ -733,6 +733,19 @@ pub struct CatalogEntry {
     /// that is not here yet, so a fresh workspace still has every picture;
     /// `None` for every other kind.
     pub workflow: Option<NewWorkflow>,
+    /// How a connector signs in and what it offers — what a picker says of
+    /// one before it is installed; `None` for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector: Option<ConnectorFacts>,
+}
+
+/// A catalog connector in three facts: its auth scheme's word, how many
+/// operations it has, and how many of them change something.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorFacts {
+    pub auth: String,
+    pub operations: usize,
+    pub writes: usize,
 }
 
 /// What an update from the catalog did ([`Workspace::update_entry`]).
@@ -1624,6 +1637,7 @@ impl Workspace {
         toml_str: &str,
     ) -> Result<CatalogEntry, StoreError> {
         let mut workflow = None;
+        let mut connector = None;
         let mut installed_differs = None;
         let (name, description, tags, requires, installed) = match kind {
             CatalogKind::Agent => {
@@ -1715,6 +1729,11 @@ impl Workspace {
             }
             CatalogKind::Connector => {
                 let c = parse_connector(slug, toml_str)?;
+                connector = Some(ConnectorFacts {
+                    auth: c.auth.word().to_string(),
+                    operations: c.operations.len(),
+                    writes: c.operations.iter().filter(|o| o.changes()).count(),
+                });
                 (
                     c.name,
                     c.description,
@@ -1748,6 +1767,7 @@ impl Workspace {
             installed,
             installed_differs,
             workflow,
+            connector,
         })
     }
 

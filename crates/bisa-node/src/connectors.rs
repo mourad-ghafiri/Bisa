@@ -56,6 +56,10 @@ pub(crate) fn routes() -> Router<Shared> {
             "/connectors/{cid}/accounts/{aid}/oauth/complete",
             post(oauth_complete),
         )
+        .route(
+            "/connectors/{cid}/accounts/{aid}/oauth/cancel",
+            post(oauth_cancel),
+        )
 }
 
 /// The one path the browser is sent back to, on the callback listener and
@@ -495,6 +499,21 @@ async fn oauth_complete(
     ))
 }
 
+/// The person gave up on a connection they started: the flow is forgotten
+/// and the listener, with nobody left to wait for, is let go.
+async fn oauth_cancel(
+    State(state): State<Shared>,
+    AxPath((cid, aid)): AxPath<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let cid = parse_connector_id(&cid)?;
+    let aid = parse_account_id(&aid)?;
+    let cancelled = eng::oauth_cancel(state.engine.inner(), &cid, aid);
+    state.oauth.stop_if_idle(&state).await;
+    Ok(Json(
+        json!({ "account": aid.to_string(), "cancelled": cancelled }),
+    ))
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct CallbackQuery {
     #[serde(default)]
@@ -808,6 +827,11 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "POST",
         path: "/connectors/{cid}/accounts/{aid}/oauth/complete",
         summary: "Finish a started connection with a code the person pasted (`{code}`), for a platform that cannot send the browser back to loopback.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/connectors/{cid}/accounts/{aid}/oauth/cancel",
+        summary: "Give up a started connection: every flow pending for the account is forgotten and the callback listener is let go when none is left — `{account, cancelled}`, `cancelled` false when nothing was pending.",
     },
 ];
 

@@ -119,3 +119,42 @@ export function checkAllSummary({ queued, unread }) {
   if (unread === 0) return null;
   return t("settings-connectors-check-all-unread", { unread, queued });
 }
+
+/** How many failing accounts *Check all*'s sentence names before it counts the rest. */
+const NAMED_FAILURES = 4;
+
+/**
+ * *Check all*, once it is done, in one sentence: nothing when every account
+ * answered as connected and every connector was read — the chips have said
+ * it — else each account that did not, by its connector and its label and
+ * what its row now reads, and how many connectors could not be read. One
+ * summary, never a toast per account.
+ * @param {{queued: number, unread: number, failed: readonly {connector: string, account: string, words: string}[]}} tally
+ * @returns {string | null}
+ */
+export function checkAllReport({ queued, unread, failed }) {
+  const parts = [];
+  if (failed.length > 0) {
+    const named = failed
+      .slice(0, NAMED_FAILURES)
+      .map((f) => t("settings-connectors-check-all-failed-one", { connector: f.connector, account: f.account, words: f.words }));
+    const more = failed.length - named.length;
+    if (more > 0) named.push(t("settings-connectors-check-all-failed-more", { more }));
+    parts.push(t("settings-connectors-check-all-failed", { failed: failed.length, queued, list: named.join("; ") }));
+  }
+  const unreadWords = checkAllSummary({ queued, unread });
+  if (unreadWords) parts.push(unreadWords);
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
+ * What the *Check all* button reads: its name, that it is reading which
+ * accounts there are, or how far through them it is. A row's own check is
+ * not this button's business and never relabels it.
+ * @param {{phase: "idle" | "reading" | "checking", done: number, total: number}} pass
+ */
+export function checkAllLabel({ phase, done, total }) {
+  if (phase === "reading") return t("settings-connectors-panel-check-all-reading");
+  if (phase === "checking") return t("settings-connectors-check-all-progress", { done, total });
+  return t("settings-connectors-panel-check-all");
+}

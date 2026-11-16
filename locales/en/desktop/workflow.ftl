@@ -71,8 +71,8 @@ workflow-connector-step-form-one-connector-s-operations = One of the connector's
 workflow-connector-step-form-one-template-per-parameter-required-one = One template per parameter; a required one cannot be left unset. { $TEMPLATE_HINT }
 workflow-connector-step-form-operation = Operation
 workflow-connector-step-form-operation-takes-no-parameters = This operation takes no parameters.
-workflow-connector-step-form-output-selected = Output: <selected/> — a later step reads it as {"{"}steps.{ $step }.output.<field>{"}"}.
-workflow-connector-step-form-output-whole-answer = Output: the whole answer — a later step reads it as {"{"}steps.{ $step }.output.<field>{"}"}.
+workflow-connector-step-form-output-selected = Output: <selected/>, held to the schema below — a later step reads it as {"{"}steps.{ $step }.output.<field>{"}"}.
+workflow-connector-step-form-output-whole-answer = Output: the whole answer, held to the schema below — a later step reads it as {"{"}steps.{ $step }.output.<field>{"}"}.
 workflow-connector-step-form-parameter-named = parameter { $name }
 workflow-connector-step-form-parameters = Parameters
 workflow-connector-step-form-pick-connector = Pick a connector…
@@ -768,7 +768,7 @@ workflow-start-step-form-rotate = Rotate
 workflow-start-step-form-poll-reads-only = One of the connector's reads: a poll never writes.
 workflow-start-step-form-poll-params-hint = One template per parameter, over the inputs given when it was turned on. Every item its answer lists that an earlier poll did not begins a run; the first poll only learns what is there.
 workflow-start-step-form-key = Key
-workflow-start-step-form-key-hint = The field, inside one item, that tells one item from another — dotted.
+workflow-start-step-form-key-hint = The field, inside one item, that tells one item from another — dotted, such as id or data.id.
 workflow-start-step-form-check-command-hint = A shell command, run on the cadence below under the command guard's rules, as a check step's is. It reads the inputs given when it was turned on.
 workflow-start-step-form-check-project-hint = Where it runs: in this project's tree. Left unset, in a scratch folder of its own.
 workflow-start-step-form-own-scratch-folder = Its own scratch folder
@@ -984,7 +984,6 @@ workflow-connector-step-form-not-one-of-its-operations = { $operation } (not one
 workflow-input-defs-editor-not-installed-here = { $connector } (not installed here)
 
 ## A start event's key field (`views/_workflow/forms/StartStepForm.tsx`) — words moved out of the markup.
-workflow-start-step-form-id = id
 
 ## A connector start's operation picker: a write the definition names, where only a read goes (`views/_workflow/forms/connectorStepModel.mjs`).
 workflow-connector-step-form-writes-poll-only-reads = { $operation } (writes — a poll only reads)
@@ -1180,3 +1179,13 @@ workflow-connector-step-form-input-other-connector = input · { $name } (an acco
 workflow-connector-step-form-connectors-not-read = The connectors could not be read: { $error }
 workflow-connector-step-form-definition-not-read = The connector's definition could not be read: { $error }
 workflow-inputs-form-accounts-not-read = The accounts could not be read: { $error }
+workflow-connector-step-form-file-poll-no-checkout = { $operation } (takes a file — a poll has no checkout to read one from)
+workflow-connector-step-form-output-selected-whole = Output: <selected/> — a later step reads it whole as {"{"}steps.{ $step }.output{"}"}. Give it an output schema below to promise its fields.
+workflow-connector-step-form-output-answer-whole = Output: the whole answer — a later step reads it as {"{"}steps.{ $step }.output{"}"}. Give it an output schema below to promise its fields.
+workflow-start-step-form-key-required = A poll needs its key: without one, no item can be told from another.
+workflow-connector-step-form-group-reads = Reads
+workflow-connector-step-form-group-writes = Writes
+workflow-connector-step-form-group-ready = With an account here
+workflow-connector-step-form-group-rest = No account here yet
+workflow-connector-step-form-path-on-platform = A path on the platform — its slashes are kept.
+workflow-inputs-form-account-not-here = { $id } — not an account on this machine

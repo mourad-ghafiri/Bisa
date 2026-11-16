@@ -101,7 +101,7 @@ test("a sentence moved by hand before the scanner could see its shape — a text
     ["views/_work/GoalInspector.tsx", "work-goal-inspector-names-agent-every-step", "The Workflow Agent names an agent on every step it designs."],
     ["views/_work/GoalInspector.tsx", "work-goal-inspector-none-yet-see-projects", "None yet — a goal's projects"],
     ["views/_workflow/forms/ConditionEditor.tsx", "workflow-condition-editor-empty-group-problem", "An empty group is a problem"],
-    ["views/_workflow/forms/ConnectorStepForm.tsx", "workflow-connector-step-form-file-path-inside-checkout", "A path inside the run's checkout"],
+    ["views/_workflow/forms/ConnectorParts.tsx", "workflow-connector-step-form-file-path-inside-checkout", "A path inside the run's checkout"],
     ["views/_workflow/GoalWorkflowTab.tsx", "workflow-goal-workflow-tab-proposed-by-workflow-agent", "Proposed by the Workflow Agent"],
     ["views/_workflow/GoalWorkflowTab.tsx", "workflow-goal-workflow-tab-designed-for-goal", "Designed for this goal"],
     ["views/_board/boardModel.mjs", "board-board-close-record-moves-archived", "The record moves to Archived"],

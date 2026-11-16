@@ -55,3 +55,27 @@ test("a change moves the list and every detail; a check moves only the detail of
   assert.equal(detailReloads({ type: "connectors_changed", what: "accounts" }, null), false, "no detail while none is chosen");
   assert.equal(detailReloads({ type: "run_finished" }, "slack"), false);
 });
+
+import { checkAllLabel, checkAllReport } from "./connectorHealthModel.mjs";
+
+test("Check all ends in one sentence: every account that did not answer as connected, named, and what could not be read", () => {
+  assert.equal(checkAllReport({ queued: 3, unread: 0, failed: [] }), null, "all fine: the chips have said it");
+  assert.equal(checkAllReport({ queued: 0, unread: 0, failed: [] }), null);
+  const one = checkAllReport({ queued: 3, unread: 0, failed: [{ connector: "Slack", account: "work", words: "refused (401)" }] });
+  assert.equal(one, "1 of 3 accounts did not answer as connected: Slack · work — refused (401).");
+  const many = checkAllReport({
+    queued: 9,
+    unread: 1,
+    failed: Array.from({ length: 6 }, (_, i) => ({ connector: "Jira", account: `a${i}`, words: "unreachable" })),
+  });
+  assert.ok(many.startsWith("6 of 9 accounts did not answer as connected: Jira · a0 — unreachable; "), many);
+  assert.ok(many.includes("and 2 more"), "the sentence names four and counts the rest");
+  assert.ok(many.endsWith("1 connector could not be read; its accounts were not checked."), many);
+  assert.equal(checkAllReport({ queued: 2, unread: 1, failed: [] }), "1 connector could not be read; its accounts were not checked.");
+});
+
+test("the Check all button says what it is doing, and a row's own check is not its business", () => {
+  assert.equal(checkAllLabel({ phase: "idle", done: 0, total: 0 }), "Check all");
+  assert.equal(checkAllLabel({ phase: "reading", done: 0, total: 0 }), "Reading the accounts…");
+  assert.equal(checkAllLabel({ phase: "checking", done: 2, total: 7 }), "Checking 2 of 7…");
+});

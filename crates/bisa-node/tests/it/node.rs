@@ -3326,6 +3326,24 @@ async fn the_catalog_lists_what_a_workspace_may_install() {
         "a picker needs a name and a line of description for every row"
     );
 
+    // A connector's row says how it signs in and what it offers, so a
+    // picker can say so before anything is installed; no other kind does.
+    let slack = entries
+        .iter()
+        .find(|e| e["kind"] == json!("connector") && e["slug"] == json!("slack"))
+        .expect("the catalog ships Slack");
+    assert_eq!(slack["connector"]["auth"], json!("bearer"), "{slack}");
+    let offered = slack["connector"]["operations"].as_u64().unwrap();
+    let writes = slack["connector"]["writes"].as_u64().unwrap();
+    assert!(offered > 0 && writes > 0 && writes < offered, "{slack}");
+    assert!(
+        entries
+            .iter()
+            .filter(|e| e["kind"] != json!("connector"))
+            .all(|e| e.get("connector").is_none()),
+        "a fact of connectors alone"
+    );
+
     let v = node.get("/catalog?kind=agent").await;
     let agents = v["entries"].as_array().unwrap();
     assert_eq!(agents.len(), CATALOG.agents.len());

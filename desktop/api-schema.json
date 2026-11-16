@@ -2173,6 +2173,9 @@
     "CatalogEntry": {
       "$ref": "#/definitions/CatalogEntry"
     },
+    "CatalogConnector": {
+      "$ref": "#/definitions/CatalogConnector"
+    },
     "Installed": {
       "$ref": "#/definitions/Installed"
     },
@@ -31587,6 +31590,17 @@
             }
           ],
           "description": "A workflow template's whole definition — inputs, steps, flows — so a\ngallery draws its graph before it is installed; absent for every other\nkind. A `spawn` step whose target is not installed names a placeholder\nid: the picture is drawn, the install resolves the reference."
+        },
+        "connector": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CatalogConnector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A connector's sign-in and what it offers — its auth scheme's word, how\nmany operations it has and how many of them change something — so a\npicker says so before it is installed; absent for every other kind."
         }
       },
       "required": [
@@ -31599,6 +31613,30 @@
         "installed"
       ],
       "description": "A row of `GET /catalog`: one installable definition, and whether its id is\nalready taken here."
+    },
+    "CatalogConnector": {
+      "type": "object",
+      "properties": {
+        "auth": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "writes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "auth",
+        "operations",
+        "writes"
+      ],
+      "description": "A catalog connector in three facts ([`CatalogEntryDto::connector`])."
     },
     "Installed": {
       "type": "object",

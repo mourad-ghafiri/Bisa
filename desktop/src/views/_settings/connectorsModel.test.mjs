@@ -131,8 +131,8 @@ test("a connector's line counts its operations, its writes and its accounts", ()
     accounts: 2,
     origin: { catalog: { slug: "slack" } },
   };
-  assert.equal(connectorLine(row), "bearer · slack.com · 3 operations, 1 writes · 2 accounts here");
-  assert.equal(connectorLine({ ...row, operations: [row.operations[1]], accounts: 0 }), "bearer · slack.com · 1 operation · no account here");
+  assert.equal(connectorLine(row), "Bearer token · slack.com · 3 operations, 1 writes · 2 accounts here");
+  assert.equal(connectorLine({ ...row, operations: [row.operations[1]], accounts: 0 }), "Bearer token · slack.com · 1 operation · no account here");
   assert.equal(originWords(row.origin), "from the catalog");
   assert.equal(originWords("local"), "yours");
   assert.equal(connectorLine(null), "");
@@ -152,8 +152,8 @@ test("the secrets line says which fields are set and where, never a value", () =
   const file = { secrets_set: ["token"], token_source: "file" };
   assert.deepEqual(secretsLine(file, "bearer"), { tone: "ok", text: "token in a 0600 file under identity/" });
   const keyring = { secrets_set: ["username"], token_source: "keyring" };
-  assert.deepEqual(secretsLine(keyring, "basic"), { tone: "warn", text: "username in the OS keyring — password still wanted" });
-  assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, "api_key"), { tone: "warn", text: "No secret set yet — api_key wanted." });
+  assert.deepEqual(secretsLine(keyring, "basic"), { tone: "warn", text: "username or email in the OS keyring — password or API token still wanted" });
+  assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, "api_key"), { tone: "warn", text: "No secret set yet — API key wanted." });
   assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, "none"), { tone: "quiet", text: "No secret needed." });
   const client = { secrets_set: ["client_id", "client_secret"], token_source: "file" };
   assert.equal(secretsLine(client, "oauth2").tone, "warn");
@@ -167,11 +167,11 @@ test("the secrets line says which fields are set and where, never a value", () =
 test("the OAuth line reads the expiry and the scope", () => {
   const now = 1_000_000;
   assert.equal(oauthLine({ oauth: null }, now), null);
-  assert.equal(oauthLine({ oauth: { expires_at: null, scope: "read", expired: false } }, now), "token without an expiry · scope read");
-  assert.equal(oauthLine({ oauth: { expires_at: now - 1, scope: null, expired: true } }, now), "token expired; refreshed on the next call");
-  assert.equal(oauthLine({ oauth: { expires_at: now + 1800, scope: null, expired: false } }, now), "token good for 30 min");
-  assert.equal(oauthLine({ oauth: { expires_at: now + 7200, scope: null, expired: false } }, now), "token good for 2 h");
-  assert.equal(oauthLine({ oauth: { expires_at: now + 3 * 86400, scope: null, expired: false } }, now), "token good for 3 d");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: null, scope: "read", expired: false } }, now), "token without an expiry · scope read");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now - 1, scope: null, expired: true } }, now), "token expired; refreshed on the next call");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now + 1800, scope: null, expired: false } }, now), "token good for 30 min");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now + 7200, scope: null, expired: false } }, now), "token good for 2 h");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now + 3 * 86400, scope: null, expired: false } }, now), "token good for 3 d");
 });
 
 test("a check's answer reads in one line with a tone", () => {
@@ -302,7 +302,7 @@ test("an account row shows one verb — Connect until an OAuth account holds a t
   assert.deepEqual(accountVerbs(connected, true), { main: "check", more: ["connect", "secrets", "forget"] }, "connected: Connect again is in the menu, and a default is not made default twice");
   assert.deepEqual(accountVerbs({ default: false, secrets_set: [] }, false), { main: "check", more: ["secrets", "default", "forget"] }, "no OAuth: no Connect at all");
   const panel = readFileSync(new URL("./ConnectorsPanel.tsx", import.meta.url), "utf8");
-  assert.ok(panel.includes("accountVerbs(a, oauth)") && panel.includes("<MoreMenu"), "the row draws the model's verbs; the rest behind one menu");
+  assert.ok(panel.includes("accountVerbs(a, oauth, hasCheck)") && panel.includes("<MoreMenu"), "the row draws the model's verbs; the rest behind one menu");
   assert.ok(panel.includes("onSelect: () => setForgetting(a)"), "Forget still asks first");
 });
 
@@ -401,8 +401,8 @@ test("every secret field has the noun its input names it by — a message of its
 
 test("the lines nobody had pinned: a token under a minute, an expired flag with a future time, a refusal and a silence with no reason, a jwt account's secrets", () => {
   const now = 1_000_000;
-  assert.equal(oauthLine({ oauth: { expires_at: now + 30, scope: null, expired: false } }, now), "token good for 1 min", "never zero minutes");
-  assert.equal(oauthLine({ oauth: { expires_at: now + 3600, scope: null, expired: true } }, now), "token expired; refreshed on the next call", "the node's flag wins over the clock");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now + 30, scope: null, expired: false } }, now), "token good for 1 min", "never zero minutes");
+  assert.equal(oauthLine({ secrets_set: ["access_token"], oauth: { expires_at: now + 3600, scope: null, expired: true } }, now), "token expired; refreshed on the next call", "the node's flag wins over the clock");
   const refused = checkLine({ state: "refused", status: 401, reason: null }, "Slack");
   assert.equal(refused.tone, "danger");
   assert.ok(refused.text.includes("Slack") && refused.text.includes("(401)") && !refused.text.includes("null"), refused.text);
@@ -413,8 +413,156 @@ test("the lines nobody had pinned: a token under a minute, an expired flag with 
   assert.ok(none.text.includes("holds no token") && !none.text.includes("("), "no status, no parenthesis: " + none.text);
   const jwt = secretsLine({ secrets_set: ["private_key"], token_source: "keyring" }, "jwt");
   assert.equal(jwt.tone, "ok");
-  assert.ok(jwt.text.includes("private_key"), jwt.text);
+  assert.ok(jwt.text.includes("private key") && !jwt.text.includes("private_key"), jwt.text);
   const bare = secretsLine({ secrets_set: [], token_source: "file" }, "jwt");
   assert.equal(bare.tone, "warn");
-  assert.ok(bare.text.includes("private_key"), bare.text);
+  assert.ok(bare.text.includes("private key") && !bare.text.includes("private_key"), bare.text);
+});
+
+// --- the hardening pass: accounts, flows, search ---------------------------
+
+import {
+  REQUIRED_SECRETS_BY_SCHEME,
+  connectorFacts,
+  filterConnectors,
+  flowsSettled,
+  missingRequired,
+  requiredSecrets,
+  schemeLabel,
+  startsOpen,
+  strayParams,
+} from "./connectorsModel.mjs";
+
+test("the fields a scheme cannot work without mirror AuthScheme::required — an OAuth client is its id alone, a PKCE client has no secret to ask for", () => {
+  const m = RUST.match(/pub fn required\(&self\) -> &'static \[SecretField\] \{([\s\S]*?)\n    \}/);
+  assert.ok(m, "AuthScheme::required is declared in connector.rs");
+  const arm = (variant) => {
+    const hit = m[1].match(new RegExp(`AuthScheme::${variant}[^=]*=> &\\[([^\\]]*)\\]`));
+    assert.ok(hit, `required() has an arm for ${variant}`);
+    return hit[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^SecretField::/, ""))
+      .filter(Boolean)
+      .map((v) => v.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
+  };
+  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.api_key, arm("ApiKey"));
+  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.bearer, arm("Bearer"));
+  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.basic, arm("Basic"));
+  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.oauth2, arm("OAuth2"));
+  assert.deepEqual(REQUIRED_SECRETS_BY_SCHEME.jwt, arm("Jwt"));
+  assert.deepEqual(requiredSecrets("none"), []);
+  assert.deepEqual(requiredSecrets({ scheme: "oauth2" }), ["client_id"]);
+  // The line asks for what is required, in the words a person reads — never the wire's.
+  assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, "oauth2"), { tone: "warn", text: "No secret set yet — OAuth client id wanted." });
+  assert.deepEqual(secretsLine({ secrets_set: [], token_source: "file" }, "basic"), { tone: "warn", text: "No secret set yet — username or email, password or API token wanted." });
+  assert.deepEqual(secretsLine({ secrets_set: ["username"], token_source: "keyring" }, "basic"), { tone: "warn", text: "username or email in the OS keyring — password or API token still wanted" });
+  const pkce = secretsLine({ secrets_set: ["client_id", "access_token"], token_source: "file" }, "oauth2");
+  assert.equal(pkce.tone, "ok");
+  assert.equal(pkce.text, "connected · OAuth client id, access token in a 0600 file under identity/");
+});
+
+test("a scheme reads as its name, and a connector's facts are separate things said separately", () => {
+  assert.equal(schemeLabel("bearer"), "Bearer token");
+  assert.equal(schemeLabel({ scheme: "oauth2" }), "OAuth 2");
+  assert.equal(schemeLabel("api_key"), "API key");
+  assert.equal(schemeLabel("none"), "No sign-in");
+  assert.equal(schemeLabel("client_credentials"), "client_credentials", "a scheme this desktop does not know is said as the node said it");
+  const row = { auth: "oauth2", hosts: ["a.example", "b.example"], operations: [{ writes: false }, { writes: true }], accounts: 2 };
+  assert.deepEqual(connectorFacts(row), ["OAuth 2", "a.example, b.example", "2 operations, 1 writes", "2 accounts here"]);
+  assert.equal(connectorLine(row), connectorFacts(row).join(" · "));
+  assert.deepEqual(connectorFacts(null), []);
+});
+
+test("an account that holds a parameter the definition no longer declares can be edited again: the form asks only what is declared, and says what it lets go of", () => {
+  const declared = [{ name: "site", required: true }, { name: "port" }];
+  const account = { id: "a1", label: "work", params: { site: "acme", port: 8443, team: "T1", old: { a: 1 } }, secrets_set: [] };
+  assert.deepEqual(accountDraft(account, declared), { label: "work", values: { site: "acme", port: "8443" } });
+  assert.deepEqual(strayParams(account, declared), [
+    { name: "old", value: '{"a":1}' },
+    { name: "team", value: "T1" },
+  ]);
+  assert.deepEqual(strayParams(account, null), [], "nothing is called a stray before the definition is read");
+  assert.deepEqual(strayParams(null, declared), []);
+  const body = accountBody({ label: "work", values: { site: "acme", port: "8443", team: "T1" }, secrets: {} }, account, declared);
+  assert.deepEqual(body.params, { site: "acme", port: 8443 }, "what is not declared is not sent — the store would refuse the whole save for it");
+  // Without the declared list the body is built as before: by what was typed.
+  assert.deepEqual(accountBody({ label: "x", values: { team: "T1" }, secrets: {} }, null).params, { team: "T1" });
+});
+
+test("a required parameter left blank is named, and holds Save", () => {
+  const params = [{ name: "site", label: "Site", required: true }, { name: "region", required: true }, { name: "note" }];
+  assert.deepEqual(missingRequired({ site: " ", region: "eu" }, params), ["Site"]);
+  assert.deepEqual(missingRequired({}, params), ["Site", "region"], "a parameter with no label is named by its name");
+  assert.deepEqual(missingRequired({ site: "a", region: "b" }, params), []);
+  assert.deepEqual(missingRequired({}, null), []);
+  assert.equal(maySaveAccount({ label: "work", busy: false, definitionRead: true, missing: ["Site"] }), false);
+  assert.equal(maySaveAccount({ label: "work", busy: false, definitionRead: true, missing: [] }), true);
+  assert.equal(maySaveAccount({ label: "work", busy: false, definitionRead: true }), true);
+});
+
+test("Check is offered only where the connector names a check: without one the row's verb is its secrets", () => {
+  const plain = { default: true, secrets_set: ["token"] };
+  assert.deepEqual(accountVerbs(plain, false, false), { main: "secrets", more: ["forget"] });
+  assert.deepEqual(accountVerbs({ default: false, secrets_set: ["client_id"] }, true, false), { main: "connect", more: ["secrets", "default", "forget"] });
+  assert.deepEqual(accountVerbs({ default: false, secrets_set: ["client_id", "access_token"] }, true, false), { main: "secrets", more: ["connect", "default", "forget"] });
+  assert.deepEqual(accountVerbs(plain, false, true), { main: "check", more: ["secrets", "forget"] }, "with a check, as before");
+});
+
+test("connections are pending per account: one landing, expiring or losing its account leaves the others open", () => {
+  const start = (expires_at) => ({ url: "https://p.example/consent", redirect_uri: "http://127.0.0.1:4478/connectors/oauth/callback", expires_at });
+  const a = { id: "a", label: "work", secrets_set: ["client_id"], oauth: null, health: { state: "unknown" } };
+  const b = { id: "b", label: "personal", secrets_set: ["client_id"], oauth: null, health: { state: "unknown" } };
+  const c = { id: "c", label: "old", secrets_set: ["client_id"], oauth: null, health: { state: "unknown" } };
+  const flows = { a: pendingFlow(start(2000), a), b: pendingFlow(start(1500), b), c: pendingFlow(start(2000), c) };
+  // Nothing moved: the same object back, so a caller's state does not churn.
+  const still = flowsSettled(flows, [a, b, c], 1000);
+  assert.equal(still.flows, flows);
+  assert.deepEqual([still.landed, still.expired, still.gone], [[], [], []]);
+  // a landed, b ran out of time, c's account was removed elsewhere.
+  const landedA = { ...a, secrets_set: ["client_id", "access_token"] };
+  const after = flowsSettled(flows, [landedA, b], 1600);
+  assert.deepEqual(after.flows, {});
+  assert.deepEqual(after.landed, ["work"]);
+  assert.deepEqual(after.expired, ["personal"]);
+  assert.deepEqual(after.gone, ["c"]);
+  // One at a time: a's landing leaves b's box open.
+  const one = flowsSettled({ a: flows.a, b: flows.b }, [landedA, b], 1000);
+  assert.deepEqual(Object.keys(one.flows), ["b"]);
+  assert.deepEqual(flowsSettled({}, [a], 1000).flows, {});
+});
+
+test("the list is searched by what a person knows a connector by, and a card opens itself only where there is an account to see", () => {
+  const rows = [
+    { id: "slack", name: "Slack", description: "Channels and messages.", tags: ["chat"], hosts: ["slack.com"], accounts: 1 },
+    { id: "google-drive", name: "Google Drive", description: "Files in a drive.", tags: ["files"], hosts: ["www.googleapis.com"], accounts: 0 },
+    { id: "jira", name: "Jira", description: "Issues.", tags: ["ops"], hosts: ["*.atlassian.net"], accounts: 0 },
+  ];
+  const ids = (q) => filterConnectors(rows, q).map((r) => r.id);
+  assert.deepEqual(ids(""), ["slack", "google-drive", "jira"]);
+  assert.deepEqual(ids("  "), ["slack", "google-drive", "jira"]);
+  assert.deepEqual(ids("DRIVE"), ["google-drive"], "by name, whatever the case");
+  assert.deepEqual(ids("atlassian"), ["jira"], "by host");
+  assert.deepEqual(ids("chat"), ["slack"], "by tag");
+  assert.deepEqual(ids("issues"), ["jira"], "by description");
+  assert.deepEqual(ids("google files"), ["google-drive"], "every word must be found");
+  assert.deepEqual(ids("nothing-like-it"), []);
+  assert.equal(startsOpen(rows[0]), true);
+  assert.equal(startsOpen(rows[1]), false);
+});
+
+
+import { catalogConnectorLine } from "./connectorsModel.mjs";
+
+test("the Library says of a connector how it signs in and what it offers, before it is installed", () => {
+  assert.equal(catalogConnectorLine({ auth: "oauth2", operations: 5, writes: 2 }), "OAuth 2 · 5 operations, 2 write");
+  assert.equal(catalogConnectorLine({ auth: "bearer", operations: 1, writes: 0 }), "Bearer token · 1 operation");
+  assert.equal(catalogConnectorLine({ auth: "none", operations: 3, writes: 1 }), "No sign-in · 3 operations, 1 writes");
+  assert.equal(catalogConnectorLine(null), "", "a node that says nothing of it leaves the row as it was");
+  assert.equal(catalogConnectorLine(undefined), "");
+});
+
+test("an account never connected says nothing of a token: the expiry line is a connected account's", () => {
+  const facts = { expires_at: null, expired: false, scope: null };
+  assert.equal(oauthLine({ secrets_set: ["client_id"], oauth: facts }, 1000), null);
+  assert.equal(oauthLine({ secrets_set: ["client_id", "access_token"], oauth: facts }, 1000), "token without an expiry");
 });

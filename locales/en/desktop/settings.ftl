@@ -229,7 +229,6 @@ settings-connectors-my-service = My service
 settings-connectors-nothing-changed = Nothing changed.
 settings-connectors-oauth-client-id = OAuth client id
 settings-connectors-oauth-client-secret = OAuth client secret
-settings-connectors-panel-account = the account
 settings-connectors-panel-account-here-yet-step-calling-cannot = No account here yet — a step calling it cannot run until one is added.
 settings-connectors-panel-accounts = { $row } accounts
 settings-connectors-panel-accounts-2 = the accounts
@@ -239,7 +238,6 @@ settings-connectors-panel-added-add-account = { $def } added — add an account 
 settings-connectors-panel-cancel = Cancel
 settings-connectors-panel-check-all = Check all
 settings-connectors-panel-check-every-account = One request per account, as that account, for every connector that names a check — a few at a time. The rows say what each platform answered.
-settings-connectors-panel-checking = Checking { $checking }…
 settings-connectors-panel-connect = Connect
 settings-connectors-panel-connect-again = Connect again
 settings-connectors-panel-connect-code = Connect with the code
@@ -1848,3 +1846,49 @@ settings-relay-health-state = { $state ->
 ## Join a workspace — why a paste is no code (`views/_settings/inviteCodeModel.mjs`) — words moved out of the model.
 settings-invite-code-code-shape = A code is <nprofile>:<secret> — or paste the whole bisa://join/… link.
 settings-invite-code-link-shape = A link is bisa://join/<nprofile>/<secret>.
+settings-connectors-scheme-none = No sign-in
+settings-connectors-scheme-api-key = API key
+settings-connectors-scheme-bearer = Bearer token
+settings-connectors-scheme-basic = Username and password
+settings-connectors-scheme-oauth2 = OAuth 2
+settings-connectors-scheme-jwt = Signed token
+settings-connectors-oauth-held = { $words } · { $held } { $where }
+settings-connectors-held-where = { $held } { $where }
+settings-connectors-check-all-failed = { $failed } of { $queued } { $queued ->
+    [one] account
+   *[other] accounts
+  } did not answer as connected: { $list }.
+settings-connectors-check-all-failed-one = { $connector } · { $account } — { $words }
+settings-connectors-check-all-failed-more = and { $more } more
+settings-connectors-check-all-progress = Checking { $done } of { $total }…
+settings-connectors-panel-save = Save
+settings-connectors-panel-create = Create
+settings-connectors-panel-add-account-verb = Add account
+settings-connectors-panel-check = Check
+settings-connectors-panel-checking-verb = Checking…
+settings-connectors-panel-checking-chip = checking…
+settings-connectors-panel-make-default = Make default
+settings-connectors-panel-forget-verb = Forget…
+settings-connectors-panel-forget-confirm = Forget
+settings-connectors-panel-default-chip = default
+settings-connectors-panel-fill-required = { $count ->
+    [one] { $names } is required.
+   *[other] These are required: { $names }.
+  }
+settings-connectors-panel-strays = { $count ->
+    [one] This account still holds a value the connector no longer asks for. Saving lets go of it:
+   *[other] This account still holds values the connector no longer asks for. Saving lets go of them:
+  }
+settings-connectors-panel-add-needs-definition = The connector's definition has not been read yet.
+settings-connectors-panel-account-gone = { $label } was removed from somewhere else; there is nothing left to edit.
+settings-connectors-flow-ran-out = The connection for { $label } was not finished in time. Connect starts another.
+settings-connectors-panel-discard-title = Discard this definition?
+settings-connectors-panel-discard-body = What you typed has not been saved, and closing loses it.
+settings-connectors-panel-discard = Discard
+settings-connectors-panel-search = Search connectors
+settings-connectors-panel-search-label = Search the connectors installed here
+settings-connectors-panel-shown-of = { $shown } of { $all }
+settings-connectors-panel-search-nothing = No connector matches
+settings-connectors-panel-search-nothing-hint = The search looks at a connector's name, id, description, tags and hosts.
+settings-connectors-panel-search-clear = Clear the search
+settings-catalog-panel-add-an-account = Add an account

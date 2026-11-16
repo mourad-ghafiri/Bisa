@@ -2326,29 +2326,32 @@ export const api = {
   /// Every connector installed here, catalog and custom, with its operations and how many accounts this machine holds.
   connectors: (tag?: string | null, s?: AbortSignal) => get<{ connectors: ConnectorRow[] }>(`/connectors${tag ? `?tag=${encodeURIComponent(tag)}` : ""}`, s),
   /// One connector whole — the definition and its accounts (which fields are set, never a value).
-  connector: (id: string, s?: AbortSignal) => get<ConnectorDetail>(`/connectors/${id}`, s),
+  connector: (id: string, s?: AbortSignal) => get<ConnectorDetail>(`/connectors/${encodeURIComponent(id)}`, s),
   /// A custom definition. Validated first: a 400 carries the problems and nothing is written.
   createConnector: (def: ConnectorDefinition, s?: AbortSignal) => post<{ connector: ConnectorRow }>(`/connectors`, def, s),
   /// Replace a custom definition. A catalog one is 409.
-  updateConnector: (id: string, def: ConnectorDefinition, s?: AbortSignal) => put<{ connector: ConnectorRow }>(`/connectors/${id}`, def, s),
+  updateConnector: (id: string, def: ConnectorDefinition, s?: AbortSignal) => put<{ connector: ConnectorRow }>(`/connectors/${encodeURIComponent(id)}`, def, s),
   /// Remove a definition. 409 while an account or a workflow step still names it.
-  deleteConnector: (id: string, s?: AbortSignal) => del<{ connector: string; removed: boolean }>(`/connectors/${id}`, undefined, s),
+  deleteConnector: (id: string, s?: AbortSignal) => del<{ connector: string; removed: boolean }>(`/connectors/${encodeURIComponent(id)}`, undefined, s),
   /// Every problem a definition has, without saving it.
   validateConnector: (def: ConnectorDefinition, s?: AbortSignal) => post<ConnectorValidation>(`/connectors/validate`, def, s),
   /// Add an account (no `id`) or edit one (`id`). Secrets are written once, each field replaced, and never read back.
-  putConnectorAccount: (id: string, body: NewConnectorAccount, s?: AbortSignal) => put<ConnectorAccountRow>(`/connectors/${id}/accounts`, body, s),
+  putConnectorAccount: (id: string, body: NewConnectorAccount, s?: AbortSignal) => put<ConnectorAccountRow>(`/connectors/${encodeURIComponent(id)}/accounts`, body, s),
   /// Forget an account and every secret it held.
-  deleteConnectorAccount: (id: string, aid: string, s?: AbortSignal) => del<{ account: string; forgotten: boolean }>(`/connectors/${id}/accounts/${aid}`, undefined, s),
+  deleteConnectorAccount: (id: string, aid: string, s?: AbortSignal) => del<{ account: string; forgotten: boolean }>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}`, undefined, s),
   /// One request to the platform as this account — the connector's `check` operation — within `timeout_secs` (the node's 20 unsaid). The answer is kept as the row's `health`.
   checkConnectorAccount: (id: string, aid: string, timeout_secs?: number, s?: AbortSignal) =>
-    post<AccountCheck>(`/connectors/${id}/accounts/${aid}/check`, timeout_secs ? { timeout_secs } : {}, s),
+    post<AccountCheck>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}/check`, timeout_secs ? { timeout_secs } : {}, s),
   /// Make this account the one a step runs as when it names none.
-  setDefaultConnectorAccount: (id: string, aid: string, s?: AbortSignal) => put<{ default: string }>(`/connectors/${id}/accounts/${aid}/default`, {}, s),
+  setDefaultConnectorAccount: (id: string, aid: string, s?: AbortSignal) => put<{ default: string }>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}/default`, {}, s),
   /// Begin an OAuth2 flow: the URL to open in the browser; the node listens on the callback port meanwhile.
-  startConnectorOauth: (id: string, aid: string, s?: AbortSignal) => post<OAuthStart>(`/connectors/${id}/accounts/${aid}/oauth/start`, {}, s),
+  startConnectorOauth: (id: string, aid: string, s?: AbortSignal) => post<OAuthStart>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}/oauth/start`, {}, s),
   /// Finish an OAuth2 flow with a code the person pasted — for a platform that cannot send the browser back.
   completeConnectorOauth: (id: string, aid: string, code: string, s?: AbortSignal) =>
-    post<{ account: string; connected: boolean }>(`/connectors/${id}/accounts/${aid}/oauth/complete`, { code }, s),
+    post<{ account: string; connected: boolean }>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}/oauth/complete`, { code }, s),
+  /// Give up a started connection: the node forgets the flow and lets its callback listener go.
+  cancelConnectorOauth: (id: string, aid: string, s?: AbortSignal) =>
+    post<{ account: string; cancelled: boolean }>(`/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(aid)}/oauth/cancel`, {}, s),
 
   // --- profiles by organization (ide/04) ----------------------------------
   gitProfiles: (s?: AbortSignal) => get<GitProfilesView>(`/git/profiles`, s),

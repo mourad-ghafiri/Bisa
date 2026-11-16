@@ -1121,6 +1121,18 @@ pub fn oauth_abandon(inner: &Inner, state: &str) -> Option<(ConnectorId, Account
         .map(|(_, f)| (f.connector, f.account))
 }
 
+/// The person gave up on connecting an account: every flow pending for it
+/// is forgotten, so a code that arrives late completes nothing and the
+/// callback listener need not wait. Answers whether anything was pending.
+pub fn oauth_cancel(inner: &Inner, connector: &ConnectorId, account: AccountId) -> bool {
+    let before = inner.connectors.pending.len();
+    inner
+        .connectors
+        .pending
+        .retain(|_, f| !(&f.connector == connector && f.account == account));
+    inner.connectors.pending.len() < before
+}
+
 /// The browser came back: exchange the code for tokens and keep them.
 pub async fn oauth_complete(
     inner: &Inner,

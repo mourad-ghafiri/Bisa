@@ -123,3 +123,63 @@ test("a parameter's default reads as the value the call would send, and a parame
   assert.equal(paramHint({ name: "q", default: null }), "");
   assert.equal(paramHint(null), "");
 });
+
+// --- the hardening pass ---------------------------------------------------
+
+import { changes, connectorGroups, isRequired, keyProblem, operationGroups, pollable, pollableWhyNot } from "./connectorStepModel.mjs";
+
+test("a poll's picker offers what the validator and the engine admit: a read, by a method that reads, that takes no file", () => {
+  const read = { id: "list", method: "get", writes: false, params: [{ name: "q", kind: "text" }] };
+  assert.equal(pollable(read), true);
+  assert.equal(pollable({ ...read, writes: true }), false, "a write is never polled (bad_poll)");
+  assert.equal(pollable({ ...read, params: [{ name: "f", kind: "file" }] }), false, "a poll has no checkout to read a file from (bad_poll)");
+  for (const method of ["put", "patch", "delete"]) {
+    assert.equal(pollable({ ...read, method }), false, `${method}: the engine holds it to the write rules whatever the definition calls it`);
+    assert.equal(changes({ ...read, method }), true);
+  }
+  assert.equal(pollable({ ...read, method: "post" }), true, "a post may be a search");
+  assert.equal(changes(read), false);
+  assert.equal(changes({ ...read, writes: true }), true);
+  // Why one is not offered, for the option that names a stray.
+  assert.equal(pollableWhyNot({ ...read, writes: true }), "writes");
+  assert.equal(pollableWhyNot({ ...read, method: "delete" }), "writes");
+  assert.equal(pollableWhyNot({ ...read, params: [{ name: "f", kind: "file" }] }), "file");
+  assert.equal(pollableWhyNot(read), null);
+});
+
+test("*required* is what a person must fill: required, and with no default to fall back on", () => {
+  assert.equal(isRequired({ required: true }), true);
+  assert.equal(isRequired({ required: true, default: "10" }), false, "the default is what an empty field sends");
+  assert.equal(isRequired({ required: true, default: 0 }), false);
+  assert.equal(isRequired({ required: true, default: null }), true);
+  assert.equal(isRequired({ required: false }), false);
+  assert.equal(isRequired(null), false);
+});
+
+test("the pickers group what they offer: operations into reads and writes, connectors by whether an account is here", () => {
+  const ops = [
+    { id: "send", method: "post", writes: true },
+    { id: "list", method: "get", writes: false },
+    { id: "trash", method: "delete", writes: false },
+    { id: "get", method: "get", writes: false },
+  ];
+  const grouped = operationGroups(ops);
+  assert.deepEqual(grouped.reads.map((o) => o.id), ["list", "get"], "in the definition's order");
+  assert.deepEqual(grouped.writes.map((o) => o.id), ["send", "trash"], "a delete is a write whatever it is called");
+  assert.deepEqual(operationGroups(null), { reads: [], writes: [] });
+  const rows = [
+    { id: "slack", name: "Slack", accounts: 1 },
+    { id: "jira", name: "Jira", accounts: 0 },
+    { id: "gmail", name: "Gmail", accounts: 2 },
+  ];
+  const by = connectorGroups(rows);
+  assert.deepEqual(by.ready.map((c) => c.id), ["gmail", "slack"], "by name");
+  assert.deepEqual(by.rest.map((c) => c.id), ["jira"]);
+});
+
+test("a poll's key is required, and said so in words — never hinted as a default it does not have", () => {
+  assert.equal(keyProblem(null), "A poll needs its key: without one, no item can be told from another.");
+  assert.equal(keyProblem("  "), "A poll needs its key: without one, no item can be told from another.");
+  assert.equal(keyProblem("id"), null);
+  assert.equal(keyProblem("data.id"), null);
+});

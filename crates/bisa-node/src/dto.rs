@@ -2219,6 +2219,20 @@ pub struct CatalogEntryDto {
     /// id: the picture is drawn, the install resolves the reference.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workflow: Option<NewWorkflowBody>,
+    /// A connector's sign-in and what it offers — its auth scheme's word, how
+    /// many operations it has and how many of them change something — so a
+    /// picker says so before it is installed; absent for every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector: Option<CatalogConnectorDto>,
+}
+
+/// A catalog connector in three facts ([`CatalogEntryDto::connector`]).
+#[derive(Serialize, JsonSchema)]
+#[schemars(rename = "CatalogConnector")]
+pub struct CatalogConnectorDto {
+    pub auth: String,
+    pub operations: usize,
+    pub writes: usize,
 }
 
 impl From<bisa_store::NewWorkflow> for NewWorkflowBody {
@@ -2246,6 +2260,11 @@ impl From<bisa_store::CatalogEntry> for CatalogEntryDto {
             installed: e.installed,
             installed_differs: e.installed_differs,
             workflow: e.workflow.map(NewWorkflowBody::from),
+            connector: e.connector.map(|c| CatalogConnectorDto {
+                auth: c.auth,
+                operations: c.operations,
+                writes: c.writes,
+            }),
         }
     }
 }

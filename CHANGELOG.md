@@ -10,6 +10,15 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Settings › Connectors at forty-five.** The list is searched (name, id, description, tags,
+  hosts), and a connector is one line until it is opened — its accounts read then, so a token
+  refresh no longer re-reads every card. A card opens by itself where this machine holds an
+  account. The Library says of each connector how it signs in and how many operations it has
+  before it is installed, and its receipt has a door to *Add an account*.
+- **`POST /connectors/{cid}/accounts/{aid}/oauth/cancel`** gives up a started connection: the flow
+  is forgotten and the callback listener let go. `GET /catalog` rows of kind `connector` carry
+  `connector: {auth, operations, writes}`.
+
 - **`connectors.agents`** — who may read an outside platform through a connector on their own
   word (`call_connector`): *everyone* (the default, so nothing changes until it is set),
   *assigned* — agents carrying the new **Connectors** skill, and the platform's own — or *nobody*.
@@ -96,6 +105,29 @@ notes (`docs/contributing/release.md`).
   cannot take a built-in's id.
 
 ### Fixed
+
+- **Connector accounts in Settings.** An account holding a parameter its definition no longer
+  declares could not be saved at all; the form now asks only what is declared and says what a
+  save lets go of. A required parameter is marked and holds *Save*; *Add account* waits for the
+  definition; a form whose account was removed elsewhere closes with a word; *Check* is offered
+  only where the connector names a check; an unconnected OAuth account no longer reads *token
+  without an expiry*; and the row asks for what the scheme requires, in words — no client secret
+  for a PKCE client.
+- **Connecting an account.** The minutes left on a pasted code count down by themselves; each
+  account has its own box, so a second connection no longer replaces the first; a connection
+  that ran out of time is said and its box closed; *Cancel* tells the node; and coming back from
+  the browser reads the account rows again, not only the list.
+- **Check all** ends in one sentence naming every account that did not answer as connected,
+  stops when the panel is left, says how far it is, and is no longer relabelled by a single
+  row's check.
+- **The definition editor** holds its text while the node reads it, drops a stale *Not JSON*
+  with the next keystroke, asks before closing over unsaved text, and announces what it found.
+- **The workflow designer's connector forms.** Connectors are grouped by whether an account is
+  here and operations into reads and writes; a poll offers only what may be polled (no write, no
+  `put`/`patch`/`delete`, no file parameter) and requires its key in words; *required* means
+  required with no default; the poll's parameter rows are the step's; a step promises fields of
+  its output only under an output schema; and a run's account input names an account this
+  machine no longer has. A connector installed from the Library now reaches an open designer.
 
 - **A node asked to stop while it starts stops well.** The node listened for `SIGTERM` and
   Ctrl-C only once it was serving, so a stop that arrived during the boot — or in the instant

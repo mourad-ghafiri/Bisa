@@ -508,6 +508,45 @@ async fn oauth_start_binds_the_configured_port_and_stops_after_completion() {
         )
         .await;
     assert_eq!(status, 400, "no flow is pending any more: {v}");
+
+    // A person who gives up says so: the flow is forgotten, a code pasted
+    // afterwards has nothing to complete, and the listener is let go.
+    node.post(
+        &format!("/connectors/acme-oauth/accounts/{aid}/oauth/start"),
+        json!({}),
+    )
+    .await;
+    let gone = node
+        .post(
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/cancel"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(gone["cancelled"], true, "{gone}");
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/complete"),
+            Some(json!({"code": "LATE"})),
+        )
+        .await;
+    assert_eq!(status, 400, "the flow was given up: {v}");
+    let mut down = false;
+    for _ in 0..50 {
+        if tcp_get(port, "/connectors/oauth/callback").await.is_err() {
+            down = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(down, "the callback listener stayed up after a cancel");
+    let again = node
+        .post(
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/cancel"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(again["cancelled"], false, "nothing was pending: {again}");
     node.shutdown().await;
 }
 

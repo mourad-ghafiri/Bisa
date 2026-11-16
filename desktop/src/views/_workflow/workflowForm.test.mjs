@@ -163,3 +163,14 @@ test("an account input's picker says a read that failed as such, no account yet 
   assert.deepEqual(accountFieldNote({ connector: "slack", loading: false, error: null, count: 0 }), { tone: "quiet", text: "This machine holds no account of slack yet — add one under Settings › Capabilities › Connectors." });
   assert.equal(accountFieldNote({ connector: "slack", loading: false, error: null, count: 2 }), null);
 });
+
+
+import { strayAccountChoice } from "./workflowForm.mjs";
+
+test("an account a run's input holds and this machine does not is named in the picker — never *pick one* over a value still set", () => {
+  const accounts = [{ id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", label: "work" }];
+  assert.equal(strayAccountChoice("", accounts), null);
+  assert.equal(strayAccountChoice("01ARZ3NDEKTSV4RRFFQ69G5FAV", accounts), null);
+  assert.equal(strayAccountChoice("01BX5ZZKBKACTAV9WEVGEMMVRZ", accounts), "01BX5ZZKBKACTAV9WEVGEMMVRZ — not an account on this machine");
+  assert.equal(strayAccountChoice("01BX5ZZKBKACTAV9WEVGEMMVRZ", null), null, "nothing is called lost before the accounts are read");
+});

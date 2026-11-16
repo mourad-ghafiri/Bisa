@@ -5042,6 +5042,7 @@ export interface BisaApi {
   TagEntityCount?: TagEntityCount;
   CatalogKind?: CatalogKind;
   CatalogEntry?: CatalogEntry;
+  CatalogConnector?: CatalogConnector;
   Installed?: Installed;
   InstalledWorkflow?: InstalledWorkflow;
   Updated?: Updated;
@@ -12731,6 +12732,21 @@ export interface CatalogEntry {
    * id: the picture is drawn, the install resolves the reference.
    */
   workflow?: NewWorkflowBody | null;
+  /**
+   * A connector's sign-in and what it offers — its auth scheme's word, how
+   * many operations it has and how many of them change something — so a
+   * picker says so before it is installed; absent for every other kind.
+   */
+  connector?: CatalogConnector | null;
+  [k: string]: unknown;
+}
+/**
+ * A catalog connector in three facts ([`CatalogEntryDto::connector`]).
+ */
+export interface CatalogConnector {
+  auth: string;
+  operations: number;
+  writes: number;
   [k: string]: unknown;
 }
 /**

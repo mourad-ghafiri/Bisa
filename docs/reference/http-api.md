@@ -547,6 +547,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `POST /connectors/{cid}/accounts/{aid}/oauth/start` | Begin connecting an OAuth account with the person's own client id: binds the loopback callback listener on `connectors.oauth.port` (409 when the port is busy) and answers `{url, redirect_uri, expires_at}` — open `url` in the browser. |
 | `GET /connectors/oauth/callback` | Where the browser comes back (`?state&code`, or `?error`). Answers a page with no script; the code is exchanged and never echoed; a stale or unknown state is 400. Token-exempt, on the callback listener and here. |
 | `POST /connectors/{cid}/accounts/{aid}/oauth/complete` | Finish a started connection with a code the person pasted (`{code}`), for a platform that cannot send the browser back to loopback. |
+| `POST /connectors/{cid}/accounts/{aid}/oauth/cancel` | Give up a started connection: every flow pending for the account is forgotten and the callback listener is let go when none is left — `{account, cancelled}`, `cancelled` false when nothing was pending. |
 
 ## The IDE: language servers
 

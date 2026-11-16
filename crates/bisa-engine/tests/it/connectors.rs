@@ -971,6 +971,46 @@ async fn an_agent_reads_through_a_connector_and_is_refused_a_write() {
     engine.shutdown().await;
 }
 
+/// A connector installed from the catalog is a change to the definitions,
+/// said on the bus: an open designer and every other window learn of it
+/// without being asked to look again. A second install changes nothing and
+/// says nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connector_installed_from_the_catalog_is_announced() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let definitions = |e: &bisa_engine::EngineEvent| matches!(&e.payload, EnginePayload::ConnectorsChanged { what } if what.as_str() == "definitions");
+    let mut rx = engine.events();
+    let installed = bisa_engine::admin::install_catalog_entry(
+        engine.inner(),
+        bisa_store::CatalogKind::Connector,
+        "slack",
+    )
+    .unwrap();
+    assert_eq!(installed.connectors, vec!["slack".to_string()]);
+    wait_for(&mut rx, "the definitions change", definitions).await;
+    let mut rx = engine.events();
+    bisa_engine::admin::install_catalog_entry(
+        engine.inner(),
+        bisa_store::CatalogKind::Connector,
+        "slack",
+    )
+    .unwrap();
+    let mut again = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        again.push(event);
+    }
+    assert!(
+        !again.iter().any(definitions),
+        "nothing changed, nothing said"
+    );
+    // A pending connection the person gave up on is forgotten by name.
+    let cid = bisa_core::ConnectorId::new("slack").unwrap();
+    let nobody = bisa_core::AccountId::from_ulid(ulid::Ulid::from_parts(1, 1));
+    assert!(!connectors::oauth_cancel(engine.inner(), &cid, nobody));
+    engine.shutdown().await;
+}
+
 /// `connectors.agents` is the workspace's word on who may call a connector
 /// on their own: everyone unless it says otherwise; with *assigned*, an
 /// agent carrying the Connectors skill and the platform's own; with

@@ -67,6 +67,11 @@ pub fn install_catalog_entry(
             announce_addons(inner, AddonsChange::Installed { id });
         }
     }
+    // A connector that landed is a change to the definitions: the designer's
+    // pickers and every other window read the list again.
+    if !installed.connectors.is_empty() {
+        crate::connectors::announce(inner, crate::events::ConnectorsChange::Definitions);
+    }
     Ok(installed)
 }
 

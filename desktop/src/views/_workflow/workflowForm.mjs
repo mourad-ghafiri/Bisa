@@ -96,6 +96,20 @@ export function accountChoices(accounts) {
 }
 
 /**
+ * What the picker draws for an account the input holds and the machine does
+ * not: the id, said as lost — so the select shows what is set, never *pick
+ * one* over a value still written. Nothing for no value, for an account
+ * that is here, or while the accounts are not read yet (`accounts` null).
+ * @param {string} value the input's value — an account id, or empty
+ * @param {readonly {id: string}[] | null} accounts
+ * @returns {string | null}
+ */
+export function strayAccountChoice(value, accounts) {
+  if (!value || accounts === null || accounts.some((a) => a.id === value)) return null;
+  return t("workflow-inputs-form-account-not-here", { id: value });
+}
+
+/**
  * The line under an account input's picker: the read's failure when the
  * accounts could not be read, *no account of X yet* when the machine holds
  * none, nothing while the read is on its way or when it found some — never
