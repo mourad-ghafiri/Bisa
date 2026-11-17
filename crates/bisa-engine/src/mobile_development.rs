@@ -358,18 +358,17 @@ async fn find(
     Ok(device)
 }
 
-/// The device after the call, read again from the machine.
-async fn after(inner: &Arc<Inner>, id: &str) -> Result<Device, EngineError> {
+/// The device after a call that changed it: as the machine now lists it,
+/// under the id the tools answered — an emulator's changes when it boots and
+/// when it is shut down. A listing that no longer holds it (it went between
+/// the call and the read) leaves the tools' own answer standing.
+async fn after(inner: &Arc<Inner>, answered: Device) -> Result<Device, EngineError> {
     announce(inner, MobileDevelopmentChange::Devices);
-    every_device(inner)
+    Ok(every_device(inner)
         .await?
         .into_iter()
-        .find(|d| d.id == id)
-        // LCOV_EXCL_START a device gone right after its boot; a race
-        .ok_or_else(|| {
-            EngineError::MobileDevelopment(MobileDevelopmentError::NoSuchDevice(id.to_string()))
-        })
-    // LCOV_EXCL_STOP
+        .find(|d| d.id == answered.id)
+        .unwrap_or(answered))
 }
 
 pub async fn boot(
@@ -380,8 +379,8 @@ pub async fn boot(
     let device = find(inner, project, id).await?;
     let tools = tools(inner)?;
     let hints = hints(inner);
-    blocking(move || tools.boot(&hints, &device)).await?;
-    after(inner, id).await
+    let booted = blocking(move || tools.boot(&hints, &device)).await?;
+    after(inner, booted).await
 }
 
 pub async fn shutdown(
@@ -392,8 +391,8 @@ pub async fn shutdown(
     let device = find(inner, project, id).await?;
     let tools = tools(inner)?;
     let hints = hints(inner);
-    blocking(move || tools.shutdown(&hints, &device)).await?;
-    after(inner, id).await
+    let down = blocking(move || tools.shutdown(&hints, &device)).await?;
+    after(inner, down).await
 }
 
 pub async fn show(
@@ -434,7 +433,14 @@ pub async fn create_simulator(
     let made = name.clone();
     let udid =
         blocking(move || tools.create_simulator(&hints, &made, &devicetype, &runtime)).await?;
-    after(inner, &udid).await
+    announce(inner, MobileDevelopmentChange::Devices);
+    every_device(inner)
+        .await?
+        .into_iter()
+        .find(|d| d.id == udid)
+        // LCOV_EXCL_START a simulator gone right after it was made; a race with a person's own hand
+        .ok_or_else(|| EngineError::MobileDevelopment(MobileDevelopmentError::NoSuchDevice(udid)))
+    // LCOV_EXCL_STOP
 }
 
 /// The most a frame or a screenshot weighs: 32 MiB. A device tool that
@@ -539,7 +545,7 @@ pub fn run_command(
         EngineError::MobileDevelopment(MobileDevelopmentError::NotInstalled("flutter".into()))
     })?;
     Ok(MobileDevelopmentRunCommand {
-        command: bisa_mobile_development::run_command(&flutter, device),
+        command: bisa_mobile_development::run_command(&flutter, device)?,
         cwd: checkout.display().to_string(),
         device: device.to_string(),
     })

@@ -22,6 +22,7 @@ which = { workspace = true }
 dirs = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
+rustix = { workspace = true }
 bisa-deps = { version = "0.9", path = "../bisa-deps" }
 
 [dev-dependencies]

@@ -2304,6 +2304,10 @@ export type Platforms = "both" | "ios" | "android";
  */
 export type DoctorState = "ok" | "missing" | "warning";
 /**
+ * One of the two paths the workspace may name.
+ */
+export type MobileDevelopmentHint = "flutter_path" | "android_sdk";
+/**
  * A mobile platform this machine develops for.
  */
 export type MobilePlatform = "ios" | "android";
@@ -2313,12 +2317,12 @@ export type MobilePlatform = "ios" | "android";
  */
 export type DeviceKind = "simulator" | "emulator" | "physical";
 /**
- * Where a device stands: a simulator is `booted` or `shutdown`; an emulator
- * or a phone `adb` sees is `running`, or `offline` when it is plugged in but
- * not answering (unauthorized, asleep); an emulator image nobody started is
- * `shutdown`.
+ * Where a device stands: a simulator is `booted`, `shutdown`, or `booting`
+ * on its way up; an emulator or a phone `adb` sees is `running`, or
+ * `offline` when it is there but not answering (unauthorized, asleep, still
+ * starting); an emulator image nobody started is `shutdown`.
  */
-export type DeviceState = "booted" | "shutdown" | "running" | "offline";
+export type DeviceState = "booted" | "shutdown" | "running" | "offline" | "booting";
 /**
  * What changed, for the desktop to read again.
  */
@@ -4595,6 +4599,7 @@ export interface BisaApi {
   AndroidSdk?: AndroidSdk;
   DoctorLine?: DoctorLine;
   DoctorState?: DoctorState;
+  MobileDevelopmentHint?: MobileDevelopmentHint;
   Hints?: Hints;
   MobileToolchain?: MobileToolchain;
   MobilePlatform?: MobilePlatform;
@@ -7030,6 +7035,11 @@ export interface MobileToolchain {
    * Flutter's own word, line by line, when Flutter is there.
    */
   doctor?: DoctorLine[];
+  /**
+   * The paths the workspace names that name nothing on this machine: a
+   * setting that is said and wrong is never passed over for another place.
+   */
+  unusable_hints?: MobileDevelopmentHint[];
   [k: string]: unknown;
 }
 /**
@@ -7162,9 +7172,15 @@ export interface MobileDevice {
   kind: DeviceKind;
   state: DeviceState;
   /**
-   * The OS the device runs, when the program said (`iOS 18.2`, `Android 14`).
+   * The OS the device runs, when the program said (`iOS 18.2`).
    */
   os?: string | null;
+  /**
+   * The image an emulator runs, by its name (`Pixel_8`). A shut-down
+   * emulator's id is this name; a running one's id is its `adb` serial —
+   * the image is what says the two are one device.
+   */
+  image?: string | null;
   [k: string]: unknown;
 }
 /**

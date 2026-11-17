@@ -29,15 +29,18 @@ capture is an attachment, and it rides a message's context as a chip.
 and a `FakeMobileDevelopment` every test hands in. `EngineConfig.mobile_development` holds it, **`None` by default** like
 `ssh` and `cli`: an engine nobody configured spawns nothing and answers *the mobile tools are not
 available*; the node's CLI hands in `Real::default()`. Every program is run by absolute path, argv
-only, with a null stdin, a hardened environment and a budget after which the child is terminated;
-a program that wants a window — `emulator -avd`, `open -a Simulator` — is started detached and
-never waited on. `flutter run` is never spawned here: the app runs where a person watches it.
+only, with a null stdin, a hardened environment, a process group of its own and a budget after
+which the child and everything it started are terminated; what a program writes is read up to a
+cap. A program that keeps a window — `emulator -avd` — is started detached, watched until its
+device is up, and reaped when it ends. `flutter run` is never spawned here: the app runs where a person watches it.
 
 Where the programs are is resolved in one order (`resolve.rs`): the workspace's word
 (`mobile_development.flutter.path`, `mobile_development.android.sdk`), then `PATH`, then the folders the official
-installers use — `~/development/flutter`, `~/flutter`, `~/fvm/default`, Homebrew's `bin`; the
-Android SDK from `ANDROID_HOME` or `ANDROID_SDK_ROOT`, read by name, else Android Studio's
-`~/Library/Android/sdk`. Nothing else of the environment is read.
+installers use — `~/development/flutter`, `~/flutter`, `~/fvm/default`, `~/.pub-cache/bin`,
+Homebrew's `bin`; the Android SDK from `ANDROID_HOME` or `ANDROID_SDK_ROOT`, read by name, else
+Android Studio's `~/Library/Android/sdk` (`~/Android/Sdk` on Linux). A setting may be written with
+`~`; one that names nothing is not passed over for another place — the examination says so
+(`unusable_hints`). Nothing else of the environment is read.
 
 The **toolchain** (`Toolchain`) is one examination with every part probed on its own, so a missing
 Xcode says nothing about the Android SDK: Flutter's version and channel (`flutter --version
@@ -47,12 +50,19 @@ each), Xcode's developer directory and version, the iOS simulator runtimes and d
 (`emulator -list-avds`), Java. The engine keeps the last examination under a ten-minute TTL
 (`mobile_development::MobileDevelopmentState`), clears it on *Check again* and on any `mobile_development.*` write, and announces
 `mobile_development_changed { what: toolchain }` when it runs one. The **devices** (`Device { id, name,
-platform, kind, state, os }`) are the simulators `simctl` lists as available, what `adb devices -l`
+platform, kind, state, os, image }`) are the simulators `simctl` lists as available, what `adb devices -l`
 sees — a running emulator named after its image, a phone by its model — and every emulator image
-nobody started as a shut-down emulator, the ones that are up first. A boot is `simctl boot` and
-`bootstatus -b`, or the emulator started detached and looked for until `adb` sees it; a screen is
+nobody started as a shut-down emulator, the ones that are up first. An emulator has two ids over
+its life — its image's name while it is down, its `adb` serial while it runs — and `image` is what
+says they are one device: a boot answers the device **under the id it runs as**, a shutdown under
+its image's name again. A boot of a simulator that is down is `simctl boot` and `bootstatus -b`
+(one that is up is answered as it stands); of an emulator, the image started detached and looked
+for until `adb` lists it running — one that ends with a failure first is said at once. A shutdown
+is `simctl shutdown`, or `adb emu kill` waited out of `adb`'s list. A screen is
 `simctl io <udid> screenshot` into a file this call makes and removes, or `adb exec-out screencap
--p` — PNG for Android whatever was asked.
+-p` — PNG for Android whatever was asked; a device that is not up is refused before any tool is
+asked. One platform's tool failing is said beside the other platform's devices (`Listing.problems`),
+never read as *no devices*.
 
 ## The workspace's word
 

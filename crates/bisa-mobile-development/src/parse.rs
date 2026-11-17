@@ -43,10 +43,12 @@ pub fn flutter_version(json: &str) -> FlutterVersion {
     }
 }
 
-/// `flutter doctor -v`: the category lines — `[✓] Flutter (Channel stable, …)`,
+/// `flutter doctor`: the category lines — `[✓] Flutter (Channel stable, …)`,
 /// `[✗] Android toolchain - develop for Android devices`, `[!] Xcode - …` —
 /// each with what the parentheses say. The indented lines under a category
-/// are Flutter's detail and are left to the person's terminal.
+/// are Flutter's detail and are left to the person's terminal. A mark this
+/// reader does not know is kept as a warning: a category Flutter flagged is
+/// never dropped because its sign is new.
 pub fn doctor_lines(text: &str) -> Vec<DoctorLine> {
     text.lines()
         .filter_map(|line| {
@@ -57,6 +59,7 @@ pub fn doctor_lines(text: &str) -> Vec<DoctorLine> {
                 "✓" | "√" => DoctorState::Ok,
                 "✗" | "X" => DoctorState::Missing,
                 "!" => DoctorState::Warning,
+                other if other.chars().count() == 1 => DoctorState::Warning,
                 _ => return None,
             };
             let (name, detail) = match rest.find(" (") {
@@ -79,11 +82,12 @@ pub fn doctor_lines(text: &str) -> Vec<DoctorLine> {
 }
 
 /// `xcrun simctl list -j devices available`: every iOS simulator, its OS read
-/// off the runtime it belongs to.
+/// off the runtime it belongs to. An entry this reader cannot make sense of
+/// is left out alone — the rest of the listing stands.
 pub fn simctl_devices(json: &str) -> Vec<Device> {
     #[derive(Deserialize)]
     struct Raw {
-        devices: std::collections::BTreeMap<String, Vec<RawDevice>>,
+        devices: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
     }
     #[derive(Deserialize)]
     struct RawDevice {
@@ -101,7 +105,10 @@ pub fn simctl_devices(json: &str) -> Vec<Device> {
         let Some(os) = runtime_words(&runtime) else {
             continue;
         };
-        for d in devices {
+        for entry in devices {
+            let Ok(d) = serde_json::from_value::<RawDevice>(entry) else {
+                continue;
+            };
             if d.is_available == Some(false) {
                 continue;
             }
@@ -110,16 +117,26 @@ pub fn simctl_devices(json: &str) -> Vec<Device> {
                 name: d.name,
                 platform: Platform::Ios,
                 kind: DeviceKind::Simulator,
-                state: if d.state.eq_ignore_ascii_case("booted") {
-                    DeviceState::Booted
-                } else {
-                    DeviceState::Shutdown
-                },
+                state: simulator_state(&d.state),
                 os: Some(os.clone()),
+                image: None,
             });
         }
     }
     out
+}
+
+/// `simctl`'s word for where a simulator stands: `Booted`, `Booting` on its
+/// way up, and anything else — `Shutdown`, `Shutting Down`, `Creating` — not
+/// up.
+fn simulator_state(word: &str) -> DeviceState {
+    if word.eq_ignore_ascii_case("booted") {
+        DeviceState::Booted
+    } else if word.eq_ignore_ascii_case("booting") {
+        DeviceState::Booting
+    } else {
+        DeviceState::Shutdown
+    }
 }
 
 /// `com.apple.CoreSimulator.SimRuntime.iOS-18-2` → `iOS 18.2`; a runtime of
@@ -228,6 +245,7 @@ pub fn adb_devices(text: &str) -> Vec<Device> {
                     DeviceState::Offline
                 },
                 os: None,
+                image: None,
             })
         })
         .collect()
@@ -355,6 +373,33 @@ mod tests {
         assert!(simctl_devices("{}").is_empty());
     }
 
+    /// A simulator on its way up is said to be booting, one on its way down
+    /// is not up, and an entry with a field missing is left out alone.
+    #[test]
+    fn a_simulator_on_its_way_up_is_booting_and_one_odd_entry_costs_only_itself() {
+        let json = r#"{"devices":{
+  "com.apple.CoreSimulator.SimRuntime.iOS-18-2":[
+    {"udid":"AAAA-1","state":"Booting","name":"iPhone 16"},
+    {"name":"No udid","state":"Booted"},
+    {"udid":"AAAA-2","state":"Shutting Down","name":"iPad"},
+    {"udid":42,"state":"Booted","name":"A number for an id"},
+    {"udid":"AAAA-3","state":"Booted","name":"iPhone 15","somethingNew":{"deep":[1,2]}}
+  ]}}"#;
+        let devices = simctl_devices(json);
+        assert_eq!(
+            devices
+                .iter()
+                .map(|d| (d.id.as_str(), d.state))
+                .collect::<Vec<_>>(),
+            [
+                ("AAAA-1", DeviceState::Booting),
+                ("AAAA-2", DeviceState::Shutdown),
+                ("AAAA-3", DeviceState::Booted)
+            ]
+        );
+        assert!(simctl_devices("not json").is_empty());
+    }
+
     #[test]
     fn runtimes_and_device_types_are_read_for_ios_alone() {
         let runtimes = r#"{"runtimes":[
@@ -401,8 +446,14 @@ ABC123                 offline
     }
 
     #[test]
-    fn a_doctor_mark_nobody_knows_a_listing_that_is_no_json_and_a_daemon_line_are_left() {
-        assert!(doctor_lines("[?] Something odd (never seen)\n").is_empty());
+    fn a_doctor_mark_nobody_knows_is_a_warning_and_a_listing_that_is_no_json_is_empty() {
+        let odd = doctor_lines("[☠] Something odd (never seen)\n[ERROR] not a category\n");
+        assert_eq!(odd.len(), 1, "{odd:?}");
+        assert_eq!(
+            (odd[0].state, odd[0].name.as_str(), odd[0].detail.as_deref()),
+            (DoctorState::Warning, "Something odd", Some("never seen")),
+            "a sign nobody knows is a category Flutter flagged"
+        );
         assert!(simctl_runtimes("not json").is_empty());
         assert!(simctl_devicetypes("not json").is_empty());
         let listed = adb_devices(

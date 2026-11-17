@@ -721,6 +721,9 @@
     "DoctorState": {
       "$ref": "#/definitions/DoctorState"
     },
+    "MobileDevelopmentHint": {
+      "$ref": "#/definitions/MobileDevelopmentHint"
+    },
     "Hints": {
       "$ref": "#/definitions/Hints"
     },
@@ -12924,6 +12927,14 @@
       ],
       "description": "One line of `flutter doctor`: a category and Flutter's own verdict on it."
     },
+    "MobileDevelopmentHint": {
+      "type": "string",
+      "enum": [
+        "flutter_path",
+        "android_sdk"
+      ],
+      "description": "One of the two paths the workspace may name."
+    },
     "Hints": {
       "type": "object",
       "properties": {
@@ -12978,6 +12989,13 @@
             "$ref": "#/definitions/DoctorLine"
           },
           "description": "Flutter's own word, line by line, when Flutter is there."
+        },
+        "unusable_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MobileDevelopmentHint"
+          },
+          "description": "The paths the workspace names that name nothing on this machine: a\nsetting that is said and wrong is never passed over for another place."
         }
       },
       "required": [
@@ -13012,9 +13030,10 @@
         "booted",
         "shutdown",
         "running",
-        "offline"
+        "offline",
+        "booting"
       ],
-      "description": "Where a device stands: a simulator is `booted` or `shutdown`; an emulator\nor a phone `adb` sees is `running`, or `offline` when it is plugged in but\nnot answering (unauthorized, asleep); an emulator image nobody started is\n`shutdown`."
+      "description": "Where a device stands: a simulator is `booted`, `shutdown`, or `booting`\non its way up; an emulator or a phone `adb` sees is `running`, or\n`offline` when it is there but not answering (unauthorized, asleep, still\nstarting); an emulator image nobody started is `shutdown`."
     },
     "MobileDevelopmentShot": {
       "type": "object",
@@ -13161,7 +13180,14 @@
             "string",
             "null"
           ],
-          "description": "The OS the device runs, when the program said (`iOS 18.2`, `Android 14`)."
+          "description": "The OS the device runs, when the program said (`iOS 18.2`)."
+        },
+        "image": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The image an emulator runs, by its name (`Pixel_8`). A shut-down\nemulator's id is this name; a running one's id is its `adb` serial —\nthe image is what says the two are one device."
         }
       },
       "required": [

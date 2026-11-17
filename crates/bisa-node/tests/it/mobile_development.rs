@@ -153,8 +153,14 @@ async fn the_status_the_devices_a_boot_and_a_capture_read_the_machine() {
     let listed = node.get("/mobile-development/devices").await;
     let devices = listed["devices"].as_array().unwrap();
     assert_eq!(devices.len(), 2, "{listed}");
-    assert_eq!(devices[0]["id"], json!("AAAA-1"));
-    assert_eq!(devices[0]["state"], json!("shutdown"));
+    assert_eq!(
+        devices.iter().map(|d| &d["id"]).collect::<Vec<_>>(),
+        [&json!("Pixel_8"), &json!("AAAA-1")],
+        "a picker's order: by platform when nothing is up"
+    );
+    assert_eq!(devices[1]["state"], json!("shutdown"));
+    assert_eq!(devices[0]["image"], json!("Pixel_8"));
+    assert!(devices[1].get("image").is_none(), "a simulator has none");
     let booted = node
         .post("/mobile-development/devices/AAAA-1/boot", json!({}))
         .await;
@@ -175,6 +181,31 @@ async fn the_status_the_devices_a_boot_and_a_capture_read_the_machine() {
         )
         .await;
     assert_eq!(code, 404, "{v}");
+    // An emulator's image answers as the device it became, under the id it
+    // runs as; shut down by that id, it answers as its image again.
+    let up = node
+        .post("/mobile-development/devices/Pixel_8/boot", json!({}))
+        .await;
+    assert_eq!(
+        (&up["id"], &up["state"], &up["image"]),
+        (
+            &json!("emulator-5554"),
+            &json!("running"),
+            &json!("Pixel_8")
+        ),
+        "{up}"
+    );
+    let down = node
+        .post(
+            "/mobile-development/devices/emulator-5554/shutdown",
+            json!({}),
+        )
+        .await;
+    assert_eq!(
+        (&down["id"], &down["state"]),
+        (&json!("Pixel_8"), &json!("shutdown")),
+        "{down}"
+    );
     // A capture is an attachment the node then serves as an image.
     let shot = node
         .post("/mobile-development/devices/AAAA-1/screenshot", json!({}))

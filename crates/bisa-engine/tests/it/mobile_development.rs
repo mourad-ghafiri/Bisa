@@ -323,14 +323,29 @@ async fn a_screenshot_is_stored_as_an_attachment_and_answered_by_path() {
     let tools = fake();
     let engine = engine_with_mobile(&dir, Arc::clone(&tools));
     let socket = engine.socket_path().to_path_buf();
-    let reply = intake_roundtrip(
-        &socket,
+    let shoot = || {
         ask(
             "general-agent",
             json!({"action": "screenshot", "device": "AAAA-1"}),
+        )
+    };
+    // A device that is not up has nothing on its screen: refused in words.
+    let refused = intake_roundtrip(&socket, shoot()).await;
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    assert!(
+        refused.to_string().contains("nothing is on its screen"),
+        "{refused}"
+    );
+    let booted = intake_roundtrip(
+        &socket,
+        ask(
+            "general-agent",
+            json!({"action": "boot", "device": "AAAA-1"}),
         ),
     )
     .await;
+    assert_eq!(booted["ok"], json!(true), "{booted}");
+    let reply = intake_roundtrip(&socket, shoot()).await;
     assert_eq!(reply["ok"], json!(true), "{reply}");
     let shot = &reply["result"];
     let path = std::path::PathBuf::from(shot["path"].as_str().unwrap());
@@ -541,18 +556,42 @@ async fn the_doors_at_their_edges_a_shutdown_a_refused_simulator_an_android_fram
     assert_eq!(down.state, DeviceState::Shutdown);
     assert!(tools.calls().iter().any(|c| c == "shutdown AAAA-1"));
 
+    // An emulator's image boots into the device `adb` lists: the answer
+    // carries the id it runs as and the image that says which one it is —
+    // not "no device Pixel_8".
+    let up = md::boot(inner, None, "Pixel_8").await.unwrap();
+    assert_eq!(
+        (up.id.as_str(), up.state, up.image.as_deref()),
+        ("emulator-5554", DeviceState::Running, Some("Pixel_8"))
+    );
+    let listed = md::devices(inner, None).await.unwrap();
+    assert!(
+        listed.iter().all(|d| d.id != "Pixel_8"),
+        "the image that runs is listed once, as the device: {listed:?}"
+    );
+
     // An Android screen is PNG whatever was asked.
     let (bytes, format) = md::frame(
         inner,
         None,
-        "Pixel_8",
+        "emulator-5554",
         bisa_mobile_development::ImageFormat::Jpeg,
     )
     .await
     .unwrap();
     assert_eq!(format, bisa_mobile_development::ImageFormat::Png);
     assert_eq!(bytes, png_fixture(1170, 2532));
-    assert!(tools.calls().iter().any(|c| c == "screenshot Pixel_8 png"));
+    assert!(tools
+        .calls()
+        .iter()
+        .any(|c| c == "screenshot emulator-5554 png"));
+
+    // Shut down, it is its image again.
+    let down = md::shutdown(inner, None, "emulator-5554").await.unwrap();
+    assert_eq!(
+        (down.id.as_str(), down.state),
+        ("Pixel_8", DeviceState::Shutdown)
+    );
 
     // A simulator needs a name, and iOS on.
     let blank = md::create_simulator(inner, "  ", "iPhone-16", "iOS-18-2").await;

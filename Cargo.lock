@@ -996,6 +996,7 @@ version = "0.9.0"
 dependencies = [
  "bisa-deps",
  "dirs",
+ "rustix",
  "schemars",
  "serde",
  "serde_json",

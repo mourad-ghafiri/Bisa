@@ -8,6 +8,44 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- **A device says which emulator image it runs.** `Device` gains `image`, the image's name: a
+  shut-down emulator's id is that name and a running one's is its `adb` serial, and `image` is
+  what says the two are one device. A simulator on its way up is `booting`. A setting for the
+  Flutter or Android SDK path may be written with `~`, and one that names nothing is said by the
+  examination (`unusable_hints`) instead of leaving a silent *not installed*. All additive.
+
+### Fixed
+
+- **Booting a shut-down iOS simulator works.** The boot was refused — *is a simulator: it is not
+  booted from here* — by a check written the wrong way round: only a simulator that was already
+  up was booted. Every *Boot* button and the `mobile_development_boot` tool were affected.
+- **Booting an Android emulator answers the emulator, not *no device*.** A stopped emulator is
+  listed under its image's name and a running one under its `adb` serial; the boot looked for the
+  old id afterwards and answered 404 while the emulator was up. A boot now answers the device
+  under the id it runs as, and a shutdown under its image's name again.
+- **An emulator that fails to start is said at once**, with its exit status, instead of after
+  the whole two-minute boot budget; one that is there and not answering is no longer started a
+  second time by its serial.
+- **A shutdown that `adb` refused is a failure**, not a success, and a shutdown waits for the
+  emulator to leave `adb`'s list before it answers.
+- **A tool that fails while listing is said**, beside the other platform's devices, instead of
+  being read as *no devices*; a platform that was not asked for is not asked, so `ios` alone
+  never starts `adb`.
+- **A time limit covers what a tool started too.** A tool past its budget is ended with its whole
+  process group, a finished tool is never waited on while something it started still holds its
+  output, what a tool writes is read up to a cap, and an emulator's process is reaped when it ends.
+- **The Simulator's window**: a missing Simulator app is a failure, not a success.
+- **Flutter's doctor is told the Android SDK** the examination found, so it no longer reports the
+  SDK missing beside a status that shows it; the status shows the `adb` a listing would use.
+- **A screenshot of a simulator that is not up is refused in words** before any tool is asked, as
+  the documentation said; a capture larger than the cap is refused, never handed on clipped.
+- **One odd entry in a simulator listing costs only itself**, not the whole list, and a category
+  Flutter's doctor flags with a sign this reader does not know is kept.
+- **A device id that cannot be quoted is refused** when the `flutter run` line is composed,
+  never written bare.
+
 ## [0.9.0] - 2026-11-17
 
 ### Added
