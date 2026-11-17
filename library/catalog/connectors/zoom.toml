@@ -1,0 +1,130 @@
+# Built-in connector: Zoom — a user's meetings, read and scheduled, as a Server-to-Server OAuth app.
+#
+# Zoom's pages do not say whether a user-authorized app may send the
+# browser back to a loopback address, so this is the app that needs no
+# browser: a Server-to-Server OAuth app's client id and secret, sent in a
+# Basic header to `zoom.us/oauth/token` with the grant Zoom spells
+# `account_credentials` and the account's id. The token lives an hour and
+# "there is no refresh token" — it is asked for again. Its scopes are the
+# ones chosen on the app, not asked for here: `meeting:read:list_meetings:admin`,
+# `meeting:read:meeting:admin` and `meeting:write:meeting:admin`. With
+# this kind of app "you wouldn't use the `me` keyword … you must provide a
+# `userId` or email address", so the account names the user. The list
+# answers scheduled meetings, 30 a page. A new meeting is a scheduled one
+# (Zoom's default type); a host may create or change 100 a day.
+#
+# Reference: https://developers.zoom.us/docs/internal-apps/s2s-oauth/
+# Reference: https://developers.zoom.us/docs/integrations/oauth/
+# Reference: https://developers.zoom.us/docs/api/using-zoom-apis/
+# Reference: https://developers.zoom.us/docs/api/meetings/
+# Reference: https://developers.zoom.us/docs/api/rate-limits/
+
+[connector]
+name = "Zoom"
+description = "List a user's scheduled meetings, read one and schedule one. Create a Server-to-Server OAuth app in the Zoom App Marketplace with the three meeting scopes; the account holds its client id and secret and names the account id and the user."
+tags = ["planning", "ops"]
+base_url = "https://api.zoom.us"
+hosts = ["api.zoom.us"]
+check = "list_meetings"
+revision = 1
+
+[connector.auth]
+scheme = "client_credentials"
+token_url = "https://zoom.us/oauth/token"
+token_auth = "basic"
+grant_type = "account_credentials"
+params = { account_id = "{account.account_id}" }
+
+[[connector.params]]
+name = "account_id"
+label = "Account id"
+required = true
+doc = "The Account ID on the app's credentials page."
+
+[[connector.params]]
+name = "user"
+label = "User"
+required = true
+doc = "The user id or email address of the Zoom user whose meetings these are."
+
+[[connector.operations]]
+id = "list_meetings"
+name = "List meetings"
+description = "The user's scheduled meetings — also the one call that proves the account works."
+method = "get"
+path = "/v2/users/{account.user}/meetings"
+query = { type = "{params.type}", page_size = "{params.max}", from = "{params.from}", to = "{params.to}" }
+
+[[connector.operations.params]]
+name = "type"
+label = "Which"
+doc = "scheduled (Zoom's default), live, upcoming, upcoming_meetings or previous_meetings."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many meetings to return; Zoom's default is 30."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "A start date, 2026-09-07; empty for no lower bound."
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+doc = "An end date; empty for no upper bound."
+
+[connector.operations.output]
+select = "meetings"
+
+[[connector.operations]]
+id = "get_meeting"
+name = "Get meeting"
+description = "One meeting: its topic, time, settings and join link."
+method = "get"
+path = "/v2/meetings/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Meeting id"
+required = true
+doc = "The meeting's number, as list_meetings returned it."
+
+[[connector.operations]]
+id = "create_meeting"
+name = "Schedule meeting"
+description = "Schedule a meeting hosted by the account's user; the answer carries the join link."
+method = "post"
+path = "/v2/users/{account.user}/meetings"
+body = { kind = "json", value = { topic = "{params.topic}", start_time = "{params.start}", timezone = "{params.timezone}", duration = "{params.duration}", agenda = "{params.agenda}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "topic"
+label = "Topic"
+required = true
+doc = "The meeting's topic."
+
+[[connector.operations.params]]
+name = "start"
+label = "Starts"
+required = true
+doc = "2026-09-07T12:00:00Z for GMT, or 2026-09-07T12:00:00 with a time zone below."
+
+[[connector.operations.params]]
+name = "timezone"
+label = "Time zone"
+doc = "The zone a start with no Z is in; empty for the account's own."
+
+[[connector.operations.params]]
+name = "duration"
+label = "Minutes"
+kind = "number"
+doc = "How long, 1 to 1440 minutes; Zoom's default is 60."
+
+[[connector.operations.params]]
+name = "agenda"
+label = "Agenda"
+doc = "The meeting's description, at most 2,000 characters; empty for none."

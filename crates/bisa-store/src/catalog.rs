@@ -201,6 +201,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/bitbucket.toml"),
     ),
     (
+        "calendly",
+        include_str!("../../../library/catalog/connectors/calendly.toml"),
+    ),
+    (
         "confluence",
         include_str!("../../../library/catalog/connectors/confluence.toml"),
     ),
@@ -211,6 +215,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "facebook-pages",
         include_str!("../../../library/catalog/connectors/facebook-pages.toml"),
+    ),
+    (
+        "figma",
+        include_str!("../../../library/catalog/connectors/figma.toml"),
     ),
     (
         "github",
@@ -245,6 +253,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/google-tasks.toml"),
     ),
     (
+        "hubspot",
+        include_str!("../../../library/catalog/connectors/hubspot.toml"),
+    ),
+    (
         "instagram",
         include_str!("../../../library/catalog/connectors/instagram.toml"),
     ),
@@ -255,6 +267,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "linear",
         include_str!("../../../library/catalog/connectors/linear.toml"),
+    ),
+    (
+        "microsoft-teams",
+        include_str!("../../../library/catalog/connectors/microsoft-teams.toml"),
     ),
     (
         "notion",
@@ -281,6 +297,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/pagerduty.toml"),
     ),
     (
+        "pipedrive",
+        include_str!("../../../library/catalog/connectors/pipedrive.toml"),
+    ),
+    (
         "sentry",
         include_str!("../../../library/catalog/connectors/sentry.toml"),
     ),
@@ -303,6 +323,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "youtube",
         include_str!("../../../library/catalog/connectors/youtube.toml"),
+    ),
+    (
+        "zoom",
+        include_str!("../../../library/catalog/connectors/zoom.toml"),
     ),
 ];
 
@@ -2539,9 +2563,11 @@ mod bundle_tests {
             slugs,
             [
                 "bitbucket",
+                "calendly",
                 "confluence",
                 "discord",
                 "facebook-pages",
+                "figma",
                 "github",
                 "gitlab",
                 "gmail",
@@ -2550,21 +2576,25 @@ mod bundle_tests {
                 "google-drive",
                 "google-sheets",
                 "google-tasks",
+                "hubspot",
                 "instagram",
                 "jira",
                 "linear",
+                "microsoft-teams",
                 "notion",
                 "obsidian",
                 "onedrive",
                 "outlook-calendar",
                 "outlook-mail",
                 "pagerduty",
+                "pipedrive",
                 "sentry",
                 "slack",
                 "tiktok",
                 "trello",
                 "x",
                 "youtube",
+                "zoom",
             ]
         );
     }
@@ -2588,11 +2618,16 @@ mod bundle_tests {
                 )
             })
             .collect();
-        let want: [(&str, u32, &str); 27] = [
+        let want: [(&str, u32, &str); 33] = [
             (
                 "bitbucket",
                 1,
                 "cecefe971073f48afefe3ed1a069d1b4d78f42b7297aac9e89ff66ed68ff296f",
+            ),
+            (
+                "calendly",
+                1,
+                "9f6b65f0ef33f5b5f5a02bc845bbf5b7022c7199c1eca7750eadf87493088a6e",
             ),
             (
                 "confluence",
@@ -2608,6 +2643,11 @@ mod bundle_tests {
                 "facebook-pages",
                 1,
                 "4490152857eaa11615a2bc9073123c376762d78cc5b9725b8aed3c575ee718e1",
+            ),
+            (
+                "figma",
+                1,
+                "f9218de32eef3c392e0e52230d4913a836be365efd93fc263d7f58772c3a2f34",
             ),
             (
                 "github",
@@ -2650,6 +2690,11 @@ mod bundle_tests {
                 "205ff4b9adbb4d37e265665dd48f7537d612acca17dd3cfaf5e3bc2d0a287594",
             ),
             (
+                "hubspot",
+                1,
+                "36faf82c8f596e7643db83a419f8dc823dd3f670be9af775ea68916fcea9cc48",
+            ),
+            (
                 "instagram",
                 1,
                 "89f8b222ea0c429cbbdf73ff938629508b55ec3b590ad85038d792cded715efe",
@@ -2663,6 +2708,11 @@ mod bundle_tests {
                 "linear",
                 1,
                 "d5b764fa3e7b30efc7dfcbbb80950eeaf9b0f8f8988f7c27a22a2a74389ce19d",
+            ),
+            (
+                "microsoft-teams",
+                1,
+                "c6acf8601fc2ea7626d1abde8aa756d7891834aaefc82915b08d4c7cefc4cd3c",
             ),
             (
                 "notion",
@@ -2695,6 +2745,11 @@ mod bundle_tests {
                 "c6bcd9ab9289d6281730a9b752d21b77aaaa328bc00c2ab6fab09ade25a36232",
             ),
             (
+                "pipedrive",
+                1,
+                "4569d59d9ee9b669420dc5c0c419dde6cdb0ed0da8aa7923491928b669b49cdb",
+            ),
+            (
                 "sentry",
                 1,
                 "93204802c2c839c97f7256ab154c4a6896011e43dc7a298fe238f7b84be08ddc",
@@ -2723,6 +2778,11 @@ mod bundle_tests {
                 "youtube",
                 1,
                 "b96653108b8f63d5a86da6b12d9a5b87d166bcb2658c5edbeca61e25a9481563",
+            ),
+            (
+                "zoom",
+                1,
+                "9feb054640fd6b91d6e081951b198c10b0bd1108b0fc105262e7af5b6c0187a6",
             ),
         ];
         assert_eq!(pinned.len(), want.len(), "a built-in added or dropped");

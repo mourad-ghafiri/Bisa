@@ -1,0 +1,221 @@
+# Built-in connector: HubSpot — contacts, deals and companies over the CRM API.
+#
+# An access token is sent as `Authorization: Bearer`. A legacy private
+# app's token is one; HubSpot stopped creating legacy private apps on
+# October 26, 2026 and still serves the ones that exist. Lists answer ten
+# records unless `limit` says otherwise, 100 at most, under `results`. A
+# record is created from its `properties`: a contact needs one of `email`,
+# `firstname`, `lastname`; a deal `dealname` and `dealstage` by the
+# stage's internal id; a company `name` or `domain`. HubSpot's published
+# description of the contact create marks `associations` required while
+# its guide leaves it out, so an empty list is sent there. Three things
+# are left out: search, whose description and guide disagree on what a
+# request must carry; notes, because the page does not say which
+# association type ties a note to a contact, a deal or a company; and the
+# scopes each call needs, which the pages read did not show.
+#
+# Reference: https://developers.hubspot.com/docs/api/private-apps
+# Reference: https://developers.hubspot.com/docs/api/crm/contacts
+# Reference: https://developers.hubspot.com/docs/api/crm/deals
+# Reference: https://developers.hubspot.com/docs/api/crm/companies
+# Reference: https://developers.hubspot.com/docs/api/settings/account-information-api
+# Reference: https://developers.hubspot.com/docs/api/usage-details
+# Reference: https://github.com/HubSpot/HubSpot-public-api-spec-collection
+
+[connector]
+name = "HubSpot"
+description = "List and read contacts, deals and companies, create one, and update a contact. Paste an access token with the CRM scopes for the records you use."
+tags = ["business", "management"]
+base_url = "https://api.hubapi.com"
+hosts = ["api.hubapi.com"]
+check = "account"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "account"
+name = "Account"
+description = "The HubSpot account's id, time zone and currency — the one call that proves the token works."
+method = "get"
+path = "/account-info/v3/details"
+
+[[connector.operations]]
+id = "list_contacts"
+name = "List contacts"
+description = "Contacts, with the properties asked for."
+method = "get"
+path = "/crm/v3/objects/contacts"
+query = { limit = "{params.max}", properties = "{params.properties}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many contacts to return, 100 at most; HubSpot's default is 10."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+doc = "The properties to return, comma-separated: email,firstname,lastname. Empty for HubSpot's default set."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "get_contact"
+name = "Get contact"
+description = "One contact, by its id or by its email address."
+method = "get"
+path = "/crm/v3/objects/contacts/{params.id}"
+query = { idProperty = "{params.id_property}", properties = "{params.properties}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Contact"
+required = true
+doc = "The contact's id — or its email address, with email below."
+
+[[connector.operations.params]]
+name = "id_property"
+label = "Read the id as"
+doc = "email when the contact is named by its address; empty for its id."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+doc = "The properties to return, comma-separated; empty for HubSpot's default set."
+
+[[connector.operations]]
+id = "create_contact"
+name = "Create contact"
+description = "Create a contact from its properties."
+method = "post"
+path = "/crm/v3/objects/contacts"
+body = { kind = "json", value = { properties = "{params.properties}", associations = [] } }
+writes = true
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+kind = "json"
+required = true
+doc = "A JSON object with at least one of email, firstname, lastname: {\"email\": \"ada@example.com\", \"firstname\": \"Ada\"}."
+
+[[connector.operations]]
+id = "update_contact"
+name = "Update contact"
+description = "Change a contact's properties; what is not named stays as it is."
+method = "patch"
+path = "/crm/v3/objects/contacts/{params.id}"
+body = { kind = "json", value = { properties = "{params.properties}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Contact id"
+required = true
+doc = "The contact's id."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+kind = "json"
+required = true
+doc = "A JSON object of the properties to change: {\"phone\": \"+1 555 0100\"}."
+
+[[connector.operations]]
+id = "list_deals"
+name = "List deals"
+description = "Deals, with the properties asked for."
+method = "get"
+path = "/crm/v3/objects/deals"
+query = { limit = "{params.max}", properties = "{params.properties}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many deals to return, 100 at most; HubSpot's default is 10."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+doc = "The properties to return, comma-separated: dealname,dealstage,amount. Empty for HubSpot's default set."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "get_deal"
+name = "Get deal"
+description = "One deal."
+method = "get"
+path = "/crm/v3/objects/deals/{params.id}"
+query = { properties = "{params.properties}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Deal id"
+required = true
+doc = "The deal's id."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+doc = "The properties to return, comma-separated; empty for HubSpot's default set."
+
+[[connector.operations]]
+id = "create_deal"
+name = "Create deal"
+description = "Create a deal from its properties."
+method = "post"
+path = "/crm/v3/objects/deals"
+body = { kind = "json", value = { properties = "{params.properties}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+kind = "json"
+required = true
+doc = "A JSON object with dealname and dealstage (the stage's internal id), and pipeline when there are several: {\"dealname\": \"Acme renewal\", \"dealstage\": \"appointmentscheduled\"}."
+
+[[connector.operations]]
+id = "list_companies"
+name = "List companies"
+description = "Companies, with the properties asked for."
+method = "get"
+path = "/crm/v3/objects/companies"
+query = { limit = "{params.max}", properties = "{params.properties}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many companies to return, 100 at most; HubSpot's default is 10."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+doc = "The properties to return, comma-separated: name,domain. Empty for HubSpot's default set."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "create_company"
+name = "Create company"
+description = "Create a company from its properties."
+method = "post"
+path = "/crm/v3/objects/companies"
+body = { kind = "json", value = { properties = "{params.properties}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+kind = "json"
+required = true
+doc = "A JSON object with name or domain: {\"name\": \"Acme\", \"domain\": \"acme.example\"}."

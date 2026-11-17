@@ -1,0 +1,195 @@
+# Built-in connector: Figma — files, their nodes and their comments over the REST API.
+#
+# A personal access token is sent in the `X-Figma-Token` header; it is
+# made with an expiry and scopes, and this definition needs
+# `current_user:read`, `file_metadata:read`, `file_content:read`,
+# `file_comments:read` and `file_comments:write`. A file's key is read
+# from its address — `https://www.figma.com/:file_type/:file_key/:file_name`
+# — and a node's id from `?node-id=`. A whole file can be very large:
+# `depth` limits how far down the tree is read. Rendered image addresses
+# expire after 30 days. A comment needs only its message; with a
+# `comment_id` it is a reply to that root comment. Teams' project lists
+# are left out: Figma marks them deprecated for endpoints the pages read
+# did not describe.
+#
+# Reference: https://developers.figma.com/docs/rest-api/
+# Reference: https://developers.figma.com/docs/rest-api/personal-access-tokens/
+# Reference: https://developers.figma.com/docs/rest-api/scopes/
+# Reference: https://developers.figma.com/docs/rest-api/users-endpoints/
+# Reference: https://developers.figma.com/docs/rest-api/file-endpoints/
+# Reference: https://developers.figma.com/docs/rest-api/comments-endpoints/
+# Reference: https://developers.figma.com/docs/rest-api/projects-endpoints/
+# Reference: https://developers.figma.com/docs/rest-api/rate-limits/
+
+[connector]
+name = "Figma"
+description = "Read a Figma file, its nodes and its comments, render nodes as images, and post a comment. Paste a personal access token with the current user, file metadata, file content and file comments scopes."
+tags = ["design", "product"]
+base_url = "https://api.figma.com"
+hosts = ["api.figma.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "X-Figma-Token" }
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The token's user — the one call that proves the account works."
+method = "get"
+path = "/v1/me"
+
+[[connector.operations]]
+id = "file_meta"
+name = "File details"
+description = "A file's name, folder, who touched it last and its link — without its contents."
+method = "get"
+path = "/v1/files/{params.file}/meta"
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address, after /design/ or /file/."
+
+[connector.operations.output]
+select = "file"
+
+[[connector.operations]]
+id = "get_file"
+name = "Get file"
+description = "A file's document tree, components and styles."
+method = "get"
+path = "/v1/files/{params.file}"
+query = { depth = "{params.depth}", ids = "{params.ids}" }
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address."
+
+[[connector.operations.params]]
+name = "depth"
+label = "Depth"
+kind = "number"
+doc = "How far down the tree to read: 1 for the pages, 2 for what is on them. Empty for all of it."
+
+[[connector.operations.params]]
+name = "ids"
+label = "Node ids"
+doc = "Only these nodes and what they need, comma-separated: 1:2,1:3. Empty for the whole file."
+
+[[connector.operations]]
+id = "file_nodes"
+name = "Get nodes"
+description = "Named nodes of a file, each with its subtree."
+method = "get"
+path = "/v1/files/{params.file}/nodes"
+query = { ids = "{params.ids}", depth = "{params.depth}" }
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address."
+
+[[connector.operations.params]]
+name = "ids"
+label = "Node ids"
+required = true
+doc = "Comma-separated node ids, 1:2,1:3 — the node-id in a node's address."
+
+[[connector.operations.params]]
+name = "depth"
+label = "Depth"
+kind = "number"
+doc = "How far below each node to read; empty for all of it."
+
+[connector.operations.output]
+select = "nodes"
+
+[[connector.operations]]
+id = "render_images"
+name = "Render images"
+description = "Addresses of rendered images of nodes; each expires after 30 days."
+method = "get"
+path = "/v1/images/{params.file}"
+query = { ids = "{params.ids}", format = "{params.format}", scale = "{params.scale}" }
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address."
+
+[[connector.operations.params]]
+name = "ids"
+label = "Node ids"
+required = true
+doc = "Comma-separated node ids to render: 1:2,1:3."
+
+[[connector.operations.params]]
+name = "format"
+label = "Format"
+doc = "jpg, png, svg or pdf; empty for Figma's own choice."
+
+[[connector.operations.params]]
+name = "scale"
+label = "Scale"
+kind = "number"
+doc = "A number between 0.01 and 4; empty for Figma's own."
+
+[connector.operations.output]
+select = "images"
+
+[[connector.operations]]
+id = "comments"
+name = "List comments"
+description = "The comments on a file."
+method = "get"
+path = "/v1/files/{params.file}/comments"
+query = { as_md = "{params.markdown}" }
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address."
+
+[[connector.operations.params]]
+name = "markdown"
+label = "As Markdown"
+kind = "bool"
+doc = "true to read comments as Markdown where they have it."
+
+[connector.operations.output]
+select = "comments"
+
+[[connector.operations]]
+id = "post_comment"
+name = "Post comment"
+description = "Comment on a file, or reply to a comment."
+method = "post"
+path = "/v1/files/{params.file}/comments"
+body = { kind = "json", value = { message = "{params.message}", comment_id = "{params.reply_to}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "file"
+label = "File key"
+required = true
+doc = "The key in the file's address."
+
+[[connector.operations.params]]
+name = "message"
+label = "Comment"
+required = true
+doc = "The comment's text."
+
+[[connector.operations.params]]
+name = "reply_to"
+label = "Reply to"
+doc = "The id of the root comment this answers; empty for a new comment."

@@ -1,0 +1,197 @@
+# Built-in connector: Calendly — event types, scheduled events and their invitees.
+#
+# A personal access token is sent as `Authorization: Bearer`. A token made
+# now grants nothing "until scopes are explicitly requested": this
+# definition needs `users:read`, `event_types:read`,
+# `scheduled_events:read` and `scheduling_links:write`. Calendly names a
+# resource by its URI — "when a parameter is a resource reference, it has
+# to be a URI" — so a user, an organization and an event type are given as
+# the `https://api.calendly.com/…` address `me` and the lists return; only
+# a path takes the bare id at its end. Event types need a user or an
+# organization; a user alone reads your own events. Lists answer 20 a
+# page under `collection`. A scheduling link books one meeting.
+#
+# Reference: https://developer.calendly.com/docs/authentication/how-to-authenticate-with-personal-access-tokens
+# Reference: https://developer.calendly.com/docs/authentication/scopes
+# Reference: https://developer.calendly.com/api-docs/overview/api/api-conventions
+# Reference: https://developer.calendly.com/api-docs/overview/rate-limits
+# Reference: https://developer.calendly.com/api-docs/calendly-api/users/get-current-user
+# Reference: https://developer.calendly.com/api-docs/calendly-api/event-types/list-event-types
+# Reference: https://developer.calendly.com/api-docs/calendly-api/scheduled-events/list-scheduled-events
+# Reference: https://developer.calendly.com/api-docs/calendly-api/scheduled-events/get-scheduled-event
+# Reference: https://developer.calendly.com/api-docs/calendly-api/scheduled-events/list-event-invitees
+# Reference: https://developer.calendly.com/api-docs/calendly-api/scheduling-links/create-scheduling-link
+
+[connector]
+name = "Calendly"
+description = "List event types and scheduled events, read an event and its invitees, and create a single-use booking link. Paste a personal access token with the users, event types and scheduled events read scopes and scheduling links write."
+tags = ["planning", "business"]
+base_url = "https://api.calendly.com"
+hosts = ["api.calendly.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The token's user, with the URIs the other calls take — the one call that proves the account works."
+method = "get"
+path = "/users/me"
+
+[connector.operations.output]
+select = "resource"
+
+[[connector.operations]]
+id = "event_types"
+name = "List event types"
+description = "The kinds of meeting a user or an organization offers."
+method = "get"
+path = "/event_types"
+query = { user = "{params.user}", organization = "{params.organization}", active = "{params.active}", count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "user"
+label = "User URI"
+doc = "The user's URI, as me returned it. One of user and organization is needed."
+
+[[connector.operations.params]]
+name = "organization"
+label = "Organization URI"
+doc = "The organization's URI, me's current_organization."
+
+[[connector.operations.params]]
+name = "active"
+label = "Only active"
+kind = "bool"
+doc = "true for the active event types only."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many event types to return; Calendly's default is 20."
+
+[connector.operations.output]
+select = "collection"
+
+[[connector.operations]]
+id = "scheduled_events"
+name = "List scheduled events"
+description = "Meetings booked with a user or across an organization."
+method = "get"
+path = "/scheduled_events"
+query = { user = "{params.user}", organization = "{params.organization}", status = "{params.status}", min_start_time = "{params.from}", max_start_time = "{params.to}", invitee_email = "{params.invitee}", sort = "{params.sort}", count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "user"
+label = "User URI"
+doc = "The user's URI, as me returned it — alone, it reads your own events."
+
+[[connector.operations.params]]
+name = "organization"
+label = "Organization URI"
+doc = "The organization's URI; reading all of its events needs an admin or the owner."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "active or canceled; empty for both."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "Events starting after this UTC moment, 2026-09-07T00:00:00.000000Z."
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+doc = "Events starting before this UTC moment."
+
+[[connector.operations.params]]
+name = "invitee"
+label = "Invitee email"
+doc = "Only events this address was invited to."
+
+[[connector.operations.params]]
+name = "sort"
+label = "Sort"
+doc = "start_time:asc or start_time:desc."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many events to return; Calendly's default is 20."
+
+[connector.operations.output]
+select = "collection"
+
+[[connector.operations]]
+id = "get_event"
+name = "Get event"
+description = "One scheduled event."
+method = "get"
+path = "/scheduled_events/{params.id}"
+
+[[connector.operations.params]]
+name = "id"
+label = "Event id"
+required = true
+doc = "The id at the end of the event's URI."
+
+[connector.operations.output]
+select = "resource"
+
+[[connector.operations]]
+id = "invitees"
+name = "List invitees"
+description = "Who booked a scheduled event."
+method = "get"
+path = "/scheduled_events/{params.id}/invitees"
+query = { status = "{params.status}", email = "{params.email}", count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Event id"
+required = true
+doc = "The id at the end of the event's URI."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "active or canceled; empty for both."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "Only the invitee with this address."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many invitees to return; Calendly's default is 20."
+
+[connector.operations.output]
+select = "collection"
+
+[[connector.operations]]
+id = "create_scheduling_link"
+name = "Create booking link"
+description = "A link that books one meeting of an event type; the answer carries its booking_url."
+method = "post"
+path = "/scheduling_links"
+body = { kind = "json", value = { max_event_count = 1, owner = "{params.event_type}", owner_type = "EventType" } }
+writes = true
+
+[[connector.operations.params]]
+name = "event_type"
+label = "Event type URI"
+required = true
+doc = "The event type's URI, as event_types returned it."
+
+[connector.operations.output]
+select = "resource"

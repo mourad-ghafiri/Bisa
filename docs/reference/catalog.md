@@ -150,7 +150,7 @@ Guides: [Workflows](../guide/workflows.md), [Events and gateways](../guide/event
 | **Standing health check** | `standing-health-check` | `command`, `interval`, `channel`, `project` | `manual`, `check` | 9 | Start → The check starts failing → Run the check → Healthy → Diagnose → Severe? → Open an incident → Post the finding → Handled | `ops` `quality` |
 | **Mobile release** | `mobile-release` | `release`, `project`, `tests` | `manual` | 8 | Start → Build and run on the devices → Tests pass → Code review → Shippable? → Submit to the stores? → Submit to the stores → Done | `delivery` `engineering` `mobile` |
 
-## Connectors (27)
+## Connectors (33)
 
 A connector is a declarative definition of one outside platform's API — its hosts, its auth scheme, a handful
 of its most useful operations — that a `connector` step calls. Nothing here holds a credential: an **account** is
@@ -161,9 +161,11 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 | Connector | Slug | Auth | Hosts | Operations | Tags |
 |---|---|---|---|---|---|
 | **Bitbucket** | `bitbucket` | `basic` | `api.bitbucket.org` | `user`, `repositories`, `pull_requests`, `pull_request`, `comment_pull_request` *writes* | `engineering` `management` |
+| **Calendly** | `calendly` | `bearer` | `api.calendly.com` | `me`, `event_types`, `scheduled_events`, `get_event`, `invitees`, `create_scheduling_link` *writes* | `business` `planning` |
 | **Confluence** | `confluence` | `basic` | `*.atlassian.net` | `current_user`, `search`, `spaces`, `get_page`, `create_page` *writes* | `engineering` `writing` |
 | **Discord** | `discord` | `api_key` | `discord.com` | `me`, `guilds`, `channels`, `messages`, `send_message` *writes* | `management` `ops` |
 | **Facebook Pages** | `facebook-pages` | `bearer` | `graph.facebook.com` | `me`, `page_posts`, `publish_post` *writes* | `marketing` |
+| **Figma** | `figma` | `api_key` | `api.figma.com` | `me`, `file_meta`, `get_file`, `file_nodes`, `render_images`, `comments`, `post_comment` *writes* | `design` `product` |
 | **GitHub** | `github` | `bearer` | `api.github.com` | `user`, `list_issues`, `get_issue`, `list_pulls`, `search_issues`, `create_issue` *writes*, `comment` *writes* | `engineering` `management` |
 | **GitLab** | `gitlab` | `api_key` | `gitlab.com` | `user`, `projects`, `list_issues`, `get_issue`, `list_merge_requests`, `create_issue` *writes*, `comment_issue` *writes*, `comment_merge_request` *writes* | `engineering` `management` |
 | **Gmail** | `gmail` | `oauth2` | `gmail.googleapis.com` | `profile`, `list_messages`, `get_message`, `send_message` *writes* | `business` `ops` |
@@ -172,21 +174,25 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 | **Google Drive** | `google-drive` | `oauth2` | `www.googleapis.com` | `about`, `list_files`, `get_file`, `create_file` *writes* | `content` `data` |
 | **Google Sheets** | `google-sheets` | `oauth2` | `sheets.googleapis.com` | `get_spreadsheet`, `read_values`, `append_values` *writes*, `update_values` *writes*, `create_spreadsheet` *writes* | `business` `data` |
 | **Google Tasks** | `google-tasks` | `oauth2` | `tasks.googleapis.com` | `task_lists`, `list_tasks`, `get_task`, `create_task` *writes*, `update_task` *writes* | `ops` `planning` |
+| **HubSpot** | `hubspot` | `bearer` | `api.hubapi.com` | `account`, `list_contacts`, `get_contact`, `create_contact` *writes*, `update_contact` *writes*, `list_deals`, `get_deal`, `create_deal` *writes*, `list_companies`, `create_company` *writes* | `business` `management` |
 | **Instagram** | `instagram` | `bearer` | `graph.facebook.com` | `me`, `media`, `create_media` *writes*, `publish_media` *writes* | `content` `marketing` |
 | **Jira** | `jira` | `basic` | `*.atlassian.net` | `myself`, `search`, `get_issue`, `create_issue` *writes*, `transition` *writes*, `comment` *writes* | `engineering` `management` |
 | **Linear** | `linear` | `api_key` | `api.linear.app` | `viewer`, `issues`, `create_issue` *writes* | `engineering` `product` |
+| **Microsoft Teams** | `microsoft-teams` | `oauth2` | `graph.microsoft.com` | `joined_teams`, `channels`, `channel_messages`, `send_channel_message` *writes*, `reply` *writes*, `chats`, `chat_messages` | `management` `ops` |
 | **Notion** | `notion` | `bearer` | `api.notion.com` | `me`, `search`, `get_page`, `create_page` *writes*, `query_database` | `planning` `writing` |
 | **Obsidian** | `obsidian` | `bearer` | `127.0.0.1:27124` | `status`, `list_vault`, `list_folder`, `read_note`, `search` | `research` `writing` |
 | **OneDrive** | `onedrive` | `oauth2` | `graph.microsoft.com` | `drive`, `list_root`, `list_children`, `get_item`, `search`, `create_folder` *writes*, `create_root_folder` *writes* | `content` `data` |
 | **Outlook Calendar** | `outlook-calendar` | `oauth2` | `graph.microsoft.com` | `calendars`, `list_events`, `get_event`, `create_event` *writes* | `ops` `planning` |
 | **Outlook Mail** | `outlook-mail` | `oauth2` | `graph.microsoft.com` | `me`, `list_messages`, `get_message`, `send_mail` *writes* | `business` `ops` |
 | **PagerDuty** | `pagerduty` | `api_key` | `api.pagerduty.com` | `abilities`, `incidents`, `incident`, `oncalls`, `services`, `create_incident` *writes*, `add_note` *writes* | `engineering` `ops` |
+| **Pipedrive** | `pipedrive` | `api_key` | `*.pipedrive.com` | `me`, `list_deals`, `get_deal`, `create_deal` *writes*, `update_deal` *writes*, `list_persons`, `create_person` *writes*, `list_organizations`, `create_organization` *writes*, `search`, `add_note` *writes* | `business` `management` |
 | **Sentry** | `sentry` | `bearer` | `*.sentry.io` | `projects`, `issues`, `issue`, `issue_events`, `update_issue` *writes* | `engineering` `ops` |
 | **Slack** | `slack` | `bearer` | `slack.com` | `auth_test`, `post_message` *writes*, `list_channels`, `channel_history` | `management` `ops` |
 | **TikTok** | `tiktok` | `oauth2` | `open.tiktokapis.com` | `user_info`, `video_list` | `content` `marketing` |
 | **Trello** | `trello` | `api_key` | `api.trello.com` | `me`, `boards`, `lists`, `create_card` *writes* | `management` `planning` |
 | **X** | `x` | `oauth2` | `api.x.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
 | **YouTube** | `youtube` | `oauth2` | `www.googleapis.com` | `my_channel`, `search`, `channel`, `video` | `content` `marketing` |
+| **Zoom** | `zoom` | `client_credentials` | `api.zoom.us` | `list_meetings`, `get_meeting`, `create_meeting` *writes* | `ops` `planning` |
 
 ## Addons (18)
 

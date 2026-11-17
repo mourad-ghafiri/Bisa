@@ -43,6 +43,11 @@ fn account_of(slug: &str) -> BTreeMap<String, Value> {
             ("organization".to_string(), json!("acme")),
         ]),
         "pagerduty" => BTreeMap::from([("email".to_string(), json!("ops@acme.example"))]),
+        "pipedrive" => BTreeMap::from([("company".to_string(), json!("acme"))]),
+        "zoom" => BTreeMap::from([
+            ("account_id".to_string(), json!("AbC123")),
+            ("user".to_string(), json!("host@acme.example")),
+        ]),
         _ => BTreeMap::new(),
     }
 }
@@ -1605,5 +1610,580 @@ fn onedrive_searches_inside_the_path_and_never_replaces_a_folder() {
             .iter()
             .all(|op| op.method != bisa_core::HttpMethod::Put),
         "no upload: the reference does not say a PUT leaves a file that is there"
+    );
+}
+
+// --- collaboration and CRM: Microsoft Teams, Zoom, HubSpot, Pipedrive, Calendly, Figma ---
+
+const COLLABORATION: [&str; 6] = [
+    "microsoft-teams",
+    "zoom",
+    "hubspot",
+    "pipedrive",
+    "calendly",
+    "figma",
+];
+
+/// What changes something says so, and nothing in the six deletes.
+#[test]
+fn the_collaboration_connectors_mark_every_write_and_delete_nothing() {
+    for slug in COLLABORATION {
+        let d = def(slug);
+        for op in &d.operations {
+            assert_ne!(
+                op.method,
+                bisa_core::HttpMethod::Delete,
+                "{slug}.{}: no built-in deletes",
+                op.id
+            );
+            assert_eq!(
+                op.writes,
+                op.method != bisa_core::HttpMethod::Get,
+                "{slug}.{}: a call that is not a GET is a write, and says so",
+                op.id
+            );
+        }
+    }
+}
+
+#[test]
+fn teams_signs_in_work_accounts_only_and_posts_a_message_by_its_body() {
+    let d = def("microsoft-teams");
+    let consent = authorize(&d);
+    assert_eq!(consent["@host"], "login.microsoftonline.com");
+    assert_eq!(consent["code_challenge_method"], "S256");
+    let scopes: Vec<&str> = consent["scope"].split(' ').collect();
+    for scope in [
+        "offline_access",
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "ChannelMessage.Read.All",
+        "ChannelMessage.Send",
+        "Chat.Read",
+    ] {
+        assert!(scopes.contains(&scope), "{scope}: {scopes:?}");
+    }
+    let bisa_core::AuthScheme::OAuth2 {
+        authorization_url,
+        token_url,
+        ..
+    } = &d.auth
+    else {
+        panic!("oauth2");
+    };
+    assert_eq!(
+        authorization_url, "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
+        "a personal Microsoft account is not supported by any call here"
+    );
+    assert_eq!(
+        token_url,
+        "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+    );
+
+    assert_eq!(
+        request(&d, "joined_teams", &[]).url.path(),
+        "/v1.0/me/joinedTeams"
+    );
+    let team = "fbe2bf47-16c8-47cf-b4a5-4b9b187c508b";
+    let channel = "19:4a95f7d8db4c4e7fae857bcebe0623e6@thread.tacv2";
+    let channels = request(&d, "channels", &[("team", team)]);
+    assert_eq!(channels.url.path(), format!("/v1.0/teams/{team}/channels"));
+    let read = request(
+        &d,
+        "channel_messages",
+        &[("team", team), ("channel", channel), ("max", "50")],
+    );
+    assert_eq!(
+        decoded(read.url.path()),
+        format!("/v1.0/teams/{team}/channels/{channel}/messages")
+    );
+    assert_eq!(query(&read)["$top"], "50");
+
+    let posted = request(
+        &d,
+        "send_channel_message",
+        &[
+            ("team", team),
+            ("channel", channel),
+            ("content", "Hello World"),
+        ],
+    );
+    assert_eq!(posted.method.as_str(), "POST");
+    assert_eq!(
+        decoded(posted.url.path()),
+        format!("/v1.0/teams/{team}/channels/{channel}/messages")
+    );
+    assert_eq!(body(&posted), json!({"body": {"content": "Hello World"}}));
+    let replied = request(
+        &d,
+        "reply",
+        &[
+            ("team", team),
+            ("channel", channel),
+            ("message", "1616990032035"),
+            ("content", "Hello World"),
+        ],
+    );
+    assert_eq!(
+        decoded(replied.url.path()),
+        format!("/v1.0/teams/{team}/channels/{channel}/messages/1616990032035/replies")
+    );
+    assert_eq!(body(&replied), json!({"body": {"content": "Hello World"}}));
+
+    assert_eq!(request(&d, "chats", &[]).url.path(), "/v1.0/me/chats");
+    let chat = request(&d, "chat_messages", &[("chat", "19:abc@thread.v2")]);
+    assert_eq!(
+        decoded(chat.url.path()),
+        "/v1.0/me/chats/19:abc@thread.v2/messages"
+    );
+    assert!(
+        d.operations
+            .iter()
+            .filter(|op| op.writes)
+            .all(|op| op.path.contains("/channels/")),
+        "nothing is sent into a chat"
+    );
+}
+
+#[test]
+fn zoom_trades_the_apps_credentials_for_a_token_and_names_the_user_in_every_path() {
+    let d = def("zoom");
+    assert_eq!(
+        serde_json::to_value(&d.auth).unwrap(),
+        json!({
+            "scheme": "client_credentials",
+            "token_url": "https://zoom.us/oauth/token",
+            "token_auth": "basic",
+            "grant_type": "account_credentials",
+            "params": {"account_id": "{account.account_id}"}
+        }),
+        "a Server-to-Server OAuth app: Basic, Zoom's own grant, the account's id"
+    );
+    assert_eq!(d.oauth_hosts(), vec!["zoom.us".to_string()]);
+
+    let list = request(&d, "list_meetings", &[]);
+    assert_eq!(list.url.host_str(), Some("api.zoom.us"));
+    assert_eq!(
+        decoded(list.url.path()),
+        "/v2/users/host@acme.example/meetings",
+        "never `me` with this kind of app"
+    );
+    assert!(
+        query(&list).is_empty(),
+        "scheduled, thirty, by Zoom's default"
+    );
+    let upcoming = request(&d, "list_meetings", &[("type", "upcoming"), ("max", "100")]);
+    assert_eq!(
+        query(&upcoming),
+        BTreeMap::from([
+            ("type".to_string(), "upcoming".to_string()),
+            ("page_size".to_string(), "100".to_string()),
+        ])
+    );
+    assert_eq!(
+        request(&d, "get_meeting", &[("id", "85746065")]).url.path(),
+        "/v2/meetings/85746065"
+    );
+
+    let made = request(
+        &d,
+        "create_meeting",
+        &[("topic", "Weekly sync"), ("start", "2026-09-07T12:00:00Z")],
+    );
+    assert_eq!(made.method.as_str(), "POST");
+    assert_eq!(
+        decoded(made.url.path()),
+        "/v2/users/host@acme.example/meetings"
+    );
+    assert_eq!(
+        body(&made),
+        json!({"topic": "Weekly sync", "start_time": "2026-09-07T12:00:00Z"}),
+        "a scheduled meeting of sixty minutes, by Zoom's defaults"
+    );
+    let timed = request(
+        &d,
+        "create_meeting",
+        &[
+            ("topic", "Weekly sync"),
+            ("start", "2026-09-07T12:00:00"),
+            ("timezone", "Europe/Paris"),
+            ("duration", "30"),
+        ],
+    );
+    assert_eq!(
+        body(&timed),
+        json!({
+            "topic": "Weekly sync",
+            "start_time": "2026-09-07T12:00:00",
+            "timezone": "Europe/Paris",
+            "duration": 30
+        })
+    );
+}
+
+#[test]
+fn hubspot_sends_a_bearer_and_creates_a_record_from_its_properties() {
+    let d = def("hubspot");
+    for (op, req) in every_request_with(&d, r#"{"x": "y"}"#) {
+        assert_eq!(req.url.host_str(), Some("api.hubapi.com"), "{op}");
+    }
+    let check = signed(
+        &d,
+        request(&d, "account", &[]),
+        Credential::Bearer(Secret::new("token-not-real")),
+    );
+    assert_eq!(check.url.path(), "/account-info/v3/details");
+    assert_eq!(check.header("authorization"), Some("Bearer token-not-real"));
+
+    let list = request(
+        &d,
+        "list_contacts",
+        &[("max", "100"), ("properties", "email,firstname")],
+    );
+    assert_eq!(list.url.path(), "/crm/v3/objects/contacts");
+    assert_eq!(
+        query(&list),
+        BTreeMap::from([
+            ("limit".to_string(), "100".to_string()),
+            ("properties".to_string(), "email,firstname".to_string()),
+        ])
+    );
+    let by_email = request(
+        &d,
+        "get_contact",
+        &[("id", "ada@example.com"), ("id_property", "email")],
+    );
+    assert_eq!(
+        decoded(by_email.url.path()),
+        "/crm/v3/objects/contacts/ada@example.com"
+    );
+    assert_eq!(query(&by_email)["idProperty"], "email");
+
+    let created = request(
+        &d,
+        "create_contact",
+        &[(
+            "properties",
+            r#"{"email": "ada@example.com", "firstname": "Ada"}"#,
+        )],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/crm/v3/objects/contacts");
+    assert_eq!(
+        body(&created),
+        json!({
+            "properties": {"email": "ada@example.com", "firstname": "Ada"},
+            "associations": []
+        }),
+        "the published description marks `associations` required; none is made"
+    );
+    let updated = request(
+        &d,
+        "update_contact",
+        &[("id", "512"), ("properties", r#"{"phone": "+1 555 0100"}"#)],
+    );
+    assert_eq!(updated.method.as_str(), "PATCH");
+    assert_eq!(updated.url.path(), "/crm/v3/objects/contacts/512");
+    assert_eq!(
+        body(&updated),
+        json!({"properties": {"phone": "+1 555 0100"}})
+    );
+
+    assert_eq!(
+        request(&d, "list_deals", &[]).url.path(),
+        "/crm/v3/objects/deals"
+    );
+    assert_eq!(
+        request(&d, "get_deal", &[("id", "77")]).url.path(),
+        "/crm/v3/objects/deals/77"
+    );
+    let deal = request(
+        &d,
+        "create_deal",
+        &[(
+            "properties",
+            r#"{"dealname": "Acme renewal", "dealstage": "appointmentscheduled"}"#,
+        )],
+    );
+    assert_eq!(deal.url.path(), "/crm/v3/objects/deals");
+    assert_eq!(
+        body(&deal),
+        json!({"properties": {"dealname": "Acme renewal", "dealstage": "appointmentscheduled"}})
+    );
+    assert_eq!(
+        request(&d, "list_companies", &[]).url.path(),
+        "/crm/v3/objects/companies"
+    );
+    let company = request(
+        &d,
+        "create_company",
+        &[(
+            "properties",
+            r#"{"name": "Acme", "domain": "acme.example"}"#,
+        )],
+    );
+    assert_eq!(company.url.path(), "/crm/v3/objects/companies");
+    assert_eq!(
+        body(&company),
+        json!({"properties": {"name": "Acme", "domain": "acme.example"}})
+    );
+    assert!(
+        d.operations.iter().all(|op| !op.path.ends_with("/search")),
+        "no search: the description and the guide disagree on its body"
+    );
+}
+
+/// Every operation built with a placeholder for each required parameter,
+/// a JSON one given the value named.
+fn every_request_with(def: &Connector, json_value: &str) -> Vec<(String, Request)> {
+    def.operations
+        .iter()
+        .map(|op| {
+            let params: Vec<(&str, &str)> = op
+                .params
+                .iter()
+                .filter(|p| p.required)
+                .map(|p| {
+                    let value = match p.kind {
+                        bisa_core::ParamKind::Number => "7",
+                        bisa_core::ParamKind::Json => json_value,
+                        _ => "xy",
+                    };
+                    (p.name.as_str(), value)
+                })
+                .collect();
+            (op.id.to_string(), request(def, op.id.as_str(), &params))
+        })
+        .collect()
+}
+
+#[test]
+fn pipedrive_calls_the_companys_own_domain_with_its_token_in_a_header() {
+    let d = def("pipedrive");
+    for (op, req) in every_request_with(&d, "[]") {
+        assert_eq!(req.url.host_str(), Some("acme.pipedrive.com"), "{op}");
+        assert!(
+            req.url.path().starts_with("/api/v2/") || req.url.path().starts_with("/api/v1/"),
+            "{op}: {}",
+            req.url.path()
+        );
+        assert!(
+            !req.url.as_str().contains("api_token"),
+            "{op}: the token never rides in the address"
+        );
+    }
+    let me = signed(&d, request(&d, "me", &[]), key("token-not-real"));
+    assert_eq!(me.url.path(), "/api/v1/users/me");
+    assert_eq!(me.header("x-api-token"), Some("token-not-real"));
+    assert!(me.url.query().is_none());
+
+    let deals = request(&d, "list_deals", &[("status", "open"), ("max", "500")]);
+    assert_eq!(deals.url.path(), "/api/v2/deals");
+    assert_eq!(
+        query(&deals),
+        BTreeMap::from([
+            ("status".to_string(), "open".to_string()),
+            ("limit".to_string(), "500".to_string()),
+        ])
+    );
+    assert_eq!(
+        request(&d, "get_deal", &[("id", "42")]).url.path(),
+        "/api/v2/deals/42"
+    );
+    let added = request(
+        &d,
+        "create_deal",
+        &[
+            ("title", "Acme renewal"),
+            ("value", "1200.5"),
+            ("person", "7"),
+        ],
+    );
+    assert_eq!(added.method.as_str(), "POST");
+    assert_eq!(
+        body(&added),
+        json!({"title": "Acme renewal", "value": 1200.5, "person_id": 7}),
+        "numbers are numbers: v2 takes JSON only"
+    );
+    let won = request(&d, "update_deal", &[("id", "42"), ("status", "won")]);
+    assert_eq!(won.method.as_str(), "PATCH");
+    assert_eq!(won.url.path(), "/api/v2/deals/42");
+    assert_eq!(body(&won), json!({"status": "won"}));
+
+    let person = request(
+        &d,
+        "create_person",
+        &[
+            ("name", "Ada Lovelace"),
+            (
+                "emails",
+                r#"[{"value": "ada@example.com", "primary": true}]"#,
+            ),
+        ],
+    );
+    assert_eq!(person.url.path(), "/api/v2/persons");
+    assert_eq!(
+        body(&person),
+        json!({
+            "name": "Ada Lovelace",
+            "emails": [{"value": "ada@example.com", "primary": true}]
+        }),
+        "emails are a list of objects in v2"
+    );
+    let org = request(&d, "create_organization", &[("name", "Acme")]);
+    assert_eq!(org.url.path(), "/api/v2/organizations");
+    assert_eq!(body(&org), json!({"name": "Acme"}));
+
+    let found = request(&d, "search", &[("term", "acme"), ("types", "deal,person")]);
+    assert_eq!(found.url.path(), "/api/v2/itemSearch");
+    assert_eq!(
+        query(&found),
+        BTreeMap::from([
+            ("term".to_string(), "acme".to_string()),
+            ("item_types".to_string(), "deal,person".to_string()),
+        ])
+    );
+    let note = request(
+        &d,
+        "add_note",
+        &[("content", "<p>Called; renewing.</p>"), ("deal", "42")],
+    );
+    assert_eq!(note.url.path(), "/api/v1/notes", "notes are still v1");
+    assert_eq!(
+        body(&note),
+        json!({"content": "<p>Called; renewing.</p>", "deal_id": 42})
+    );
+}
+
+#[test]
+fn calendly_names_resources_by_uri_and_makes_a_link_for_one_meeting() {
+    let d = def("calendly");
+    let me = signed(
+        &d,
+        request(&d, "me", &[]),
+        Credential::Bearer(Secret::new("token-not-real")),
+    );
+    assert_eq!(me.url.as_str(), "https://api.calendly.com/users/me");
+    assert_eq!(me.header("authorization"), Some("Bearer token-not-real"));
+
+    let user = "https://api.calendly.com/users/AAAAAAAAAAAAAAAA";
+    let types = request(&d, "event_types", &[("user", user), ("active", "true")]);
+    assert_eq!(types.url.path(), "/event_types");
+    assert_eq!(
+        query(&types),
+        BTreeMap::from([
+            ("user".to_string(), user.to_string()),
+            ("active".to_string(), "true".to_string()),
+        ]),
+        "a resource reference is its whole URI"
+    );
+    let events = request(
+        &d,
+        "scheduled_events",
+        &[
+            ("user", user),
+            ("status", "active"),
+            ("from", "2026-09-07T00:00:00.000000Z"),
+            ("sort", "start_time:asc"),
+            ("max", "50"),
+        ],
+    );
+    assert_eq!(events.url.path(), "/scheduled_events");
+    assert_eq!(
+        query(&events),
+        BTreeMap::from([
+            ("user".to_string(), user.to_string()),
+            ("status".to_string(), "active".to_string()),
+            (
+                "min_start_time".to_string(),
+                "2026-09-07T00:00:00.000000Z".to_string()
+            ),
+            ("sort".to_string(), "start_time:asc".to_string()),
+            ("count".to_string(), "50".to_string()),
+        ])
+    );
+    assert_eq!(
+        request(&d, "get_event", &[("id", "BBBB")]).url.path(),
+        "/scheduled_events/BBBB"
+    );
+    assert_eq!(
+        request(&d, "invitees", &[("id", "BBBB")]).url.path(),
+        "/scheduled_events/BBBB/invitees"
+    );
+
+    let event_type = "https://api.calendly.com/event_types/CCCC";
+    let link = request(&d, "create_scheduling_link", &[("event_type", event_type)]);
+    assert_eq!(link.method.as_str(), "POST");
+    assert_eq!(link.url.path(), "/scheduling_links");
+    assert_eq!(
+        body(&link),
+        json!({"max_event_count": 1, "owner": event_type, "owner_type": "EventType"})
+    );
+}
+
+#[test]
+fn figma_sends_its_token_in_its_own_header_and_replies_by_a_comments_id() {
+    let d = def("figma");
+    let me = signed(&d, request(&d, "me", &[]), key("figd-not-real"));
+    assert_eq!(me.url.as_str(), "https://api.figma.com/v1/me");
+    assert_eq!(me.header("x-figma-token"), Some("figd-not-real"));
+    assert_eq!(me.header("authorization"), None, "a bearer is OAuth's form");
+
+    let key_ = "hC4f7bJnA1Kx";
+    assert_eq!(
+        request(&d, "file_meta", &[("file", key_)]).url.path(),
+        format!("/v1/files/{key_}/meta")
+    );
+    let file = request(&d, "get_file", &[("file", key_), ("depth", "2")]);
+    assert_eq!(file.url.path(), format!("/v1/files/{key_}"));
+    assert_eq!(
+        query(&file),
+        BTreeMap::from([("depth".to_string(), "2".to_string())])
+    );
+    let nodes = request(&d, "file_nodes", &[("file", key_), ("ids", "1:2,1:3")]);
+    assert_eq!(nodes.url.path(), format!("/v1/files/{key_}/nodes"));
+    assert_eq!(query(&nodes)["ids"], "1:2,1:3");
+    let images = request(
+        &d,
+        "render_images",
+        &[
+            ("file", key_),
+            ("ids", "1:2"),
+            ("format", "png"),
+            ("scale", "2"),
+        ],
+    );
+    assert_eq!(images.url.path(), format!("/v1/images/{key_}"));
+    assert_eq!(
+        query(&images),
+        BTreeMap::from([
+            ("ids".to_string(), "1:2".to_string()),
+            ("format".to_string(), "png".to_string()),
+            ("scale".to_string(), "2".to_string()),
+        ])
+    );
+    let comments = request(&d, "comments", &[("file", key_), ("markdown", "true")]);
+    assert_eq!(comments.url.path(), format!("/v1/files/{key_}/comments"));
+    assert_eq!(query(&comments)["as_md"], "true");
+
+    let posted = request(
+        &d,
+        "post_comment",
+        &[("file", key_), ("message", "Tighten the spacing here.")],
+    );
+    assert_eq!(posted.method.as_str(), "POST");
+    assert_eq!(posted.url.path(), format!("/v1/files/{key_}/comments"));
+    assert_eq!(
+        body(&posted),
+        json!({"message": "Tighten the spacing here."})
+    );
+    let reply = request(
+        &d,
+        "post_comment",
+        &[("file", key_), ("message", "Done."), ("reply_to", "1234")],
+    );
+    assert_eq!(
+        body(&reply),
+        json!({"message": "Done.", "comment_id": "1234"})
     );
 }

@@ -10,6 +10,25 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Six more built-in connectors — collaboration, sales and design** (33 in the catalog), each
+  pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
+  only — nothing deletes, and every write is marked as one:
+  - **Microsoft Teams** — the teams you are in, their channels and messages, a post to a channel,
+    a reply in a thread, your chats read. Work or school accounts only.
+  - **Zoom** — a user's scheduled meetings listed, one read, one scheduled. The first built-in on
+    the `client_credentials` scheme: a Server-to-Server OAuth app, no browser.
+  - **HubSpot** — contacts, deals and companies listed and read, one created, a contact updated.
+  - **Pipedrive** — deals, people and organizations listed and searched, a deal added or updated,
+    a person, an organization or a note added; calls go to the company's own domain.
+  - **Calendly** — event types, scheduled events and their invitees, a single-use booking link.
+  - **Figma** — a file, its nodes and its comments, nodes rendered as images, a comment posted.
+
+  **Salesforce and Dropbox are not in this set**, as the plan allowed. Salesforce's documentation
+  could not be read (its sites refuse automated reading), and nothing is written from memory.
+  Dropbox's documentation takes a plain-`http` redirect only for "localhost URIs" and does not say
+  that `127.0.0.1`, which this platform's redirect uses, is one. Calendly and Figma take their
+  places.
+
 - **Six more built-in connectors — documents, tasks, mail and files** (27 in the catalog), each
   pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
   only — nothing deletes, and every write is marked as one:

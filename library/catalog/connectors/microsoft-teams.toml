@@ -1,0 +1,193 @@
+# Built-in connector: Microsoft Teams — teams, channels and chats over Microsoft Graph.
+#
+# The Microsoft identity platform's flow (see outlook-mail.toml), on the
+# `organizations` tenant — "work or school accounts only" — because every
+# call here answers a personal Microsoft account "Not supported." The
+# reference does not say which of these permissions an administrator must
+# consent to. A channel answers 20 messages a page, 50 at most; a chat's
+# `$top` stops at 50. A message needs only its `body`; Microsoft asks that
+# sending not be used to migrate data. Sending into a chat is left out:
+# the page read names a channel's permission for it, which could not be
+# confirmed.
+#
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols
+# Reference: https://learn.microsoft.com/en-us/entra/identity-platform/reply-url
+# Reference: https://learn.microsoft.com/en-us/graph/api/user-list-joinedteams?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/channel-list?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/chatmessage-post?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/chat-list?view=graph-rest-1.0
+# Reference: https://learn.microsoft.com/en-us/graph/api/chat-list-messages?view=graph-rest-1.0
+
+[connector]
+name = "Microsoft Teams"
+description = "List the teams you are in, their channels and messages, post to a channel or reply in a thread, and read your chats. Work or school accounts only. Connect with your own Microsoft Entra app registration."
+tags = ["management", "ops"]
+base_url = "https://graph.microsoft.com"
+hosts = ["graph.microsoft.com"]
+check = "joined_teams"
+revision = 1
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize"
+token_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+scopes = ["offline_access", "Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All", "ChannelMessage.Send", "Chat.Read"]
+pkce = true
+
+[[connector.operations]]
+id = "joined_teams"
+name = "Joined teams"
+description = "The teams the account is a member of — the one call that proves it works."
+method = "get"
+path = "/v1.0/me/joinedTeams"
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "channels"
+name = "List channels"
+description = "A team's channels the account can see."
+method = "get"
+path = "/v1.0/teams/{params.team}/channels"
+
+[[connector.operations.params]]
+name = "team"
+label = "Team id"
+required = true
+doc = "The id joined_teams returned."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "channel_messages"
+name = "Channel messages"
+description = "The messages at the top of a channel's threads, without their replies."
+method = "get"
+path = "/v1.0/teams/{params.team}/channels/{params.channel}/messages"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "team"
+label = "Team id"
+required = true
+doc = "The id joined_teams returned."
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "The id channels returned, 19:…@thread.tacv2."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many messages to return, 50 at most; Graph's default is 20."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "send_channel_message"
+name = "Post to channel"
+description = "Start a new thread in a channel."
+method = "post"
+path = "/v1.0/teams/{params.team}/channels/{params.channel}/messages"
+body = { kind = "json", value = { body = { content = "{params.content}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "team"
+label = "Team id"
+required = true
+doc = "The id joined_teams returned."
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "The id channels returned."
+
+[[connector.operations.params]]
+name = "content"
+label = "Message"
+required = true
+doc = "The message's text."
+
+[[connector.operations]]
+id = "reply"
+name = "Reply in thread"
+description = "Reply to a message in a channel."
+method = "post"
+path = "/v1.0/teams/{params.team}/channels/{params.channel}/messages/{params.message}/replies"
+body = { kind = "json", value = { body = { content = "{params.content}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "team"
+label = "Team id"
+required = true
+doc = "The id joined_teams returned."
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "The id channels returned."
+
+[[connector.operations.params]]
+name = "message"
+label = "Message id"
+required = true
+doc = "The id of the message that starts the thread."
+
+[[connector.operations.params]]
+name = "content"
+label = "Reply"
+required = true
+doc = "The reply's text."
+
+[[connector.operations]]
+id = "chats"
+name = "List chats"
+description = "The chats the account is part of."
+method = "get"
+path = "/v1.0/me/chats"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many chats to return, 50 at most."
+
+[connector.operations.output]
+select = "value"
+
+[[connector.operations]]
+id = "chat_messages"
+name = "Chat messages"
+description = "A chat's messages, the latest changed first."
+method = "get"
+path = "/v1.0/me/chats/{params.chat}/messages"
+query = { "$top" = "{params.max}" }
+
+[[connector.operations.params]]
+name = "chat"
+label = "Chat id"
+required = true
+doc = "The id chats returned."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many messages to return, 50 at most."
+
+[connector.operations.output]
+select = "value"
