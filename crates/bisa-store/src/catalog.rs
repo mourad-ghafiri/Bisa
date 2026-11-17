@@ -2605,7 +2605,7 @@ mod bundle_tests {
     /// Pinned so a file added or dropped is noticed here, not on a user's
     /// machine.
     #[test]
-    fn the_catalog_ships_these_connectors() {
+    fn the_catalog_ships_forty_five_connectors() {
         let slugs: Vec<&str> = CATALOG.connectors.iter().map(|(s, _)| *s).collect();
         assert_eq!(
             slugs,

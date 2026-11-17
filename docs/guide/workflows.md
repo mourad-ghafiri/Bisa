@@ -364,11 +364,12 @@ that is not here, and the rest — is the closed table of problem kinds in
 ## Connectors
 
 A **connector** is a declared API: a base URL, the hosts it may reach, how a call proves who is
-calling (one of six schemes: nothing for an open API, an API key, a bearer token, a username and
-password, OAuth2, or a token signed with a private key), and a list of operations — each a method, a path, a query, a body (JSON, a form,
-multipart parts, or one parameter's raw bytes) and the parameters it takes. Fifteen ship in the catalog
-(Gmail, Google Drive, Google Calendar, YouTube, Slack, X, Facebook Pages, Instagram, TikTok, Jira,
-Confluence, Notion, Obsidian, Linear, Trello — [`reference/catalog.md`](../reference/catalog.md));
+calling (one of seven schemes: nothing for an open API, an API key, a bearer token, a username and
+password, OAuth2, a token signed with a private key, or a client's own id and secret traded for a token), and a list of operations — each a method, a path, a query, a body (JSON, a form,
+multipart parts, or one parameter's raw bytes) and the parameters it takes. Forty-five ship in the catalog
+(Gmail, Slack, Jira, GitHub, Notion, Stripe, HubSpot, Outlook Mail and the rest —
+[`reference/catalog.md`](../reference/catalog.md), with what each needs in the
+[connectors guide](connectors.md#the-built-ins));
 a custom one is the same shape in a TOML file. A connector definition syncs with the workspace like
 a skill. An **account** — your login to that platform — never does: it is this machine's, its
 record under `identity/connectors/` and every secret field in the keystore, added under Settings ›

@@ -43,7 +43,7 @@ TOML files in the catalog.
 - `scripts/test crate connectors` — `crates/bisa-connectors/tests/it/` (request, auth, oauth, hosts, retry, outcome, error, hardening) and the unit tests.
 - `scripts/test crate netrules` — the grammar's cases in `crates/bisa-netrules/tests/it/hosts.rs`.
 - `scripts/test module engine connectors` · `scripts/test module engine connector_health` · `scripts/test module engine catalog_connectors` (every built-in's requests held to the platforms' documentation) · `scripts/test module node connectors` · `scripts/test module store connectors` · `scripts/test module cli connector`.
-- `scripts/test lib store catalog` — `every_connector_is_well_formed` and `the_catalog_ships_these_connectors`.
+- `scripts/test lib store catalog` — `every_connector_is_well_formed` and `the_catalog_ships_forty_five_connectors`.
 - `scripts/test desktop views/_settings`, then from `desktop/`: `node --test --import ./src/i18n/preload.mjs src/scenarios/connectors.test.mjs`.
 - The journey `crates/bisa-cli/tests/it/e2e/a_platform_reached_through_a_connector.rs` — a definition, an account checked, a run that reads, asks and writes once, a poll, the secret nowhere — under `scripts/test module cli e2e`.
 - One module at a time; the whole workspace and `just verify` only at the end ([Testing rules § Running](../testing-rules.md#running)).

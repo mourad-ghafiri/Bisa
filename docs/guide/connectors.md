@@ -1,7 +1,7 @@
 # Connectors
 
 A **connector** lets a workflow step call an outside platform — send a mail, post to a channel,
-search an issue tracker, read a page — through the platform's own API. Fifteen are built in; a
+search an issue tracker, read a page — through the platform's own API. Forty-five are built in; a
 custom one is a small TOML file. A connector is a *definition* and syncs with the workspace; the
 **account** you add for it — your login — is this machine's alone, its secret fields in the
 keystore and never in a record, a snapshot, a prompt or a route's answer. The model is
@@ -415,8 +415,10 @@ bisa connector account add meetings --label ops --param account_id=… --secret 
 
 **What no scheme expresses yet.** A secret that is part of the URL's path, a login that trades a
 username and password for a session token, a request signed over its own bytes (AWS Signature
-Version 4, an HMAC of the body), and OAuth 1.0a. A platform that needs one of these cannot be
-written as a connector today.
+Version 4, an HMAC of the body), OAuth 1.0a, an OAuth2 or client-credentials address that names
+the account (a tenant, a shop's own domain), a granted token sent anywhere but `Authorization:
+Bearer`, and an OAuth2 consent with no redirect at all. A platform that needs one of these cannot
+be written as a connector today; [What is open](#what-is-open) names the ones this cost.
 
 ## Polling a platform
 
@@ -530,3 +532,39 @@ machine and appears nowhere else: not in the step's output, not in an error, not
 an answer that echoes a secret back, or mints one, goes through the redactor before it becomes a
 step's output, a signal or an agent's reading.
 Details: [11 — Security § Outbound hosts](../architecture/11-security.md#outbound-hosts).
+
+## What is open
+
+What the connectors do not do yet, said so nobody finds it by surprise.
+
+**Platforms left out.** Three were planned as built-ins and are not: **Salesforce**, whose
+documentation could not be read when the built-ins were written, and nothing is written from
+memory; **Dropbox**, whose documentation takes a plain-`http` redirect only for "localhost URIs"
+and does not say `127.0.0.1` — this platform's redirect — is one; **Shopify**, which no longer
+gives a store owner a permanent token, and whose replacement signs in at an address on the shop's
+own domain and sends its token in a header of its own. Each can be a custom connector where your
+account's setup allows it.
+
+**Operations left out of a built-in**, each said at the top of its file with the reason: a
+Bitbucket issue tracker, a Sentry comment, a OneDrive upload and download, a reply in an Intercom
+conversation, a message into a Teams chat, HubSpot search and notes, Asana search, Figma's project
+lists, Outlook's `$search`. Nothing built in deletes, merges, moves money or sends to a list.
+
+**One page.** No built-in follows a platform's pages: a list read returns the first page, sized by
+its *At most* where the platform takes one (ClickUp's tasks and Bitbucket's lists do not). A
+custom copy of a definition can declare `page`.
+
+**One host.** A built-in calls the platform's main hosted address: a self-managed GitLab or
+Sentry, SendGrid's EU host and a Microsoft app registered for one directory only want a custom
+connector.
+
+**No check for two.** Google Sheets and Google Docs name no *Check*: neither API has a read that
+takes no id.
+
+**Text is trimmed.** Space and line breaks at the two ends of a parameter's value are not sent —
+it matters where a platform reads them, as Google Docs' `append_text` does.
+
+**Not checked against a live account.** Every built-in is held, request by request, to what its
+platform's documentation says; none was called against the platform while it was written. The
+first *Check* on your account is the first real one — Todoist most of all, whose reference could
+not be read past its first sections.

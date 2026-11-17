@@ -10,6 +10,13 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **The connectors guide says what is open.** A closing *What is open* section names the three
+  platforms left out and why (Salesforce, Dropbox, Shopify), the operations left out of a
+  built-in, that a built-in reads one page and calls one hosted address, the two with no *Check*,
+  that a parameter's text is trimmed at its ends, and that no built-in was called against a live
+  account while it was written. The count in the guides is forty-five, the scheme count seven,
+  and two scenario rows that named a custom connector now name a built-in.
+
 - **Six more built-in connectors — commerce, support and messaging** (45 in the catalog), each
   pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
   only — nothing deletes, and every write is marked as one:

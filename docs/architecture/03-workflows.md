@@ -1427,7 +1427,7 @@ part or a raw body and never by a template, no `file` account parameter, media t
 `transfer-encoding`), OAuth URLs over `https`, an `expect` of one dotted path with one rule, a
 `client_id_param` that is a field name, a `jwt` scheme with at least one claim and neither
 `iat`/`exp` nor `alg`/`typ` of its own and a life of 1 to 86 400 s, a `check` operation with no
-required parameter, and a size cap of 64 KiB. Fifteen built-ins ship in the catalog (`library/catalog/connectors/`,
+required parameter, and a size cap of 64 KiB. Forty-five built-ins ship in the catalog (`library/catalog/connectors/`,
 [`reference/catalog.md`](../reference/catalog.md)), each file citing the platform documentation it
 was checked against and carrying a `revision`: at the engine's start, under its lock, an installed
 copy below the bundle's revision is refreshed (`Workspace::refresh_catalog_connectors`) — its id,

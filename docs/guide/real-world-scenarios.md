@@ -14,8 +14,8 @@ chose; **with you** — a person's step is in it by design (an `approval` before
 writes, a sign-in on the desktop's browser tab, a payment, a publish, a store submission); **custom
 connector** — the platform's API is not in the catalog, and the person or an agent writes its
 definition through the recipe ([Connectors § A custom connector](connectors.md#a-custom-connector)).
-Where a row names a platform the catalog does not ship (a code host's REST API, a chat suite, a
-payment provider, a paper index), that is what *custom connector* means — a TOML file, not a change
+Where a row names a platform the catalog does not ship (an app store's API, a publishing platform,
+a payment provider's invoicing, a paper index), that is what *custom connector* means — a TOML file, not a change
 to the platform. The sections are lettered, and two letters are left out on purpose: a row numbered
 under either would read as a label the documentation's own guard refuses.
 
@@ -42,7 +42,7 @@ its goal listens ([Events and gateways](events.md)).
 | A4 | Fix a flaky test suite and keep it green for a month. | `bug-fix` on a goal that listens: a `check` start runs the test command every six hours and begins a run when it starts failing — once per outage, and one run at a time, so nothing piles up. | runs |
 | A5 | Weekly dependency upgrades with a pull request. | A `schedule` start on Monday morning; `developer` runs the package manager's update and the tests; the publish gate; opening the pull request is a publish. | with you |
 | A6 | A nightly security audit of my repositories. | `security-engineer` with `threat-modeling`; a nightly `schedule` start; `standing-health-check`; `notify` into `engineering`; findings as project notes. | runs |
-| A7 | Reproduce and triage every new issue within an hour. | A public `hook` start the code host calls, signed; `developer` reproduces in a worktree; the comment goes through the code host's CLI, which the guard classifies, or a custom connector for the code host's API. | with you |
+| A7 | Reproduce and triage every new issue within an hour. | A public `hook` start the code host calls, signed; `developer` reproduces in a worktree; the comment goes through the code host's CLI, which the guard classifies, or `github.comment` behind an `approval`. | with you |
 | A8 | Build a command-line tool and publish it on tag. | `software-feature`; `release-manager` with `release-checklist`; publishing the package is refused or asked by the guard — the person presses publish and a `human` step marks it done. | with you |
 | A9 | Port a data pipeline to another language with parity tests. | `architect`, `developer`, `data-analyst`; `check` steps with a schema over the output compare results; a `while` loop with its bound. | runs |
 | A10 | Onboard me to an unfamiliar codebase. | `technical-writer` and `architect` write an architecture note as project docs; `browser_serve` renders it. | runs |
@@ -174,7 +174,7 @@ its goal listens ([Events and gateways](events.md)).
 | # | The ask | The path | Today |
 |---|---|---|---|
 | L1 | Sell my application: pricing, positioning, launch, ads. | Team `go-to-market`; `product-launch`; `positioning-and-messaging` and `unit-economics`; the ad platforms in the browser or as custom connectors; spending is the person's step. | with you |
-| L2 | A weekly pipeline review from the CRM. | The CRM's API as a custom connector under `bearer`; `sales-lead`. | custom connector |
+| L2 | A weekly pipeline review from the CRM. | A weekly `schedule` start; `hubspot.list_deals` or `pipedrive.list_deals`; `sales-lead`. | runs |
 | L3 | Invoice clients monthly through the payment provider. | The provider's API as a custom connector with a `form` body; behind an `approval`. | custom connector |
 | L4 | A board deck every quarter. | `finance-analyst`, `business-analyst`, `document-humanizer`; the deck as a document in a project. | runs |
 | L5 | Due diligence on a startup. | Team `venture`; `review-board`. | runs |
