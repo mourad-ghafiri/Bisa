@@ -67,6 +67,15 @@ ignore = [
     # which is maintained. A maintained test relay — or one of our own over
     # the same wire crates — is the follow-up that lifts this.
     { id = "RUSTSEC-2026-0237", reason = "nostr-relay-builder is a test relay, a dev-dependency only; the wire crates are nostr-sdk's" },
+    # chrono and chrono-tz were found declared unmaintained on 2026-11-17, with
+    # no fixed version to move to and no vulnerability reported. Both are ours
+    # directly (the engine's schedules and time zones, the dates in every
+    # record's schema), so by the rule above they are ours to replace: the
+    # advisory names `jiff` and `time`. That move is its own change, with its
+    # own tests — accepted by the owner on 2026-11-17 until then, and these
+    # two lines come out with it.
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, no vulnerability reported and no fixed version; the move to jiff or time is its own change" },
+    { id = "RUSTSEC-2026-0555", reason = "chrono-tz is unmaintained, no vulnerability reported and no fixed version; it moves with chrono" },
 ]
 
 [sources]

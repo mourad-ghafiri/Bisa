@@ -8,6 +8,8 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
 ### Added
 
 - **The connectors guide says what is open.** A closing *What is open* section names the three
@@ -187,6 +189,10 @@ notes (`docs/contributing/release.md`).
 
 ### Security
 
+- **Two dependency advisories are accepted, by name and with their reason.** `chrono` and
+  `chrono-tz` were declared unmaintained upstream (RUSTSEC-2026-0543, RUSTSEC-2026-0555); neither
+  advisory reports a vulnerability and neither names a fixed version. Both are listed in
+  `deny.toml` until the move to a maintained date library, which is its own change.
 - **A connector call to this machine never goes through a proxy**, however the address is
   spelled. `localhost` and `127.0.0.1` already bypassed a proxy the person set; `0.0.0.0`, the
   rest of `127/8` and the IPv6 spellings did not, and with a proxy named only in the environment
@@ -3014,7 +3020,8 @@ The first release: the platform as one application a person can download.
 - `BISA_SIGN`, `just bundle-macos-adhoc` and the shareable zip of the bundle script: a copy to
   give to someone is the release's disk image.
 
-[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.5.0...v0.6.0
