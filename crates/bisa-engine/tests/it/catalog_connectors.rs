@@ -44,6 +44,10 @@ fn account_of(slug: &str) -> BTreeMap<String, Value> {
         ]),
         "pagerduty" => BTreeMap::from([("email".to_string(), json!("ops@acme.example"))]),
         "pipedrive" => BTreeMap::from([("company".to_string(), json!("acme"))]),
+        "zendesk" => BTreeMap::from([("subdomain".to_string(), json!("acme"))]),
+        "mailchimp" => BTreeMap::from([("server".to_string(), json!("us19"))]),
+        "twilio" => BTreeMap::from([("account_sid".to_string(), json!("AC0123456789abcdef"))]),
+        "box" => BTreeMap::from([("enterprise_id".to_string(), json!("123456"))]),
         "zoom" => BTreeMap::from([
             ("account_id".to_string(), json!("AbC123")),
             ("user".to_string(), json!("host@acme.example")),
@@ -634,6 +638,7 @@ fn every_request(def: &Connector) -> Vec<(String, Request)> {
                 .map(|p| {
                     let value = match p.kind {
                         bisa_core::ParamKind::Number => "7",
+                        bisa_core::ParamKind::Bool => "true",
                         _ => "x",
                     };
                     (p.name.as_str(), value)
@@ -2700,5 +2705,579 @@ fn intercom_names_its_version_on_every_call_and_searches_by_one_condition() {
     assert!(
         d.operations.iter().all(|op| !op.path.ends_with("/reply")),
         "no reply: the admin's form of it could not be read in full"
+    );
+}
+
+// --- commerce and messaging: Stripe, Zendesk, Mailchimp, SendGrid, Twilio, Box ---
+
+const COMMERCE: [&str; 6] = [
+    "stripe",
+    "zendesk",
+    "mailchimp",
+    "sendgrid",
+    "twilio",
+    "box",
+];
+
+/// A form body's pairs, decoded.
+fn form(req: &Request) -> BTreeMap<String, String> {
+    url::form_urlencoded::parse(req.body.as_deref().expect("a body"))
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect()
+}
+
+fn basic(username: &str, password: &str) -> Credential {
+    Credential::Basic {
+        username: username.to_string(),
+        password: Secret::new(password),
+    }
+}
+
+/// What changes something says so, and nothing in the six deletes.
+#[test]
+fn the_commerce_connectors_mark_every_write_and_delete_nothing() {
+    for slug in COMMERCE {
+        let d = def(slug);
+        for op in &d.operations {
+            assert_ne!(
+                op.method,
+                bisa_core::HttpMethod::Delete,
+                "{slug}.{}: no built-in deletes",
+                op.id
+            );
+            assert_eq!(
+                op.writes,
+                op.method != bisa_core::HttpMethod::Get,
+                "{slug}.{}: a call that is not a GET is a write, and says so",
+                op.id
+            );
+        }
+    }
+}
+
+#[test]
+fn stripe_moves_no_money_writes_in_a_form_and_keys_its_two_writes() {
+    let d = def("stripe");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("api.stripe.com"), "{op}");
+        assert_eq!(
+            req.header("stripe-version"),
+            Some("2026-10-28.endive"),
+            "{op}"
+        );
+    }
+    let writes: Vec<&str> = d
+        .operations
+        .iter()
+        .filter(|op| op.writes)
+        .map(|op| op.id.as_str())
+        .collect();
+    assert_eq!(
+        writes,
+        ["create_customer", "update_customer"],
+        "a customer record, and nothing that charges, refunds or pays out"
+    );
+    for op in d.operations.iter().filter(|op| op.writes) {
+        assert!(
+            op.path.starts_with("/v1/customers"),
+            "{}: {}",
+            op.id,
+            op.path
+        );
+        let spec = call_spec(&d, op, Duration::from_secs(1));
+        assert_eq!(
+            spec.idempotency.map(|i| i.header),
+            Some("Idempotency-Key".to_string()),
+            "{}: every v1 POST accepts one",
+            op.id
+        );
+    }
+
+    let balance = signed(&d, request(&d, "balance", &[]), bearer("rk_test_not_real"));
+    assert_eq!(balance.url.as_str(), "https://api.stripe.com/v1/balance");
+    assert_eq!(
+        balance.header("authorization"),
+        Some("Bearer rk_test_not_real")
+    );
+    let list = request(
+        &d,
+        "customers",
+        &[("email", "jenny@example.com"), ("max", "100")],
+    );
+    assert_eq!(list.url.path(), "/v1/customers");
+    assert_eq!(
+        query(&list),
+        BTreeMap::from([
+            ("email".to_string(), "jenny@example.com".to_string()),
+            ("limit".to_string(), "100".to_string()),
+        ])
+    );
+    let found = request(
+        &d,
+        "search_customers",
+        &[("query", "name:'Jane Doe' AND metadata['foo']:'bar'")],
+    );
+    assert_eq!(found.url.path(), "/v1/customers/search");
+    assert_eq!(
+        query(&found)["query"],
+        "name:'Jane Doe' AND metadata['foo']:'bar'"
+    );
+
+    let created = request(
+        &d,
+        "create_customer",
+        &[("name", "Jenny Rosen"), ("email", "jennyrosen@example.com")],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/v1/customers");
+    assert_eq!(
+        created.header("content-type"),
+        Some("application/x-www-form-urlencoded"),
+        "form-encoded request bodies"
+    );
+    assert_eq!(
+        form(&created),
+        BTreeMap::from([
+            ("name".to_string(), "Jenny Rosen".to_string()),
+            ("email".to_string(), "jennyrosen@example.com".to_string()),
+        ])
+    );
+    let updated = request(
+        &d,
+        "update_customer",
+        &[("id", "cus_NffrFeUfNV2Hib"), ("phone", "+15558675310")],
+    );
+    assert_eq!(updated.method.as_str(), "POST");
+    assert_eq!(updated.url.path(), "/v1/customers/cus_NffrFeUfNV2Hib");
+    assert_eq!(
+        form(&updated),
+        BTreeMap::from([("phone".to_string(), "+15558675310".to_string())]),
+        "parameters not provided are left unchanged"
+    );
+    for (op, params, path) in [
+        ("customer", vec![("id", "cus_1")], "/v1/customers/cus_1"),
+        ("invoices", vec![("status", "open")], "/v1/invoices"),
+        ("invoice", vec![("id", "in_1")], "/v1/invoices/in_1"),
+        ("charges", vec![("customer", "cus_1")], "/v1/charges"),
+        ("charge", vec![("id", "ch_1")], "/v1/charges/ch_1"),
+        (
+            "subscriptions",
+            vec![("status", "all")],
+            "/v1/subscriptions",
+        ),
+        ("products", vec![("active", "true")], "/v1/products"),
+    ] {
+        let req = request(&d, op, &params);
+        assert_eq!(req.method.as_str(), "GET", "{op}");
+        assert_eq!(req.url.path(), path, "{op}");
+    }
+}
+
+#[test]
+fn zendesk_signs_in_with_the_token_form_and_comments_by_updating_the_ticket() {
+    let d = def("zendesk");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("acme.zendesk.com"), "{op}");
+        assert!(req.url.path().starts_with("/api/v2/"), "{op}");
+        assert_eq!(req.header("accept"), Some("application/json"), "{op}");
+    }
+    let me = signed(
+        &d,
+        request(&d, "me", &[]),
+        basic("jdoe@example.com/token", "token-not-real"),
+    );
+    assert_eq!(me.url.path(), "/api/v2/users/me");
+    assert_eq!(
+        me.header("authorization"),
+        // base64("jdoe@example.com/token:token-not-real")
+        Some("Basic amRvZUBleGFtcGxlLmNvbS90b2tlbjp0b2tlbi1ub3QtcmVhbA=="),
+        "`{{email_address}}/token:{{api_token}}`"
+    );
+
+    let list = request(&d, "tickets", &[]);
+    assert_eq!(list.url.path(), "/api/v2/tickets");
+    assert_eq!(
+        query(&list),
+        BTreeMap::from([("page[size]".to_string(), "100".to_string())]),
+        "a page size is what turns cursor pagination on"
+    );
+    assert_eq!(
+        request(&d, "ticket", &[("id", "35436")]).url.path(),
+        "/api/v2/tickets/35436"
+    );
+    assert_eq!(
+        request(&d, "comments", &[("id", "35436")]).url.path(),
+        "/api/v2/tickets/35436/comments"
+    );
+    let found = request(&d, "search", &[("query", "type:ticket status:open")]);
+    assert_eq!(found.url.path(), "/api/v2/search");
+    assert_eq!(query(&found)["query"], "type:ticket status:open");
+
+    let opened = request(
+        &d,
+        "create_ticket",
+        &[
+            ("subject", "My printer is on fire!"),
+            ("body", "The smoke is very colorful."),
+        ],
+    );
+    assert_eq!(opened.method.as_str(), "POST");
+    assert_eq!(opened.url.path(), "/api/v2/tickets");
+    assert_eq!(
+        body(&opened),
+        json!({"ticket": {
+            "subject": "My printer is on fire!",
+            "comment": {"body": "The smoke is very colorful."}
+        }})
+    );
+    let note = request(
+        &d,
+        "add_comment",
+        &[("id", "35436"), ("body", "Called the customer.")],
+    );
+    assert_eq!(note.method.as_str(), "PUT", "there is no comment endpoint");
+    assert_eq!(note.url.path(), "/api/v2/tickets/35436");
+    assert_eq!(
+        body(&note),
+        json!({"ticket": {"comment": {"body": "Called the customer.", "public": false}}}),
+        "an internal note unless the step makes it public"
+    );
+    let solved = request(
+        &d,
+        "update_ticket",
+        &[("id", "35436"), ("status", "solved")],
+    );
+    assert_eq!(solved.method.as_str(), "PUT");
+    assert_eq!(body(&solved), json!({"ticket": {"status": "solved"}}));
+}
+
+#[test]
+fn mailchimp_calls_the_accounts_server_and_sends_no_campaign() {
+    let d = def("mailchimp");
+    for (op, req) in every_request_with(&d, "{}") {
+        assert_eq!(req.url.host_str(), Some("us19.api.mailchimp.com"), "{op}");
+        assert!(req.url.path().starts_with("/3.0/"), "{op}");
+    }
+    assert!(
+        d.operations
+            .iter()
+            .filter(|op| op.writes)
+            .all(|op| op.path.contains("/members")),
+        "members are written; a campaign is only read"
+    );
+    let ping = signed(&d, request(&d, "ping", &[]), bearer("key-not-real-us19"));
+    assert_eq!(ping.url.as_str(), "https://us19.api.mailchimp.com/3.0/ping");
+    assert_eq!(
+        ping.header("authorization"),
+        Some("Bearer key-not-real-us19")
+    );
+
+    let lists = request(&d, "lists", &[("max", "1000")]);
+    assert_eq!(lists.url.path(), "/3.0/lists");
+    assert_eq!(query(&lists)["count"], "1000");
+    let members = request(
+        &d,
+        "members",
+        &[("list", "a1b2c3"), ("status", "subscribed")],
+    );
+    assert_eq!(members.url.path(), "/3.0/lists/a1b2c3/members");
+    assert_eq!(query(&members)["status"], "subscribed");
+    let one = request(
+        &d,
+        "member",
+        &[("list", "a1b2c3"), ("email", "ada@example.com")],
+    );
+    assert_eq!(
+        decoded(one.url.path()),
+        "/3.0/lists/a1b2c3/members/ada@example.com",
+        "the address is taken where the hash is"
+    );
+
+    let added = request(
+        &d,
+        "add_member",
+        &[
+            ("list", "a1b2c3"),
+            ("email", "ada@example.com"),
+            ("status", "pending"),
+            ("merge_fields", r#"{"FNAME": "Ada"}"#),
+        ],
+    );
+    assert_eq!(added.method.as_str(), "POST");
+    assert_eq!(added.url.path(), "/3.0/lists/a1b2c3/members");
+    assert_eq!(
+        body(&added),
+        json!({
+            "email_address": "ada@example.com",
+            "status": "pending",
+            "merge_fields": {"FNAME": "Ada"}
+        })
+    );
+    let changed = request(
+        &d,
+        "update_member",
+        &[
+            ("list", "a1b2c3"),
+            ("email", "ada@example.com"),
+            ("status", "unsubscribed"),
+        ],
+    );
+    assert_eq!(changed.method.as_str(), "PATCH");
+    assert_eq!(body(&changed), json!({"status": "unsubscribed"}));
+    let note = request(
+        &d,
+        "add_note",
+        &[
+            ("list", "a1b2c3"),
+            ("email", "ada@example.com"),
+            ("note", "Met at the conference."),
+        ],
+    );
+    assert_eq!(
+        decoded(note.url.path()),
+        "/3.0/lists/a1b2c3/members/ada@example.com/notes"
+    );
+    assert_eq!(body(&note), json!({"note": "Met at the conference."}));
+    assert_eq!(
+        request(&d, "campaigns", &[("status", "sent")]).url.path(),
+        "/3.0/campaigns"
+    );
+    assert_eq!(
+        request(&d, "campaign_report", &[("campaign", "42694e9e57")])
+            .url
+            .path(),
+        "/3.0/reports/42694e9e57"
+    );
+}
+
+#[test]
+fn sendgrid_sends_one_message_to_one_address_and_queues_one_contact() {
+    let d = def("sendgrid");
+    let scopes = signed(&d, request(&d, "scopes", &[]), bearer("SG.not-real"));
+    assert_eq!(scopes.url.as_str(), "https://api.sendgrid.com/v3/scopes");
+    assert_eq!(scopes.header("authorization"), Some("Bearer SG.not-real"));
+
+    let sent = request(
+        &d,
+        "send_mail",
+        &[
+            ("to", "ada@example.com"),
+            ("from", "ops@acme.example"),
+            ("subject", "Deploy finished"),
+            ("body", "All green."),
+        ],
+    );
+    assert_eq!(sent.method.as_str(), "POST");
+    assert_eq!(sent.url.path(), "/v3/mail/send");
+    assert_eq!(
+        body(&sent),
+        json!({
+            "personalizations": [{"to": [{"email": "ada@example.com"}]}],
+            "from": {"email": "ops@acme.example"},
+            "subject": "Deploy finished",
+            "content": [{"type": "text/plain", "value": "All green."}]
+        }),
+        "one personalization, one recipient"
+    );
+
+    let stats = request(&d, "stats", &[("from", "2026-09-01"), ("by", "week")]);
+    assert_eq!(stats.url.path(), "/v3/stats");
+    assert_eq!(
+        query(&stats),
+        BTreeMap::from([
+            ("start_date".to_string(), "2026-09-01".to_string()),
+            ("aggregated_by".to_string(), "week".to_string()),
+        ])
+    );
+    let bounces = request(&d, "bounces", &[("max", "500")]);
+    assert_eq!(bounces.url.path(), "/v3/suppression/bounces");
+    assert_eq!(query(&bounces)["limit"], "500");
+    let templates = request(&d, "templates", &[("generations", "dynamic")]);
+    assert_eq!(templates.url.path(), "/v3/templates");
+    assert_eq!(
+        query(&templates),
+        BTreeMap::from([
+            ("generations".to_string(), "dynamic".to_string()),
+            ("page_size".to_string(), "50".to_string()),
+        ]),
+        "a page size is required: fifty unless the step says"
+    );
+    assert_eq!(request(&d, "lists", &[]).url.path(), "/v3/marketing/lists");
+
+    let contact = request(
+        &d,
+        "upsert_contact",
+        &[("email", "ada@example.com"), ("first_name", "Ada")],
+    );
+    assert_eq!(contact.method.as_str(), "PUT");
+    assert_eq!(contact.url.path(), "/v3/marketing/contacts");
+    assert_eq!(
+        body(&contact),
+        json!({"contacts": [{"email": "ada@example.com", "first_name": "Ada"}]})
+    );
+}
+
+#[test]
+fn twilio_names_the_account_in_every_path_and_sends_a_message_as_a_form() {
+    let d = def("twilio");
+    for (op, req) in every_request(&d) {
+        assert_eq!(req.url.host_str(), Some("api.twilio.com"), "{op}");
+        assert!(
+            req.url
+                .path()
+                .starts_with("/2010-04-01/Accounts/AC0123456789abcdef/"),
+            "{op}: {}",
+            req.url.path()
+        );
+        assert!(
+            req.url.path().ends_with(".json"),
+            "{op}: the 2010 API answers XML otherwise"
+        );
+    }
+    assert_eq!(
+        d.check.as_ref().map(|c| c.as_str()),
+        Some("messages"),
+        "a standard API key cannot fetch the account"
+    );
+    let list = signed(
+        &d,
+        request(&d, "messages", &[("max", "20")]),
+        basic("SK0123", "secret-not-real"),
+    );
+    assert_eq!(
+        list.url.path(),
+        "/2010-04-01/Accounts/AC0123456789abcdef/Messages.json"
+    );
+    assert_eq!(query(&list)["PageSize"], "20");
+    assert_eq!(
+        list.header("authorization"),
+        // base64("SK0123:secret-not-real")
+        Some("Basic U0swMTIzOnNlY3JldC1ub3QtcmVhbA==")
+    );
+    assert_eq!(
+        request(&d, "message", &[("sid", "SMaaaa")]).url.path(),
+        "/2010-04-01/Accounts/AC0123456789abcdef/Messages/SMaaaa.json"
+    );
+
+    let sent = request(
+        &d,
+        "send_message",
+        &[
+            ("to", "+15558675310"),
+            ("from", "+15017122661"),
+            ("body", "Deploy finished."),
+        ],
+    );
+    assert_eq!(sent.method.as_str(), "POST");
+    assert_eq!(
+        sent.url.path(),
+        "/2010-04-01/Accounts/AC0123456789abcdef/Messages.json"
+    );
+    assert_eq!(
+        sent.header("content-type"),
+        Some("application/x-www-form-urlencoded")
+    );
+    assert_eq!(
+        form(&sent),
+        BTreeMap::from([
+            ("To".to_string(), "+15558675310".to_string()),
+            ("From".to_string(), "+15017122661".to_string()),
+            ("Body".to_string(), "Deploy finished.".to_string()),
+        ]),
+        "a plus sign survives the form"
+    );
+    let by_service = request(
+        &d,
+        "send_message",
+        &[
+            ("to", "+15558675310"),
+            ("service", "MG0123"),
+            ("body", "Hi"),
+        ],
+    );
+    assert_eq!(form(&by_service)["MessagingServiceSid"], "MG0123");
+    assert!(!form(&by_service).contains_key("From"));
+
+    let calls = request(&d, "calls", &[("status", "completed")]);
+    assert_eq!(
+        calls.url.path(),
+        "/2010-04-01/Accounts/AC0123456789abcdef/Calls.json"
+    );
+    assert_eq!(query(&calls)["Status"], "completed");
+    assert_eq!(
+        request(&d, "phone_numbers", &[]).url.path(),
+        "/2010-04-01/Accounts/AC0123456789abcdef/IncomingPhoneNumbers.json"
+    );
+}
+
+#[test]
+fn box_signs_in_as_the_apps_service_account_and_starts_at_the_root_folder() {
+    let d = def("box");
+    assert_eq!(
+        serde_json::to_value(&d.auth).unwrap(),
+        json!({
+            "scheme": "client_credentials",
+            "token_url": "https://api.box.com/oauth2/token",
+            "params": {
+                "box_subject_type": "enterprise",
+                "box_subject_id": "{account.enterprise_id}"
+            }
+        }),
+        "the client's id and secret in the form, the RFC's grant, Box's two subject pairs"
+    );
+    assert_eq!(d.oauth_hosts(), vec!["api.box.com".to_string()]);
+    assert_eq!(
+        request(&d, "me", &[]).url.as_str(),
+        "https://api.box.com/2.0/users/me"
+    );
+
+    let root = request(&d, "folder_items", &[]);
+    assert_eq!(
+        root.url.path(),
+        "/2.0/folders/0/items",
+        "the root is always 0"
+    );
+    assert!(query(&root).is_empty());
+    let inside = request(&d, "folder_items", &[("folder", "12345"), ("max", "1000")]);
+    assert_eq!(inside.url.path(), "/2.0/folders/12345/items");
+    assert_eq!(query(&inside)["limit"], "1000");
+    assert_eq!(
+        request(&d, "folder", &[("folder", "12345")]).url.path(),
+        "/2.0/folders/12345"
+    );
+    assert_eq!(
+        request(&d, "file", &[("file", "426436")]).url.path(),
+        "/2.0/files/426436"
+    );
+    let found = request(&d, "search", &[("query", "sales report"), ("type", "file")]);
+    assert_eq!(found.url.path(), "/2.0/search");
+    assert_eq!(
+        query(&found),
+        BTreeMap::from([
+            ("query".to_string(), "sales report".to_string()),
+            ("type".to_string(), "file".to_string()),
+        ])
+    );
+
+    let made = request(&d, "create_folder", &[("name", "New Folder")]);
+    assert_eq!(made.method.as_str(), "POST");
+    assert_eq!(made.url.path(), "/2.0/folders");
+    assert_eq!(
+        body(&made),
+        json!({"name": "New Folder", "parent": {"id": "0"}})
+    );
+    assert_eq!(
+        request(&d, "comments", &[("file", "426436")]).url.path(),
+        "/2.0/files/426436/comments"
+    );
+    let said = request(
+        &d,
+        "comment",
+        &[("file", "426436"), ("message", "Review completed!")],
+    );
+    assert_eq!(said.url.path(), "/2.0/comments");
+    assert_eq!(
+        body(&said),
+        json!({"message": "Review completed!", "item": {"type": "file", "id": "426436"}})
     );
 }

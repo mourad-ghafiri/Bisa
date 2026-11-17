@@ -209,6 +209,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/bitbucket.toml"),
     ),
     (
+        "box",
+        include_str!("../../../library/catalog/connectors/box.toml"),
+    ),
+    (
         "calendly",
         include_str!("../../../library/catalog/connectors/calendly.toml"),
     ),
@@ -285,6 +289,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/linear.toml"),
     ),
     (
+        "mailchimp",
+        include_str!("../../../library/catalog/connectors/mailchimp.toml"),
+    ),
+    (
         "microsoft-teams",
         include_str!("../../../library/catalog/connectors/microsoft-teams.toml"),
     ),
@@ -321,12 +329,20 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/pipedrive.toml"),
     ),
     (
+        "sendgrid",
+        include_str!("../../../library/catalog/connectors/sendgrid.toml"),
+    ),
+    (
         "sentry",
         include_str!("../../../library/catalog/connectors/sentry.toml"),
     ),
     (
         "slack",
         include_str!("../../../library/catalog/connectors/slack.toml"),
+    ),
+    (
+        "stripe",
+        include_str!("../../../library/catalog/connectors/stripe.toml"),
     ),
     (
         "tiktok",
@@ -341,12 +357,20 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/trello.toml"),
     ),
     (
+        "twilio",
+        include_str!("../../../library/catalog/connectors/twilio.toml"),
+    ),
+    (
         "x",
         include_str!("../../../library/catalog/connectors/x.toml"),
     ),
     (
         "youtube",
         include_str!("../../../library/catalog/connectors/youtube.toml"),
+    ),
+    (
+        "zendesk",
+        include_str!("../../../library/catalog/connectors/zendesk.toml"),
     ),
     (
         "zoom",
@@ -2589,6 +2613,7 @@ mod bundle_tests {
                 "airtable",
                 "asana",
                 "bitbucket",
+                "box",
                 "calendly",
                 "clickup",
                 "confluence",
@@ -2608,6 +2633,7 @@ mod bundle_tests {
                 "intercom",
                 "jira",
                 "linear",
+                "mailchimp",
                 "microsoft-teams",
                 "monday",
                 "notion",
@@ -2617,13 +2643,17 @@ mod bundle_tests {
                 "outlook-mail",
                 "pagerduty",
                 "pipedrive",
+                "sendgrid",
                 "sentry",
                 "slack",
+                "stripe",
                 "tiktok",
                 "todoist",
                 "trello",
+                "twilio",
                 "x",
                 "youtube",
+                "zendesk",
                 "zoom",
             ]
         );
@@ -2648,7 +2678,7 @@ mod bundle_tests {
                 )
             })
             .collect();
-        let want: [(&str, u32, &str); 39] = [
+        let want: [(&str, u32, &str); 45] = [
             (
                 "airtable",
                 1,
@@ -2663,6 +2693,11 @@ mod bundle_tests {
                 "bitbucket",
                 1,
                 "cecefe971073f48afefe3ed1a069d1b4d78f42b7297aac9e89ff66ed68ff296f",
+            ),
+            (
+                "box",
+                1,
+                "2e48535899aa8852603f35a686e1b35bdd10ed8a6efcf5de2a363986cc686ac5",
             ),
             (
                 "calendly",
@@ -2760,6 +2795,11 @@ mod bundle_tests {
                 "d5b764fa3e7b30efc7dfcbbb80950eeaf9b0f8f8988f7c27a22a2a74389ce19d",
             ),
             (
+                "mailchimp",
+                1,
+                "0190c431db846d141b6ac69478e19bff63b9dab7c525880913b5abbcff8b53b8",
+            ),
+            (
                 "microsoft-teams",
                 1,
                 "c6acf8601fc2ea7626d1abde8aa756d7891834aaefc82915b08d4c7cefc4cd3c",
@@ -2805,6 +2845,11 @@ mod bundle_tests {
                 "4569d59d9ee9b669420dc5c0c419dde6cdb0ed0da8aa7923491928b669b49cdb",
             ),
             (
+                "sendgrid",
+                1,
+                "03326be9243a8b92fbdc2b0557a31bce5b570c4cf9164323119f645ae0870301",
+            ),
+            (
                 "sentry",
                 1,
                 "93204802c2c839c97f7256ab154c4a6896011e43dc7a298fe238f7b84be08ddc",
@@ -2813,6 +2858,11 @@ mod bundle_tests {
                 "slack",
                 1,
                 "1c5ff9ffeb1af3d85ad5346d318250012b811f92aac3d9c405397283a77b6200",
+            ),
+            (
+                "stripe",
+                1,
+                "c12dda7afe94dc11740a85d06d9af582df36864c83e55347398380184b941193",
             ),
             (
                 "tiktok",
@@ -2830,6 +2880,11 @@ mod bundle_tests {
                 "af0f28fb8bc57645a4bbd7281917e5f91653cf646198fccdffd7889ae3ce02fd",
             ),
             (
+                "twilio",
+                1,
+                "af241b16380bbaecd159048671b24872e6c652058c1b057eb0c38dc30d85901f",
+            ),
+            (
                 "x",
                 1,
                 "33d62a2caa84b3b8e2b4fb8cfa258cbf1b1d1c0f445f24d156192226f23230f4",
@@ -2838,6 +2893,11 @@ mod bundle_tests {
                 "youtube",
                 1,
                 "b96653108b8f63d5a86da6b12d9a5b87d166bcb2658c5edbeca61e25a9481563",
+            ),
+            (
+                "zendesk",
+                1,
+                "aa355e608e0fa53ea9d2cf0b4e2496766278eff98387043a9d0d7a75cbe8374a",
             ),
             (
                 "zoom",

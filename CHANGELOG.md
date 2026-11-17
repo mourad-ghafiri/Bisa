@@ -10,6 +10,27 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Six more built-in connectors — commerce, support and messaging** (45 in the catalog), each
+  pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
+  only — nothing deletes, and every write is marked as one:
+  - **Stripe** — the balance, customers, invoices, charges, subscriptions and products read; a
+    customer created or updated. **Nothing moves money.** The two writes are the first built-in
+    form bodies and carry an `Idempotency-Key`, so a retried write happens once.
+  - **Zendesk** — tickets listed, searched and read with their comments, a ticket opened, a
+    comment added (an internal note unless made public), a status changed.
+  - **Mailchimp** — audiences and members read, a member added, updated or noted, campaigns and
+    their reports read. **No campaign is sent.**
+  - **SendGrid** — one plain-text email to one address, statistics, bounces, templates and
+    contact lists read, one marketing contact added or updated.
+  - **Twilio** — one text message sent, messages, calls and phone numbers read.
+  - **Box** — a folder listed, a file's details, search, a folder created, comments read and
+    added, as an app's service account on the `client_credentials` scheme.
+
+  **Shopify is not in this set**, as the plan allowed; Box takes its place. Shopify no longer lets
+  a store owner create an app with a permanent token, and what replaced it signs in at an address
+  on the shop's own domain and sends its token in a header of Shopify's own — two things no auth
+  scheme here writes yet.
+
 - **Six more built-in connectors — work tracking and support** (39 in the catalog), each pinned
   to its platform's own documentation, cited in the file, with reads and ordinary creates only —
   nothing deletes, and every write is marked as one:

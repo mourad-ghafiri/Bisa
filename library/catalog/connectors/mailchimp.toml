@@ -1,0 +1,250 @@
+# Built-in connector: Mailchimp — audiences, their members and campaign reports.
+#
+# No campaign is sent from here. An API key is sent as `Authorization:
+# Bearer`, one of the two forms Mailchimp documents for it. Mailchimp's
+# reference writes its addresses on `api.mailchimp.com`; its own client
+# calls `https://server.api.mailchimp.com/3.0`, the server being the
+# account's prefix ("i.e. `us19`") — so the account names it. Lists
+# answer ten records unless `count` says otherwise, 1,000 at most. A
+# member is named by the MD5 of the lowercase address, by the address
+# itself, or by a contact id; the address is what is asked for here.
+# Adding a member is a create, not an upsert: it "fails with a 400 if the
+# email address is already in the audience". On a double opt-in audience
+# send `pending`, and "Mailchimp handles the confirmation email". Ten
+# connections at once per user; past it, a 429.
+#
+# Reference: https://mailchimp.com/developer/marketing/api-concepts/authentication/
+# Reference: https://mailchimp.com/developer/marketing/api-concepts/errors/
+# Reference: https://mailchimp.com/developer/marketing/guides/quick-start/
+# Reference: https://github.com/mailchimp/mailchimp-marketing-node
+# Reference: https://mailchimp.com/developer/marketing/api/ping/
+# Reference: https://mailchimp.com/developer/marketing/api/lists/
+# Reference: https://mailchimp.com/developer/marketing/api/list-members/list-members-info/
+# Reference: https://mailchimp.com/developer/marketing/api/list-members/get-member-info/
+# Reference: https://mailchimp.com/developer/marketing/api/list-members/add-member-to-list/
+# Reference: https://mailchimp.com/developer/marketing/api/list-members/update-list-member/
+# Reference: https://mailchimp.com/developer/marketing/api/list-member-notes/add-member-note/
+# Reference: https://mailchimp.com/developer/marketing/api/campaigns/list-campaigns/
+# Reference: https://mailchimp.com/developer/marketing/api/reports/get-campaign-report/
+
+[connector]
+name = "Mailchimp"
+description = "List audiences and their members, read a member, add one, update one and note one, and read campaigns and their reports. No campaign is sent. Paste an API key; the account names the server prefix."
+tags = ["marketing", "business"]
+base_url = "https://{account.server}.api.mailchimp.com"
+hosts = ["*.api.mailchimp.com"]
+check = "ping"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.params]]
+name = "server"
+label = "Server prefix"
+required = true
+doc = "Your account's server prefix, us19 — the first part of the address of your Mailchimp admin pages."
+
+[[connector.operations]]
+id = "ping"
+name = "Ping"
+description = "A health check that changes nothing — the one call that proves the key works."
+method = "get"
+path = "/3.0/ping"
+
+[[connector.operations]]
+id = "lists"
+name = "List audiences"
+description = "The account's audiences, with their ids and counts."
+method = "get"
+path = "/3.0/lists"
+query = { count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many audiences to return, 1,000 at most; Mailchimp's default is 10."
+
+[connector.operations.output]
+select = "lists"
+
+[[connector.operations]]
+id = "members"
+name = "List members"
+description = "An audience's members, optionally of one status."
+method = "get"
+path = "/3.0/lists/{params.list}/members"
+query = { status = "{params.status}", count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "list"
+label = "Audience id"
+required = true
+doc = "The audience's id, as lists returned it."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "subscribed, unsubscribed, cleaned, pending, transactional or archived; empty for every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many members to return, 1,000 at most; Mailchimp's default is 10."
+
+[connector.operations.output]
+select = "members"
+
+[[connector.operations]]
+id = "member"
+name = "Get member"
+description = "One member of an audience, by email address."
+method = "get"
+path = "/3.0/lists/{params.list}/members/{params.email}"
+
+[[connector.operations.params]]
+name = "list"
+label = "Audience id"
+required = true
+doc = "The audience's id."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+required = true
+doc = "The member's email address."
+
+[[connector.operations]]
+id = "add_member"
+name = "Add member"
+description = "Add one address to an audience; it fails if the address is already there."
+method = "post"
+path = "/3.0/lists/{params.list}/members"
+body = { kind = "json", value = { email_address = "{params.email}", status = "{params.status}", merge_fields = "{params.merge_fields}", tags = "{params.tags}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "Audience id"
+required = true
+doc = "The audience's id."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+required = true
+doc = "The address to add."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+required = true
+doc = "pending on a double opt-in audience, so Mailchimp asks the person to confirm; subscribed on a single opt-in one."
+
+[[connector.operations.params]]
+name = "merge_fields"
+label = "Merge fields"
+kind = "json"
+doc = "A JSON object keyed by merge tag: {\"FNAME\": \"Ada\"}. Empty for none."
+
+[[connector.operations.params]]
+name = "tags"
+label = "Tags"
+kind = "json"
+doc = "A JSON array of tag names: [\"customer\"]. Empty for none."
+
+[[connector.operations]]
+id = "update_member"
+name = "Update member"
+description = "Change a member's status or merge fields; what is left empty stays as it is."
+method = "patch"
+path = "/3.0/lists/{params.list}/members/{params.email}"
+body = { kind = "json", value = { status = "{params.status}", merge_fields = "{params.merge_fields}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "Audience id"
+required = true
+doc = "The audience's id."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+required = true
+doc = "The member's email address."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "subscribed, unsubscribed, cleaned, pending or transactional; empty to keep it."
+
+[[connector.operations.params]]
+name = "merge_fields"
+label = "Merge fields"
+kind = "json"
+doc = "A JSON object of the merge tags to change: {\"FNAME\": \"Ada\"}. Empty to keep them."
+
+[[connector.operations]]
+id = "add_note"
+name = "Add note"
+description = "Write a note on a member, for the team to read."
+method = "post"
+path = "/3.0/lists/{params.list}/members/{params.email}/notes"
+body = { kind = "json", value = { note = "{params.note}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "Audience id"
+required = true
+doc = "The audience's id."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+required = true
+doc = "The member's email address."
+
+[[connector.operations.params]]
+name = "note"
+label = "Note"
+required = true
+doc = "The note, 1,000 characters at most."
+
+[[connector.operations]]
+id = "campaigns"
+name = "List campaigns"
+description = "The account's campaigns, optionally of one status."
+method = "get"
+path = "/3.0/campaigns"
+query = { status = "{params.status}", count = "{params.max}" }
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "save, paused, schedule, sending or sent; empty for every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many campaigns to return, 1,000 at most; Mailchimp's default is 10."
+
+[connector.operations.output]
+select = "campaigns"
+
+[[connector.operations]]
+id = "campaign_report"
+name = "Campaign report"
+description = "The report of a campaign that was sent: opens, clicks, bounces."
+method = "get"
+path = "/3.0/reports/{params.campaign}"
+
+[[connector.operations.params]]
+name = "campaign"
+label = "Campaign id"
+required = true
+doc = "The campaign's id, as campaigns returned it."

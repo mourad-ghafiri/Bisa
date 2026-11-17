@@ -1,0 +1,196 @@
+# Built-in connector: Box — folders, files, search and comments, as an app's service account.
+#
+# The Client Credentials Grant, which needs no browser: a Platform App
+# with Server authentication, its client id and secret sent in the form
+# to `api.box.com/oauth2/token` with `box_subject_type=enterprise` and
+# the enterprise's id. The token "is valid for 60 minutes. No refresh
+# token is issued" — it is asked for again. The app must be authorized in
+# the Box Admin Console, or the grant answers "Grant credentials are
+# invalid". Calls are made as the app's service account, which "can only
+# successfully interact with the content of its Service Account and any
+# App Users" by default: share a folder with it, or give the app
+# enterprise access, for it to see more. The root folder "is always
+# represented by the ID `0`". A folder of a name already taken is
+# answered 409, never replaced. Search finds at most 200 a page.
+#
+# Reference: https://developer.box.com/guides/authentication/client-credentials/
+# Reference: https://developer.box.com/guides/authentication/client-credentials/client-credentials-setup/
+# Reference: https://developer.box.com/reference/post-oauth2-token/
+# Reference: https://developer.box.com/guides/api-calls/permissions-and-errors/rate-limits/
+# Reference: https://developer.box.com/reference/get-users-me/
+# Reference: https://developer.box.com/reference/get-folders-id/
+# Reference: https://developer.box.com/reference/get-folders-id-items/
+# Reference: https://developer.box.com/reference/get-files-id/
+# Reference: https://developer.box.com/reference/get-search/
+# Reference: https://developer.box.com/reference/post-folders/
+# Reference: https://developer.box.com/reference/get-files-id-comments/
+# Reference: https://developer.box.com/reference/post-comments/
+
+[connector]
+name = "Box"
+description = "List a folder, read a file's details, search, create a folder and comment on a file, as your app's service account. Create a Box Platform App with Server authentication (Client Credentials Grant) and have it authorized; the account holds its client id and secret and names the enterprise id."
+tags = ["content", "data"]
+base_url = "https://api.box.com"
+hosts = ["api.box.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "client_credentials"
+token_url = "https://api.box.com/oauth2/token"
+params = { box_subject_type = "enterprise", box_subject_id = "{account.enterprise_id}" }
+
+[[connector.params]]
+name = "enterprise_id"
+label = "Enterprise id"
+required = true
+doc = "Your Box enterprise's id — the service account of the app in that enterprise is who the calls are made as."
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The service account the app signs in as — the one call that proves the account works."
+method = "get"
+path = "/2.0/users/me"
+
+[[connector.operations]]
+id = "folder_items"
+name = "List folder"
+description = "The files, folders and web links in a folder."
+method = "get"
+path = "/2.0/folders/{params.folder}/items"
+query = { limit = "{params.max}", fields = "{params.fields}" }
+
+[[connector.operations.params]]
+name = "folder"
+label = "Folder id"
+required = true
+default = "0"
+doc = "The folder's id; 0, the root, unless set."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many items to return, 1,000 at most."
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+doc = "The item fields to return, comma-separated: name,size,modified_at. Empty for Box's own set."
+
+[connector.operations.output]
+select = "entries"
+
+[[connector.operations]]
+id = "folder"
+name = "Get folder"
+description = "A folder's details."
+method = "get"
+path = "/2.0/folders/{params.folder}"
+
+[[connector.operations.params]]
+name = "folder"
+label = "Folder id"
+required = true
+doc = "The folder's id; 0 is the root."
+
+[[connector.operations]]
+id = "file"
+name = "Get file"
+description = "A file's details: name, size, dates, owner — not its content."
+method = "get"
+path = "/2.0/files/{params.file}"
+
+[[connector.operations.params]]
+name = "file"
+label = "File id"
+required = true
+doc = "The file's id."
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Files, folders and web links the service account can see that match a query."
+method = "get"
+path = "/2.0/search"
+query = { query = "{params.query}", type = "{params.type}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+required = true
+doc = "The words to look for."
+
+[[connector.operations.params]]
+name = "type"
+label = "Type"
+doc = "file, folder or web_link; empty for all three."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many results to return, 200 at most; Box's default is 30."
+
+[connector.operations.output]
+select = "entries"
+
+[[connector.operations]]
+id = "create_folder"
+name = "Create folder"
+description = "Create an empty folder inside another; a name already taken there is refused."
+method = "post"
+path = "/2.0/folders"
+body = { kind = "json", value = { name = "{params.name}", parent = { id = "{params.parent}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The folder's name, 1 to 255 characters."
+
+[[connector.operations.params]]
+name = "parent"
+label = "Parent folder id"
+required = true
+default = "0"
+doc = "The folder to create it in; 0, the root, unless set."
+
+[[connector.operations]]
+id = "comments"
+name = "List comments"
+description = "The comments on a file."
+method = "get"
+path = "/2.0/files/{params.file}/comments"
+
+[[connector.operations.params]]
+name = "file"
+label = "File id"
+required = true
+doc = "The file's id."
+
+[connector.operations.output]
+select = "entries"
+
+[[connector.operations]]
+id = "comment"
+name = "Comment"
+description = "Add a comment to a file."
+method = "post"
+path = "/2.0/comments"
+body = { kind = "json", value = { message = "{params.message}", item = { type = "file", id = "{params.file}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "file"
+label = "File id"
+required = true
+doc = "The file's id."
+
+[[connector.operations.params]]
+name = "message"
+label = "Comment"
+required = true
+doc = "The comment's text."

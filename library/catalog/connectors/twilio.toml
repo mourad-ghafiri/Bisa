@@ -1,0 +1,151 @@
+# Built-in connector: Twilio — text messages sent and read, calls and numbers read.
+#
+# Basic authentication: "use your API key SID as the username and your API
+# key secret as the password" — or the Account SID and the Auth Token. The
+# Account SID rides in every path either way, so the account names it. A
+# standard API key "can't access Accounts resources", so the check lists
+# one message instead of fetching the account. Bodies are form-encoded,
+# and a path ending `.json` answers JSON — the 2010 API answers XML
+# otherwise. A message needs a recipient in E.164 form, a sender — a
+# number or a messaging service — and a body of 1,600 characters at most;
+# it is queued, and its `status` says what became of it. Sending costs
+# what the account's plan says. Lists answer fifty a page.
+#
+# Reference: https://www.twilio.com/docs/usage/requests-to-twilio
+# Reference: https://www.twilio.com/docs/iam/api-keys
+# Reference: https://www.twilio.com/docs/usage/twilios-response
+# Reference: https://www.twilio.com/docs/messaging/api/message-resource
+# Reference: https://www.twilio.com/docs/voice/api/call-resource
+# Reference: https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource
+# Reference: https://www.twilio.com/docs/iam/api/account
+
+[connector]
+name = "Twilio"
+description = "Send a text message, read sent and received messages, and list calls and phone numbers. The account names the Account SID; its username is an API key SID and its password that key's secret (or the Account SID and the Auth Token)."
+tags = ["ops", "business"]
+base_url = "https://api.twilio.com"
+hosts = ["api.twilio.com"]
+check = "messages"
+revision = 1
+
+[connector.auth]
+scheme = "basic"
+
+[[connector.params]]
+name = "account_sid"
+label = "Account SID"
+required = true
+doc = "The account's SID, AC… — it rides in every address, whichever key signs in."
+
+[[connector.operations]]
+id = "messages"
+name = "List messages"
+description = "Messages sent and received, newest first — also the one call that proves the account works."
+method = "get"
+path = "/2010-04-01/Accounts/{account.account_sid}/Messages.json"
+query = { To = "{params.to}", From = "{params.from}", PageSize = "{params.max}" }
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+doc = "Only messages to this number, +15558675310; empty for every one."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "Only messages from this number; empty for every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many messages to return; Twilio's default is 50."
+
+[connector.operations.output]
+select = "messages"
+
+[[connector.operations]]
+id = "message"
+name = "Get message"
+description = "One message, with its status and any error code."
+method = "get"
+path = "/2010-04-01/Accounts/{account.account_sid}/Messages/{params.sid}.json"
+
+[[connector.operations.params]]
+name = "sid"
+label = "Message SID"
+required = true
+doc = "The message's SID, SM… or MM…"
+
+[[connector.operations]]
+id = "send_message"
+name = "Send message"
+description = "Send one text message; it is queued, and its status says what became of it."
+method = "post"
+path = "/2010-04-01/Accounts/{account.account_sid}/Messages.json"
+body = { kind = "form", fields = { To = "{params.to}", From = "{params.from}", MessagingServiceSid = "{params.service}", Body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+required = true
+doc = "The recipient's number in E.164 form: +15558675310."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "One of the account's numbers, in E.164 form. One of From and Messaging service is needed."
+
+[[connector.operations.params]]
+name = "service"
+label = "Messaging service"
+doc = "A messaging service's SID, MG…, to send through instead of a number."
+
+[[connector.operations.params]]
+name = "body"
+label = "Text"
+required = true
+doc = "The message, 1,600 characters at most."
+
+[[connector.operations]]
+id = "calls"
+name = "List calls"
+description = "Calls made and received."
+method = "get"
+path = "/2010-04-01/Accounts/{account.account_sid}/Calls.json"
+query = { To = "{params.to}", From = "{params.from}", Status = "{params.status}", PageSize = "{params.max}" }
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+doc = "Only calls to this number; empty for every one."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "Only calls from this number; empty for every one."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "queued, ringing, in-progress, canceled, completed, busy, no-answer or failed; empty for every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many calls to return; Twilio's default is 50."
+
+[connector.operations.output]
+select = "calls"
+
+[[connector.operations]]
+id = "phone_numbers"
+name = "List phone numbers"
+description = "The phone numbers the account owns."
+method = "get"
+path = "/2010-04-01/Accounts/{account.account_sid}/IncomingPhoneNumbers.json"
+
+[connector.operations.output]
+select = "incoming_phone_numbers"

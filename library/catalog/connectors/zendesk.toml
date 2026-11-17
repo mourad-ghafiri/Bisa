@@ -1,0 +1,235 @@
+# Built-in connector: Zendesk — support tickets, their comments and search.
+#
+# An API token signs in over Basic with the credential
+# `{email_address}/token:{api_token}`: the account's username is the
+# agent's email followed by `/token`, its password the token. Zendesk's
+# page labels API tokens deprecated in favour of OAuth access tokens; they
+# still sign in. Calls go to the account's own subdomain and name `Accept:
+# application/json`, which Zendesk asks of every request. Tickets are
+# listed with `page[size]`, which turns on cursor pagination, 100 at most;
+# archived tickets are not in the list. Search answers 1,000 results at
+# most, and a new ticket can take minutes to be found. There is no
+# endpoint that creates a comment: one is added by updating its ticket,
+# and `public` says whether the requester sees it — false, an internal
+# note, unless the step says otherwise. A ticket's only required property
+# is its comment.
+#
+# Reference: https://developer.zendesk.com/api-reference/introduction/security-and-auth/
+# Reference: https://developer.zendesk.com/api-reference/introduction/requests/
+# Reference: https://developer.zendesk.com/api-reference/introduction/pagination/
+# Reference: https://developer.zendesk.com/api-reference/introduction/rate-limits/
+# Reference: https://developer.zendesk.com/api-reference/ticketing/users/users/
+# Reference: https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/
+# Reference: https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/
+# Reference: https://developer.zendesk.com/api-reference/ticketing/ticket-management/search/
+
+[connector]
+name = "Zendesk"
+description = "List, search and read support tickets and their comments, open a ticket, add a comment or an internal note, and change a ticket's status. The account names the subdomain; its username is your email followed by /token and its password an API token."
+tags = ["business", "ops"]
+base_url = "https://{account.subdomain}.zendesk.com"
+hosts = ["*.zendesk.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "basic"
+
+[[connector.params]]
+name = "subdomain"
+label = "Subdomain"
+required = true
+doc = "The first part of your Zendesk address: acme for acme.zendesk.com."
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The signed-in user — the one call that proves the account works."
+method = "get"
+path = "/api/v2/users/me"
+headers = { Accept = "application/json" }
+
+[connector.operations.output]
+select = "user"
+
+[[connector.operations]]
+id = "tickets"
+name = "List tickets"
+description = "Tickets that are not archived."
+method = "get"
+path = "/api/v2/tickets"
+query = { "page[size]" = "{params.max}" }
+headers = { Accept = "application/json" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+required = true
+default = 100
+doc = "How many tickets to return, 100 at most; 100 unless set."
+
+[connector.operations.output]
+select = "tickets"
+
+[[connector.operations]]
+id = "ticket"
+name = "Get ticket"
+description = "One ticket's properties, without its comment thread."
+method = "get"
+path = "/api/v2/tickets/{params.id}"
+headers = { Accept = "application/json" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Ticket id"
+kind = "number"
+required = true
+doc = "The ticket's number."
+
+[connector.operations.output]
+select = "ticket"
+
+[[connector.operations]]
+id = "comments"
+name = "List comments"
+description = "The comments on a ticket, public and internal."
+method = "get"
+path = "/api/v2/tickets/{params.id}/comments"
+headers = { Accept = "application/json" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Ticket id"
+kind = "number"
+required = true
+doc = "The ticket's number."
+
+[connector.operations.output]
+select = "comments"
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Tickets, users and more that match a Zendesk search."
+method = "get"
+path = "/api/v2/search"
+query = { query = "{params.query}", sort_by = "{params.sort_by}", sort_order = "{params.sort_order}" }
+headers = { Accept = "application/json" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+required = true
+doc = "A Zendesk search: type:ticket status:open."
+
+[[connector.operations.params]]
+name = "sort_by"
+label = "Sort by"
+doc = "updated_at, created_at, priority, status or ticket_type; empty for relevance."
+
+[[connector.operations.params]]
+name = "sort_order"
+label = "Order"
+doc = "asc or desc; Zendesk's default is desc."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "create_ticket"
+name = "Open ticket"
+description = "Open a ticket with its first comment."
+method = "post"
+path = "/api/v2/tickets"
+headers = { Accept = "application/json" }
+body = { kind = "json", value = { ticket = { subject = "{params.subject}", comment = { body = "{params.body}" }, priority = "{params.priority}", requester = "{params.requester}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "subject"
+label = "Subject"
+doc = "The ticket's subject."
+
+[[connector.operations.params]]
+name = "body"
+label = "Comment"
+required = true
+doc = "The first comment: what the ticket is about."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+doc = "urgent, high, normal or low; empty for none."
+
+[[connector.operations.params]]
+name = "requester"
+label = "Requester email"
+doc = "The email of the person the ticket is for; empty for yourself."
+
+[connector.operations.output]
+select = "ticket"
+
+[[connector.operations]]
+id = "add_comment"
+name = "Add comment"
+description = "Add a comment to a ticket — an internal note unless it is made public."
+method = "put"
+path = "/api/v2/tickets/{params.id}"
+headers = { Accept = "application/json" }
+body = { kind = "json", value = { ticket = { comment = { body = "{params.body}", public = "{params.public}" } } } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Ticket id"
+kind = "number"
+required = true
+doc = "The ticket's number."
+
+[[connector.operations.params]]
+name = "body"
+label = "Comment"
+required = true
+doc = "The comment's text."
+
+[[connector.operations.params]]
+name = "public"
+label = "Public"
+kind = "bool"
+required = true
+default = false
+doc = "true for a comment the requester sees; false, an internal note, unless set."
+
+[connector.operations.output]
+select = "ticket"
+
+[[connector.operations]]
+id = "update_ticket"
+name = "Update ticket"
+description = "Change a ticket's status or priority; what is left empty stays as it is."
+method = "put"
+path = "/api/v2/tickets/{params.id}"
+headers = { Accept = "application/json" }
+body = { kind = "json", value = { ticket = { status = "{params.status}", priority = "{params.priority}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "id"
+label = "Ticket id"
+kind = "number"
+required = true
+doc = "The ticket's number."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "open, pending, hold or solved; empty to keep it."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+doc = "urgent, high, normal or low; empty to keep it."
+
+[connector.operations.output]
+select = "ticket"

@@ -1,0 +1,313 @@
+# Built-in connector: Stripe — customers, invoices, charges, subscriptions and products, read; a customer written.
+#
+# Nothing here moves money: no charge, refund, payout or invoice is made.
+# A secret or restricted key is sent as `Authorization: Bearer`, which
+# Stripe documents beside its default Basic form. The API "accepts
+# form-encoded request bodies, returns JSON-encoded responses". Every
+# call names `Stripe-Version: 2026-10-28.endive`, the current version;
+# left out, a call would run under the account's own default. A list
+# answers ten objects under `data`, 100 at most. The two writes carry an
+# `Idempotency-Key`, which every v1 POST accepts: a retry with the same
+# key answers the first result. Search is not for reading back what was
+# just written — data is searchable "in less than a minute", sometimes
+# later — and is not offered to merchants in India.
+#
+# Reference: https://docs.stripe.com/api
+# Reference: https://docs.stripe.com/api/authentication
+# Reference: https://docs.stripe.com/api/idempotent_requests
+# Reference: https://docs.stripe.com/api/versioning
+# Reference: https://docs.stripe.com/api/pagination
+# Reference: https://docs.stripe.com/api/errors
+# Reference: https://docs.stripe.com/rate-limits
+# Reference: https://docs.stripe.com/api/balance/balance_retrieve
+# Reference: https://docs.stripe.com/api/customers/list
+# Reference: https://docs.stripe.com/api/customers/retrieve
+# Reference: https://docs.stripe.com/api/customers/search
+# Reference: https://docs.stripe.com/api/customers/create
+# Reference: https://docs.stripe.com/api/customers/update
+# Reference: https://docs.stripe.com/api/invoices/list
+# Reference: https://docs.stripe.com/api/invoices/retrieve
+# Reference: https://docs.stripe.com/api/charges/list
+# Reference: https://docs.stripe.com/api/charges/retrieve
+# Reference: https://docs.stripe.com/api/subscriptions/list
+# Reference: https://docs.stripe.com/api/products/list
+
+[connector]
+name = "Stripe"
+description = "Read the balance, customers, invoices, charges, subscriptions and products, and create or update a customer. Nothing here moves money. Paste a secret key, or better a restricted key with read access and write access to customers only."
+tags = ["business", "data"]
+base_url = "https://api.stripe.com"
+hosts = ["api.stripe.com"]
+check = "balance"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "balance"
+name = "Balance"
+description = "The account's current balance — the one call that proves the key works."
+method = "get"
+path = "/v1/balance"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations]]
+id = "customers"
+name = "List customers"
+description = "Customers, newest first, optionally those with one email address."
+method = "get"
+path = "/v1/customers"
+query = { email = "{params.email}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "Only customers with exactly this address; the match is case-sensitive."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many customers to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "customer"
+name = "Get customer"
+description = "One customer."
+method = "get"
+path = "/v1/customers/{params.id}"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Customer id"
+required = true
+doc = "The customer's id, cus_…"
+
+[[connector.operations]]
+id = "search_customers"
+name = "Search customers"
+description = "Customers matching a search query; what was just written may not be found yet."
+method = "get"
+path = "/v1/customers/search"
+query = { query = "{params.query}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+required = true
+doc = "Stripe's search language: name:'Jane Doe' AND metadata['foo']:'bar'."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many customers to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "create_customer"
+name = "Create customer"
+description = "Create a customer record; no payment is taken."
+method = "post"
+path = "/v1/customers"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+body = { kind = "form", fields = { email = "{params.email}", name = "{params.name}", phone = "{params.phone}", description = "{params.description}" } }
+writes = true
+idempotency = { header = "Idempotency-Key" }
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "The customer's email address."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The customer's full name or business name."
+
+[[connector.operations.params]]
+name = "phone"
+label = "Phone"
+doc = "The customer's phone number, 20 characters at most."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "A note of your own on the customer."
+
+[[connector.operations]]
+id = "update_customer"
+name = "Update customer"
+description = "Change a customer's email, name, phone or description; what is left empty stays as it is."
+method = "post"
+path = "/v1/customers/{params.id}"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+body = { kind = "form", fields = { email = "{params.email}", name = "{params.name}", phone = "{params.phone}", description = "{params.description}" } }
+writes = true
+idempotency = { header = "Idempotency-Key" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Customer id"
+required = true
+doc = "The customer's id, cus_…"
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "The new email address; empty to keep it."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The new name; empty to keep it."
+
+[[connector.operations.params]]
+name = "phone"
+label = "Phone"
+doc = "The new phone number; empty to keep it."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "The new description; empty to keep it."
+
+[[connector.operations]]
+id = "invoices"
+name = "List invoices"
+description = "Invoices, optionally one customer's or of one status."
+method = "get"
+path = "/v1/invoices"
+query = { customer = "{params.customer}", status = "{params.status}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "customer"
+label = "Customer id"
+doc = "Only this customer's invoices; empty for everyone's."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "draft, open, paid, uncollectible or void; empty for every one."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many invoices to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "invoice"
+name = "Get invoice"
+description = "One invoice."
+method = "get"
+path = "/v1/invoices/{params.id}"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Invoice id"
+required = true
+doc = "The invoice's id, in_…"
+
+[[connector.operations]]
+id = "charges"
+name = "List charges"
+description = "Charges, newest first, optionally one customer's."
+method = "get"
+path = "/v1/charges"
+query = { customer = "{params.customer}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "customer"
+label = "Customer id"
+doc = "Only this customer's charges; empty for everyone's."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many charges to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "charge"
+name = "Get charge"
+description = "One charge."
+method = "get"
+path = "/v1/charges/{params.id}"
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Charge id"
+required = true
+doc = "The charge's id, ch_…"
+
+[[connector.operations]]
+id = "subscriptions"
+name = "List subscriptions"
+description = "Subscriptions that have not been canceled, unless a status says otherwise."
+method = "get"
+path = "/v1/subscriptions"
+query = { customer = "{params.customer}", status = "{params.status}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "customer"
+label = "Customer id"
+doc = "Only this customer's subscriptions; empty for everyone's."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "active, past_due, trialing, canceled, unpaid, paused — or all for every status."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many subscriptions to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "products"
+name = "List products"
+description = "The products of the account's catalog."
+method = "get"
+path = "/v1/products"
+query = { active = "{params.active}", limit = "{params.max}" }
+headers = { "Stripe-Version" = "2026-10-28.endive" }
+
+[[connector.operations.params]]
+name = "active"
+label = "Active"
+kind = "bool"
+doc = "true for active products only, false for the inactive; empty for both."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many products to return, 1 to 100; Stripe's default is 10."
+
+[connector.operations.output]
+select = "data"
