@@ -1,0 +1,248 @@
+# Built-in connector: Asana — workspaces, projects and tasks.
+#
+# A personal access token, made in Asana's developer console, is sent as
+# `Authorization: Bearer`. Bodies go in a `data` block and answers come
+# back under `data`. A list's `limit` is between 1 and 100. A task is
+# created in a project here — "the workspace need not be set explicitly if
+# you specify `projects`". An update is a PUT of which "only the fields
+# provided in the `data` block will be updated". A story on a task is a
+# comment. Workspace search is left out: it answers 402 to an account
+# that is not premium.
+#
+# Reference: https://developers.asana.com/docs/personal-access-token
+# Reference: https://developers.asana.com/reference/rest-api-reference
+# Reference: https://developers.asana.com/docs/pagination
+# Reference: https://developers.asana.com/docs/rate-limits
+# Reference: https://developers.asana.com/docs/errors
+# Reference: https://developers.asana.com/reference/getuser
+# Reference: https://developers.asana.com/reference/getworkspaces
+# Reference: https://developers.asana.com/reference/getprojects
+# Reference: https://developers.asana.com/reference/gettasksforproject
+# Reference: https://developers.asana.com/reference/gettask
+# Reference: https://developers.asana.com/reference/createtask
+# Reference: https://developers.asana.com/reference/updatetask
+# Reference: https://developers.asana.com/reference/createstoryfortask
+
+[connector]
+name = "Asana"
+description = "List workspaces, projects and a project's tasks, read a task, create one, update or complete one, and comment on it. Paste a personal access token from the Asana developer console."
+tags = ["planning", "management"]
+base_url = "https://app.asana.com/api/1.0"
+hosts = ["app.asana.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The token's user — the one call that proves the token works."
+method = "get"
+path = "/users/me"
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "workspaces"
+name = "List workspaces"
+description = "The workspaces and organizations the user belongs to."
+method = "get"
+path = "/workspaces"
+query = { limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many workspaces to return, 1 to 100."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "projects"
+name = "List projects"
+description = "The projects of a workspace."
+method = "get"
+path = "/projects"
+query = { workspace = "{params.workspace}", archived = "{params.archived}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "workspace"
+label = "Workspace id"
+required = true
+doc = "The workspace's gid, as workspaces returned it."
+
+[[connector.operations.params]]
+name = "archived"
+label = "Archived"
+kind = "bool"
+doc = "true for archived projects only, false for the others; empty for both."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many projects to return, 1 to 100."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "project_tasks"
+name = "List tasks"
+description = "The tasks of a project."
+method = "get"
+path = "/projects/{params.project}/tasks"
+query = { completed_since = "{params.completed_since}", opt_fields = "{params.fields}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "project"
+label = "Project id"
+required = true
+doc = "The project's gid."
+
+[[connector.operations.params]]
+name = "completed_since"
+label = "Completed since"
+doc = "now for the tasks not yet completed, or a date-time to add those completed after it; empty for all."
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+doc = "The task fields to return, comma-separated: name,completed,due_on,assignee.name. Empty for Asana's compact form."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many tasks to return, 1 to 100."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "get_task"
+name = "Get task"
+description = "One task in full."
+method = "get"
+path = "/tasks/{params.task}"
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's gid."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "create_task"
+name = "Create task"
+description = "Add a task to a project."
+method = "post"
+path = "/tasks"
+body = { kind = "json", value = { data = { name = "{params.name}", notes = "{params.notes}", projects = ["{params.project}"], assignee = "{params.assignee}", due_on = "{params.due}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "project"
+label = "Project id"
+required = true
+doc = "The gid of the project the task goes in."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The task's name."
+
+[[connector.operations.params]]
+name = "notes"
+label = "Notes"
+doc = "Free text under the name; empty for none."
+
+[[connector.operations.params]]
+name = "assignee"
+label = "Assignee"
+doc = "me, an email address or a user's gid; empty for nobody."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due on"
+doc = "A date, 2026-09-07; empty for none."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "update_task"
+name = "Update task"
+description = "Change a task's name, notes, due date or assignee, or complete it; what is left empty stays as it is."
+method = "put"
+path = "/tasks/{params.task}"
+body = { kind = "json", value = { data = { name = "{params.name}", notes = "{params.notes}", completed = "{params.completed}", assignee = "{params.assignee}", due_on = "{params.due}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's gid."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The new name; empty to keep it."
+
+[[connector.operations.params]]
+name = "notes"
+label = "Notes"
+doc = "The new notes; empty to keep them."
+
+[[connector.operations.params]]
+name = "completed"
+label = "Completed"
+kind = "bool"
+doc = "true to complete the task, false to reopen it; empty to keep it."
+
+[[connector.operations.params]]
+name = "assignee"
+label = "Assignee"
+doc = "me, an email address or a user's gid; empty to keep it."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due on"
+doc = "A date, 2026-09-07; empty to keep it."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "comment"
+name = "Comment"
+description = "Add a comment to a task."
+method = "post"
+path = "/tasks/{params.task}/stories"
+body = { kind = "json", value = { data = { text = "{params.text}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's gid."
+
+[[connector.operations.params]]
+name = "text"
+label = "Comment"
+required = true
+doc = "The comment, as plain text."
+
+[connector.operations.output]
+select = "data"

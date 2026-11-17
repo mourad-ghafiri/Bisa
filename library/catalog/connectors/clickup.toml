@@ -1,0 +1,296 @@
+# Built-in connector: ClickUp — workspaces, spaces, lists and tasks.
+#
+# A personal token (it begins `pk_` and never expires) goes in the
+# Authorization header bare — `Authorization: {personal_token}`, the
+# `Bearer` form being OAuth's — so the scheme is an api_key in that
+# header. This is the v2 API, where "Team" is what ClickUp now calls a
+# Workspace. A task list answers 100 tasks a page and takes no page size,
+# so there is no *At most*: `page` names the page, from 0. Closed tasks
+# and subtasks are left out unless asked for. A priority is 1 urgent, 2
+# high, 3 normal, 4 low; a date is milliseconds since 1970. A comment must
+# say `notify_all`; false is sent.
+#
+# Reference: https://developer.clickup.com/docs/authentication
+# Reference: https://developer.clickup.com/docs/general-v2-v3-api
+# Reference: https://developer.clickup.com/docs/general-time
+# Reference: https://developer.clickup.com/docs/tasks
+# Reference: https://developer.clickup.com/docs/rate-limits
+# Reference: https://developer.clickup.com/reference/getauthorizeduser
+# Reference: https://developer.clickup.com/reference/getauthorizedteams
+# Reference: https://developer.clickup.com/reference/getspaces
+# Reference: https://developer.clickup.com/reference/getfolders
+# Reference: https://developer.clickup.com/reference/getlists
+# Reference: https://developer.clickup.com/reference/getfolderlesslists
+# Reference: https://developer.clickup.com/reference/gettasks
+# Reference: https://developer.clickup.com/reference/gettask
+# Reference: https://developer.clickup.com/reference/createtask
+# Reference: https://developer.clickup.com/reference/updatetask
+# Reference: https://developer.clickup.com/reference/createtaskcomment
+# Reference: https://developer.clickup.com/reference/gettaskcomments
+
+[connector]
+name = "ClickUp"
+description = "Walk workspaces, spaces, folders and lists, read a list's tasks and a task's comments, create or update a task and comment on it. Paste your personal API token from Settings › Apps."
+tags = ["planning", "management"]
+base_url = "https://api.clickup.com/api/v2"
+hosts = ["api.clickup.com"]
+check = "user"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "Authorization" }
+
+[[connector.operations]]
+id = "user"
+name = "User"
+description = "The token's user — the one call that proves the token works."
+method = "get"
+path = "/user"
+
+[connector.operations.output]
+select = "user"
+
+[[connector.operations]]
+id = "workspaces"
+name = "List workspaces"
+description = "The workspaces the user can reach."
+method = "get"
+path = "/team"
+
+[connector.operations.output]
+select = "teams"
+
+[[connector.operations]]
+id = "spaces"
+name = "List spaces"
+description = "A workspace's spaces."
+method = "get"
+path = "/team/{params.workspace}/space"
+
+[[connector.operations.params]]
+name = "workspace"
+label = "Workspace id"
+required = true
+doc = "The id workspaces returned."
+
+[connector.operations.output]
+select = "spaces"
+
+[[connector.operations]]
+id = "folders"
+name = "List folders"
+description = "A space's folders."
+method = "get"
+path = "/space/{params.space}/folder"
+
+[[connector.operations.params]]
+name = "space"
+label = "Space id"
+required = true
+doc = "The id spaces returned."
+
+[connector.operations.output]
+select = "folders"
+
+[[connector.operations]]
+id = "lists"
+name = "List lists"
+description = "A folder's lists."
+method = "get"
+path = "/folder/{params.folder}/list"
+
+[[connector.operations.params]]
+name = "folder"
+label = "Folder id"
+required = true
+doc = "The id folders returned."
+
+[connector.operations.output]
+select = "lists"
+
+[[connector.operations]]
+id = "folderless_lists"
+name = "List lists outside folders"
+description = "The lists of a space that sit in no folder."
+method = "get"
+path = "/space/{params.space}/list"
+
+[[connector.operations.params]]
+name = "space"
+label = "Space id"
+required = true
+doc = "The id spaces returned."
+
+[connector.operations.output]
+select = "lists"
+
+[[connector.operations]]
+id = "tasks"
+name = "List tasks"
+description = "A list's tasks, 100 a page."
+method = "get"
+path = "/list/{params.list}/task"
+query = { page = "{params.page}", include_closed = "{params.closed}", subtasks = "{params.subtasks}" }
+
+[[connector.operations.params]]
+name = "list"
+label = "List id"
+required = true
+doc = "The id lists returned."
+
+[[connector.operations.params]]
+name = "page"
+label = "Page"
+kind = "number"
+doc = "Which page of 100, from 0; empty for the first."
+
+[[connector.operations.params]]
+name = "closed"
+label = "Include closed"
+kind = "bool"
+doc = "true to include closed tasks; they are left out unless asked for."
+
+[[connector.operations.params]]
+name = "subtasks"
+label = "Include subtasks"
+kind = "bool"
+doc = "true to include subtasks; they are left out unless asked for."
+
+[connector.operations.output]
+select = "tasks"
+
+[[connector.operations]]
+id = "get_task"
+name = "Get task"
+description = "One task in full."
+method = "get"
+path = "/task/{params.task}"
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations]]
+id = "create_task"
+name = "Create task"
+description = "Add a task to a list."
+method = "post"
+path = "/list/{params.list}/task"
+body = { kind = "json", value = { name = "{params.name}", description = "{params.description}", status = "{params.status}", priority = "{params.priority}", due_date = "{params.due}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "List id"
+required = true
+doc = "The id of the list the task goes in."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The task's name."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "Plain text under the name; empty for none."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "One of the list's statuses, by its name; empty for the list's first."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+kind = "number"
+doc = "1 urgent, 2 high, 3 normal, 4 low; empty for none."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+kind = "number"
+doc = "The due moment in milliseconds since 1970: 1788782400000. Empty for none."
+
+[[connector.operations]]
+id = "update_task"
+name = "Update task"
+description = "Change a task's name, description, status, priority or due date; what is left empty stays as it is."
+method = "put"
+path = "/task/{params.task}"
+body = { kind = "json", value = { name = "{params.name}", description = "{params.description}", status = "{params.status}", priority = "{params.priority}", due_date = "{params.due}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The new name; empty to keep it."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "The new description; empty to keep it."
+
+[[connector.operations.params]]
+name = "status"
+label = "Status"
+doc = "One of the list's statuses, by its name; empty to keep it."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+kind = "number"
+doc = "1 urgent, 2 high, 3 normal, 4 low; empty to keep it."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+kind = "number"
+doc = "The due moment in milliseconds since 1970; empty to keep it."
+
+[[connector.operations]]
+id = "comments"
+name = "List comments"
+description = "A task's 25 most recent comments, newest first."
+method = "get"
+path = "/task/{params.task}/comment"
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[connector.operations.output]
+select = "comments"
+
+[[connector.operations]]
+id = "comment"
+name = "Comment"
+description = "Add a comment to a task."
+method = "post"
+path = "/task/{params.task}/comment"
+body = { kind = "json", value = { comment_text = "{params.text}", notify_all = false } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations.params]]
+name = "text"
+label = "Comment"
+required = true
+doc = "The comment's text."

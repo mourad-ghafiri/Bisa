@@ -1,0 +1,224 @@
+# Built-in connector: Todoist — projects, tasks and comments over the Todoist API v1.
+#
+# A personal API token, from the account's integrations settings, is sent
+# as `Authorization: Bearer`. The reference is one long page whose task,
+# project and comment sections could not be read here, so the paths, the
+# methods and the field names below are taken from the source of Doist's
+# own TypeScript and Python clients, which call
+# `https://api.todoist.com/api/v1`: lists answer under `results`, 200 at
+# most a page; a task is updated and closed with a POST; a priority runs
+# 1 to 4, "4 for very urgent". What those sources do not state is left
+# to the platform: the default page size, and the status a close answers.
+#
+# Reference: https://developer.todoist.com/api/v1/
+# Reference: https://github.com/Doist/todoist-api-typescript/blob/main/src/consts/endpoints.ts
+# Reference: https://github.com/Doist/todoist-api-typescript/blob/main/src/clients/task-client.ts
+# Reference: https://github.com/Doist/todoist-api-typescript/blob/main/src/clients/comment-client.ts
+# Reference: https://github.com/Doist/todoist-api-python/blob/main/todoist_api_python/api.py
+# Reference: https://github.com/Doist/todoist-api-python/blob/main/todoist_api_python/_core/endpoints.py
+
+[connector]
+name = "Todoist"
+description = "List projects and tasks, find tasks with a Todoist filter, add a task, update or complete one, and comment on it. Paste your API token from Settings › Integrations."
+tags = ["planning", "ops"]
+base_url = "https://api.todoist.com/api/v1"
+hosts = ["api.todoist.com"]
+check = "user"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "user"
+name = "User"
+description = "The token's user — the one call that proves the token works."
+method = "get"
+path = "/user"
+
+[[connector.operations]]
+id = "projects"
+name = "List projects"
+description = "The account's projects."
+method = "get"
+path = "/projects"
+query = { limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many projects to return, 200 at most."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "tasks"
+name = "List tasks"
+description = "Active tasks, of one project or of all."
+method = "get"
+path = "/tasks"
+query = { project_id = "{params.project}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "project"
+label = "Project id"
+doc = "Only this project's tasks; empty for every project."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many tasks to return, 200 at most."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "filter_tasks"
+name = "Filter tasks"
+description = "Active tasks that match a Todoist filter."
+method = "get"
+path = "/tasks/filter"
+query = { query = "{params.query}", lang = "{params.lang}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Filter"
+required = true
+doc = "A Todoist filter, as typed in the app: today | overdue. At most 1024 characters."
+
+[[connector.operations.params]]
+name = "lang"
+label = "Language"
+doc = "The language the filter is written in, en; empty for the account's."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many tasks to return, 200 at most."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "get_task"
+name = "Get task"
+description = "One task."
+method = "get"
+path = "/tasks/{params.task}"
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations]]
+id = "create_task"
+name = "Add task"
+description = "Add a task, to a project or to the Inbox."
+method = "post"
+path = "/tasks"
+body = { kind = "json", value = { content = "{params.content}", description = "{params.description}", project_id = "{params.project}", priority = "{params.priority}", due_string = "{params.due}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "content"
+label = "Task"
+required = true
+doc = "What is to be done, at most 500 characters."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "More about it; empty for none."
+
+[[connector.operations.params]]
+name = "project"
+label = "Project id"
+doc = "The project the task goes in; empty for the Inbox."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+kind = "number"
+doc = "1 to 4, 4 for very urgent; empty for 1."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+doc = "When, in plain words: tomorrow at 9, every Monday. Empty for no date."
+
+[[connector.operations]]
+id = "update_task"
+name = "Update task"
+description = "Change a task's text, description, priority or due date; what is left empty stays as it is."
+method = "post"
+path = "/tasks/{params.task}"
+body = { kind = "json", value = { content = "{params.content}", description = "{params.description}", priority = "{params.priority}", due_string = "{params.due}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations.params]]
+name = "content"
+label = "Task"
+doc = "The new text; empty to keep it."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "The new description; empty to keep it."
+
+[[connector.operations.params]]
+name = "priority"
+label = "Priority"
+kind = "number"
+doc = "1 to 4, 4 for very urgent; empty to keep it."
+
+[[connector.operations.params]]
+name = "due"
+label = "Due"
+doc = "When, in plain words; no date removes it. Empty to keep it."
+
+[[connector.operations]]
+id = "close_task"
+name = "Complete task"
+description = "Mark a task done."
+method = "post"
+path = "/tasks/{params.task}/close"
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations]]
+id = "add_comment"
+name = "Comment"
+description = "Add a comment to a task."
+method = "post"
+path = "/comments"
+body = { kind = "json", value = { task_id = "{params.task}", content = "{params.content}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "task"
+label = "Task id"
+required = true
+doc = "The task's id."
+
+[[connector.operations.params]]
+name = "content"
+label = "Comment"
+required = true
+doc = "The comment's text."

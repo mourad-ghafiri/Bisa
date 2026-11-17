@@ -2187,3 +2187,518 @@ fn figma_sends_its_token_in_its_own_header_and_replies_by_a_comments_id() {
         json!({"message": "Done.", "comment_id": "1234"})
     );
 }
+
+// --- work tracking: Airtable, Asana, ClickUp, monday.com, Todoist, Intercom ---
+
+const WORK: [&str; 6] = [
+    "airtable", "asana", "clickup", "monday", "todoist", "intercom",
+];
+
+fn bearer(value: &str) -> Credential {
+    Credential::Bearer(Secret::new(value))
+}
+
+/// What changes something says so, and nothing in the six deletes. A POST
+/// may be a read where the platform's query is one — a GraphQL query, a
+/// search — and those are named here, one by one.
+#[test]
+fn the_work_connectors_mark_every_write_and_delete_nothing() {
+    let reads_by_post = [
+        ("monday", "me"),
+        ("monday", "boards"),
+        ("monday", "items"),
+        ("monday", "get_item"),
+        ("intercom", "search_contacts"),
+    ];
+    for slug in WORK {
+        let d = def(slug);
+        for op in &d.operations {
+            assert_ne!(
+                op.method,
+                bisa_core::HttpMethod::Delete,
+                "{slug}.{}: no built-in deletes",
+                op.id
+            );
+            let read = op.method == bisa_core::HttpMethod::Get
+                || reads_by_post.contains(&(slug, op.id.as_str()));
+            assert_eq!(
+                op.writes, !read,
+                "{slug}.{}: what is not a read is a write, and says so",
+                op.id
+            );
+        }
+    }
+}
+
+#[test]
+fn airtable_names_a_table_in_the_path_and_updates_with_a_patch() {
+    let d = def("airtable");
+    let who = signed(&d, request(&d, "whoami", &[]), bearer("pat-not-real"));
+    assert_eq!(who.url.as_str(), "https://api.airtable.com/v0/meta/whoami");
+    assert_eq!(who.header("authorization"), Some("Bearer pat-not-real"));
+    assert_eq!(request(&d, "list_bases", &[]).url.path(), "/v0/meta/bases");
+    assert_eq!(
+        request(&d, "tables", &[("base", "appLkNDICXNqxSDhG")])
+            .url
+            .path(),
+        "/v0/meta/bases/appLkNDICXNqxSDhG/tables"
+    );
+
+    let list = request(
+        &d,
+        "list_records",
+        &[
+            ("base", "appLkNDICXNqxSDhG"),
+            ("table", "Open tasks"),
+            ("max", "50"),
+            ("formula", "{Status} = 'Open'"),
+        ],
+    );
+    assert_eq!(
+        decoded(list.url.path()),
+        "/v0/appLkNDICXNqxSDhG/Open tasks",
+        "a table by its name"
+    );
+    assert!(!list.url.path().contains(' '), "{}", list.url.path());
+    assert_eq!(
+        query(&list),
+        BTreeMap::from([
+            ("maxRecords".to_string(), "50".to_string()),
+            (
+                "filterByFormula".to_string(),
+                "{Status} = 'Open'".to_string()
+            ),
+        ])
+    );
+    assert_eq!(
+        request(
+            &d,
+            "get_record",
+            &[
+                ("base", "appLkNDICXNqxSDhG"),
+                ("table", "tblA1"),
+                ("record", "rec560UJdUtocSouk")
+            ]
+        )
+        .url
+        .path(),
+        "/v0/appLkNDICXNqxSDhG/tblA1/rec560UJdUtocSouk"
+    );
+
+    let created = request(
+        &d,
+        "create_record",
+        &[
+            ("base", "appLkNDICXNqxSDhG"),
+            ("table", "tblA1"),
+            ("fields", r#"{"Name": "Ada", "Status": "Open"}"#),
+        ],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/v0/appLkNDICXNqxSDhG/tblA1");
+    assert_eq!(
+        body(&created),
+        json!({"fields": {"Name": "Ada", "Status": "Open"}}),
+        "one record at the top level"
+    );
+    let updated = request(
+        &d,
+        "update_record",
+        &[
+            ("base", "appLkNDICXNqxSDhG"),
+            ("table", "tblA1"),
+            ("record", "rec560UJdUtocSouk"),
+            ("fields", r#"{"Status": "Done"}"#),
+            ("typecast", "true"),
+        ],
+    );
+    assert_eq!(
+        updated.method.as_str(),
+        "PATCH",
+        "a PUT would clear every field not named"
+    );
+    assert_eq!(
+        body(&updated),
+        json!({"fields": {"Status": "Done"}, "typecast": true})
+    );
+}
+
+#[test]
+fn asana_wraps_a_body_in_data_and_creates_a_task_in_a_project() {
+    let d = def("asana");
+    let me = signed(&d, request(&d, "me", &[]), bearer("pat-not-real"));
+    assert_eq!(me.url.as_str(), "https://app.asana.com/api/1.0/users/me");
+    assert_eq!(me.header("authorization"), Some("Bearer pat-not-real"));
+    for op in &d.operations {
+        assert_eq!(
+            op.output.select.as_deref(),
+            Some("data"),
+            "{}: an answer comes under `data`",
+            op.id
+        );
+    }
+    let projects = request(&d, "projects", &[("workspace", "12345"), ("max", "100")]);
+    assert_eq!(projects.url.path(), "/api/1.0/projects");
+    assert_eq!(
+        query(&projects),
+        BTreeMap::from([
+            ("workspace".to_string(), "12345".to_string()),
+            ("limit".to_string(), "100".to_string()),
+        ])
+    );
+    let open = request(
+        &d,
+        "project_tasks",
+        &[("project", "67890"), ("completed_since", "now")],
+    );
+    assert_eq!(open.url.path(), "/api/1.0/projects/67890/tasks");
+    assert_eq!(query(&open)["completed_since"], "now");
+    assert_eq!(
+        request(&d, "get_task", &[("task", "111")]).url.path(),
+        "/api/1.0/tasks/111"
+    );
+
+    let created = request(
+        &d,
+        "create_task",
+        &[
+            ("project", "67890"),
+            ("name", "Send the invoice"),
+            ("due", "2026-09-07"),
+        ],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/api/1.0/tasks");
+    assert_eq!(
+        body(&created),
+        json!({"data": {
+            "name": "Send the invoice",
+            "projects": ["67890"],
+            "due_on": "2026-09-07"
+        }}),
+        "the project names the workspace"
+    );
+    let done = request(&d, "update_task", &[("task", "111"), ("completed", "true")]);
+    assert_eq!(done.method.as_str(), "PUT");
+    assert_eq!(done.url.path(), "/api/1.0/tasks/111");
+    assert_eq!(
+        body(&done),
+        json!({"data": {"completed": true}}),
+        "only the fields in the data block are updated"
+    );
+    let said = request(&d, "comment", &[("task", "111"), ("text", "Sent.")]);
+    assert_eq!(said.url.path(), "/api/1.0/tasks/111/stories");
+    assert_eq!(body(&said), json!({"data": {"text": "Sent."}}));
+}
+
+#[test]
+fn clickup_sends_its_token_bare_and_walks_from_a_workspace_to_a_task() {
+    let d = def("clickup");
+    let user = signed(&d, request(&d, "user", &[]), key("pk_not_real"));
+    assert_eq!(user.url.as_str(), "https://api.clickup.com/api/v2/user");
+    assert_eq!(
+        user.header("authorization"),
+        Some("pk_not_real"),
+        "no Bearer: that form is OAuth's"
+    );
+    for (op, params, path) in [
+        ("workspaces", vec![], "/api/v2/team"),
+        ("spaces", vec![("workspace", "9")], "/api/v2/team/9/space"),
+        ("folders", vec![("space", "8")], "/api/v2/space/8/folder"),
+        ("lists", vec![("folder", "7")], "/api/v2/folder/7/list"),
+        (
+            "folderless_lists",
+            vec![("space", "8")],
+            "/api/v2/space/8/list",
+        ),
+        ("tasks", vec![("list", "6")], "/api/v2/list/6/task"),
+        ("get_task", vec![("task", "abc1")], "/api/v2/task/abc1"),
+        (
+            "comments",
+            vec![("task", "abc1")],
+            "/api/v2/task/abc1/comment",
+        ),
+    ] {
+        let req = request(&d, op, &params);
+        assert_eq!(req.method.as_str(), "GET", "{op}");
+        assert_eq!(req.url.path(), path, "{op}");
+        assert!(query(&req).is_empty(), "{op}");
+    }
+    let closed = request(
+        &d,
+        "tasks",
+        &[("list", "6"), ("page", "2"), ("closed", "true")],
+    );
+    assert_eq!(
+        query(&closed),
+        BTreeMap::from([
+            ("page".to_string(), "2".to_string()),
+            ("include_closed".to_string(), "true".to_string()),
+        ]),
+        "a hundred a page: the page is named, not its size"
+    );
+
+    let created = request(
+        &d,
+        "create_task",
+        &[
+            ("list", "6"),
+            ("name", "Send the invoice"),
+            ("priority", "2"),
+            ("due", "1788782400000"),
+        ],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/api/v2/list/6/task");
+    assert_eq!(
+        body(&created),
+        json!({"name": "Send the invoice", "priority": 2, "due_date": 1788782400000u64})
+    );
+    let moved = request(&d, "update_task", &[("task", "abc1"), ("status", "done")]);
+    assert_eq!(moved.method.as_str(), "PUT");
+    assert_eq!(moved.url.path(), "/api/v2/task/abc1");
+    assert_eq!(body(&moved), json!({"status": "done"}));
+    let said = request(&d, "comment", &[("task", "abc1"), ("text", "Sent.")]);
+    assert_eq!(said.url.path(), "/api/v2/task/abc1/comment");
+    assert_eq!(
+        body(&said),
+        json!({"comment_text": "Sent.", "notify_all": false}),
+        "both are required"
+    );
+}
+
+#[test]
+fn monday_posts_graphql_to_one_address_names_its_version_and_expects_no_errors() {
+    let d = def("monday");
+    for (op, req) in every_request_with(&d, "{}") {
+        assert_eq!(req.method.as_str(), "POST", "{op}");
+        assert_eq!(req.url.as_str(), "https://api.monday.com/v2", "{op}");
+        assert_eq!(req.header("api-version"), Some("2026-10"), "{op}");
+        let sent = body(&req);
+        let text = sent["query"].as_str().unwrap();
+        assert!(
+            !text.contains("{{") && !text.contains("}}"),
+            "{op}: the doubled braces are GraphQL's single ones on the wire: {text}"
+        );
+        assert_eq!(
+            expect_of(&d, &op),
+            Some(Expect {
+                path: "errors".into(),
+                equals: None,
+                absent: true,
+                reason: Some("errors.0.message".into()),
+            }),
+            "{op}: an application error is a 200 with `errors`"
+        );
+    }
+    let me = signed(&d, request(&d, "me", &[]), key("token-not-real"));
+    assert_eq!(me.header("authorization"), Some("token-not-real"));
+    assert_eq!(
+        body(&me),
+        json!({"query": "query { me { id name email } }"})
+    );
+
+    let boards = request(&d, "boards", &[]);
+    assert_eq!(
+        body(&boards)["query"],
+        "query($limit: Int) { boards(limit: $limit) { id name state workspace_id } }"
+    );
+    let items = request(&d, "items", &[("board", "1234567890")]);
+    assert_eq!(
+        body(&items)["variables"],
+        json!({"board": ["1234567890"], "limit": 25}),
+        "`limit` is `Int!`: 25 unless the step says"
+    );
+    assert_eq!(
+        body(&items)["query"],
+        "query($board: [ID!], $limit: Int!) { boards(ids: $board) { items_page(limit: $limit) \
+         { cursor items { id name column_values { id text value } } } } }"
+    );
+    let one = request(&d, "get_item", &[("item", "9876543210")]);
+    assert_eq!(body(&one)["variables"], json!({"ids": ["9876543210"]}));
+
+    let created = request(
+        &d,
+        "create_item",
+        &[
+            ("board", "1234567890"),
+            ("name", "new item"),
+            ("values", r#"{"date":"2023-05-25"}"#),
+        ],
+    );
+    assert_eq!(
+        body(&created)["variables"],
+        json!({
+            "board": "1234567890",
+            "name": "new item",
+            "values": "{\"date\":\"2023-05-25\"}"
+        }),
+        "column values travel as a JSON-formatted string"
+    );
+    assert_eq!(
+        body(&created)["query"],
+        "mutation($board: ID!, $name: String!, $group: String, $values: JSON) { \
+         create_item(board_id: $board, item_name: $name, group_id: $group, column_values: \
+         $values) { id } }"
+    );
+    let set = request(
+        &d,
+        "set_column",
+        &[
+            ("board", "1234567890"),
+            ("item", "9876543210"),
+            ("column", "status"),
+            ("value", "Working on it"),
+        ],
+    );
+    assert_eq!(
+        body(&set)["variables"],
+        json!({
+            "board": "1234567890",
+            "item": "9876543210",
+            "column": "status",
+            "value": "Working on it"
+        })
+    );
+    let update = request(
+        &d,
+        "create_update",
+        &[("item", "9876543210"), ("body", "Shipped.")],
+    );
+    assert_eq!(
+        body(&update)["variables"],
+        json!({"item": "9876543210", "body": "Shipped."})
+    );
+}
+
+#[test]
+fn todoist_calls_the_v1_api_and_updates_and_closes_with_a_post() {
+    let d = def("todoist");
+    let user = signed(&d, request(&d, "user", &[]), bearer("token-not-real"));
+    assert_eq!(user.url.as_str(), "https://api.todoist.com/api/v1/user");
+    assert_eq!(user.header("authorization"), Some("Bearer token-not-real"));
+    assert_eq!(request(&d, "projects", &[]).url.path(), "/api/v1/projects");
+    let tasks = request(
+        &d,
+        "tasks",
+        &[("project", "6Jf8VQXxpwv56VQ7"), ("max", "200")],
+    );
+    assert_eq!(tasks.url.path(), "/api/v1/tasks");
+    assert_eq!(
+        query(&tasks),
+        BTreeMap::from([
+            ("project_id".to_string(), "6Jf8VQXxpwv56VQ7".to_string()),
+            ("limit".to_string(), "200".to_string()),
+        ])
+    );
+    let due = request(&d, "filter_tasks", &[("query", "today | overdue")]);
+    assert_eq!(due.url.path(), "/api/v1/tasks/filter");
+    assert_eq!(
+        query(&due),
+        BTreeMap::from([("query".to_string(), "today | overdue".to_string())])
+    );
+    assert_eq!(
+        request(&d, "get_task", &[("task", "abc")]).url.path(),
+        "/api/v1/tasks/abc"
+    );
+
+    let added = request(
+        &d,
+        "create_task",
+        &[
+            ("content", "Send the invoice"),
+            ("priority", "4"),
+            ("due", "tomorrow at 9"),
+        ],
+    );
+    assert_eq!(added.method.as_str(), "POST");
+    assert_eq!(added.url.path(), "/api/v1/tasks");
+    assert_eq!(
+        body(&added),
+        json!({"content": "Send the invoice", "priority": 4, "due_string": "tomorrow at 9"})
+    );
+    let changed = request(&d, "update_task", &[("task", "abc"), ("due", "no date")]);
+    assert_eq!(changed.method.as_str(), "POST", "an update is a POST here");
+    assert_eq!(changed.url.path(), "/api/v1/tasks/abc");
+    assert_eq!(body(&changed), json!({"due_string": "no date"}));
+    let closed = request(&d, "close_task", &[("task", "abc")]);
+    assert_eq!(closed.method.as_str(), "POST");
+    assert_eq!(closed.url.path(), "/api/v1/tasks/abc/close");
+    assert!(closed.body.is_none(), "a close carries nothing");
+    let said = request(&d, "add_comment", &[("task", "abc"), ("content", "Sent.")]);
+    assert_eq!(said.url.path(), "/api/v1/comments");
+    assert_eq!(body(&said), json!({"task_id": "abc", "content": "Sent."}));
+}
+
+#[test]
+fn intercom_names_its_version_on_every_call_and_searches_by_one_condition() {
+    let d = def("intercom");
+    for (op, req) in every_request_with(&d, "{}") {
+        assert_eq!(req.url.host_str(), Some("api.intercom.io"), "{op}");
+        assert_eq!(req.header("intercom-version"), Some("2.18"), "{op}");
+    }
+    let me = signed(&d, request(&d, "me", &[]), bearer("token-not-real"));
+    assert_eq!(me.url.as_str(), "https://api.intercom.io/me");
+    assert_eq!(me.header("authorization"), Some("Bearer token-not-real"));
+
+    let list = request(&d, "list_contacts", &[("max", "150")]);
+    assert_eq!(list.url.path(), "/contacts");
+    assert_eq!(query(&list)["per_page"], "150");
+    assert_eq!(
+        request(&d, "get_contact", &[("contact", "6762f0cd")])
+            .url
+            .path(),
+        "/contacts/6762f0cd"
+    );
+    let found = request(
+        &d,
+        "search_contacts",
+        &[("field", "email"), ("value", "ada@example.com")],
+    );
+    assert_eq!(found.method.as_str(), "POST");
+    assert_eq!(found.url.path(), "/contacts/search");
+    assert_eq!(
+        body(&found),
+        json!({"query": {"field": "email", "operator": "=", "value": "ada@example.com"}}),
+        "`=` unless the step says"
+    );
+
+    let created = request(
+        &d,
+        "create_contact",
+        &[("email", "ada@example.com"), ("name", "Ada")],
+    );
+    assert_eq!(created.method.as_str(), "POST");
+    assert_eq!(created.url.path(), "/contacts");
+    assert_eq!(
+        body(&created),
+        json!({"email": "ada@example.com", "name": "Ada"})
+    );
+    let updated = request(
+        &d,
+        "update_contact",
+        &[("contact", "6762f0cd"), ("phone", "+1 555 0100")],
+    );
+    assert_eq!(updated.method.as_str(), "PUT");
+    assert_eq!(updated.url.path(), "/contacts/6762f0cd");
+    assert_eq!(body(&updated), json!({"phone": "+1 555 0100"}));
+    let note = request(
+        &d,
+        "add_note",
+        &[("contact", "6762f0cd"), ("body", "Asked about invoices.")],
+    );
+    assert_eq!(note.url.path(), "/contacts/6762f0cd/notes");
+    assert_eq!(body(&note), json!({"body": "Asked about invoices."}));
+
+    assert_eq!(
+        request(&d, "list_conversations", &[]).url.path(),
+        "/conversations"
+    );
+    let one = request(&d, "get_conversation", &[("conversation", "123")]);
+    assert_eq!(one.url.path(), "/conversations/123");
+    assert_eq!(query(&one)["display_as"], "plaintext");
+    assert!(
+        d.operations.iter().all(|op| !op.path.ends_with("/reply")),
+        "no reply: the admin's form of it could not be read in full"
+    );
+}

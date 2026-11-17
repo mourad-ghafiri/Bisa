@@ -1,0 +1,207 @@
+# Built-in connector: Airtable — bases, their tables and their records.
+#
+# A personal access token is sent as `Authorization: Bearer`; Airtable's
+# API keys ended on February 1st 2024. A token reaches a base only when it
+# has "both the correct scope … and the base added to it as a resource":
+# `schema.bases:read` to list bases and tables, `data.records:read` to
+# read records, `data.records:write` to create and update. `whoami` needs
+# no scope. A table is named by its id or its name. A list answers pages
+# of 100 under `records` and leaves out a record's empty fields. An update
+# is a PATCH, which "will only update the fields you specify" — never the
+# PUT, which clears the rest. Five requests a second per base; past it, a
+# 429 and thirty seconds' wait.
+#
+# Reference: https://airtable.com/developers/web/api/authentication
+# Reference: https://airtable.com/developers/web/guides/personal-access-tokens
+# Reference: https://airtable.com/developers/web/api/get-user-id-scopes
+# Reference: https://airtable.com/developers/web/api/list-bases
+# Reference: https://airtable.com/developers/web/api/get-base-schema
+# Reference: https://airtable.com/developers/web/api/list-records
+# Reference: https://airtable.com/developers/web/api/get-record
+# Reference: https://airtable.com/developers/web/api/create-records
+# Reference: https://airtable.com/developers/web/api/update-record
+# Reference: https://airtable.com/developers/web/api/rate-limits
+# Reference: https://airtable.com/developers/web/api/errors
+
+[connector]
+name = "Airtable"
+description = "List bases and tables, read a table's records, create a record and update one. Paste a personal access token with schema.bases:read, data.records:read and data.records:write, and add the bases it may reach."
+tags = ["data", "business"]
+base_url = "https://api.airtable.com"
+hosts = ["api.airtable.com"]
+check = "whoami"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "whoami"
+name = "Who am I"
+description = "The token's user id — the one call that proves the token works."
+method = "get"
+path = "/v0/meta/whoami"
+
+[[connector.operations]]
+id = "list_bases"
+name = "List bases"
+description = "The bases the token can reach, with their ids."
+method = "get"
+path = "/v0/meta/bases"
+
+[connector.operations.output]
+select = "bases"
+
+[[connector.operations]]
+id = "tables"
+name = "List tables"
+description = "A base's tables, with their fields and views."
+method = "get"
+path = "/v0/meta/bases/{params.base}/tables"
+
+[[connector.operations.params]]
+name = "base"
+label = "Base id"
+required = true
+doc = "The base's id, app… — list_bases returns it."
+
+[connector.operations.output]
+select = "tables"
+
+[[connector.operations]]
+id = "list_records"
+name = "List records"
+description = "A table's records; a record's empty fields are left out."
+method = "get"
+path = "/v0/{params.base}/{params.table}"
+query = { maxRecords = "{params.max}", view = "{params.view}", filterByFormula = "{params.formula}" }
+
+[[connector.operations.params]]
+name = "base"
+label = "Base id"
+required = true
+doc = "The base's id, app…"
+
+[[connector.operations.params]]
+name = "table"
+label = "Table"
+required = true
+doc = "The table's id, tbl…, or its name."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many records to return in all; a page holds 100 at most."
+
+[[connector.operations.params]]
+name = "view"
+label = "View"
+doc = "A view's name or id, to read its records in its order; empty for the table."
+
+[[connector.operations.params]]
+name = "formula"
+label = "Filter formula"
+doc = "An Airtable formula a record must satisfy: {Status} = 'Open'. Empty for every record."
+
+[connector.operations.output]
+select = "records"
+
+[[connector.operations]]
+id = "get_record"
+name = "Get record"
+description = "One record."
+method = "get"
+path = "/v0/{params.base}/{params.table}/{params.record}"
+
+[[connector.operations.params]]
+name = "base"
+label = "Base id"
+required = true
+doc = "The base's id, app…"
+
+[[connector.operations.params]]
+name = "table"
+label = "Table"
+required = true
+doc = "The table's id or its name."
+
+[[connector.operations.params]]
+name = "record"
+label = "Record id"
+required = true
+doc = "The record's id, rec…"
+
+[[connector.operations]]
+id = "create_record"
+name = "Create record"
+description = "Add one record to a table."
+method = "post"
+path = "/v0/{params.base}/{params.table}"
+body = { kind = "json", value = { fields = "{params.fields}", typecast = "{params.typecast}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "base"
+label = "Base id"
+required = true
+doc = "The base's id, app…"
+
+[[connector.operations.params]]
+name = "table"
+label = "Table"
+required = true
+doc = "The table's id or its name."
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+kind = "json"
+required = true
+doc = "A JSON object of field names and values: {\"Name\": \"Ada\", \"Status\": \"Open\"}."
+
+[[connector.operations.params]]
+name = "typecast"
+label = "Convert text"
+kind = "bool"
+doc = "true to let Airtable convert text to each field's type as best it can; off unless set."
+
+[[connector.operations]]
+id = "update_record"
+name = "Update record"
+description = "Change a record's fields; the fields not named stay as they are."
+method = "patch"
+path = "/v0/{params.base}/{params.table}/{params.record}"
+body = { kind = "json", value = { fields = "{params.fields}", typecast = "{params.typecast}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "base"
+label = "Base id"
+required = true
+doc = "The base's id, app…"
+
+[[connector.operations.params]]
+name = "table"
+label = "Table"
+required = true
+doc = "The table's id or its name."
+
+[[connector.operations.params]]
+name = "record"
+label = "Record id"
+required = true
+doc = "The record's id, rec…"
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+kind = "json"
+required = true
+doc = "A JSON object of the fields to change: {\"Status\": \"Done\"}."
+
+[[connector.operations.params]]
+name = "typecast"
+label = "Convert text"
+kind = "bool"
+doc = "true to let Airtable convert text to each field's type as best it can; off unless set."

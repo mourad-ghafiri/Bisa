@@ -197,12 +197,24 @@ pub const CATALOG_PETS: &[BuiltinPet] = &[
 /// credential; an account is added on the machine that has one.
 const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
+        "airtable",
+        include_str!("../../../library/catalog/connectors/airtable.toml"),
+    ),
+    (
+        "asana",
+        include_str!("../../../library/catalog/connectors/asana.toml"),
+    ),
+    (
         "bitbucket",
         include_str!("../../../library/catalog/connectors/bitbucket.toml"),
     ),
     (
         "calendly",
         include_str!("../../../library/catalog/connectors/calendly.toml"),
+    ),
+    (
+        "clickup",
+        include_str!("../../../library/catalog/connectors/clickup.toml"),
     ),
     (
         "confluence",
@@ -261,6 +273,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
         include_str!("../../../library/catalog/connectors/instagram.toml"),
     ),
     (
+        "intercom",
+        include_str!("../../../library/catalog/connectors/intercom.toml"),
+    ),
+    (
         "jira",
         include_str!("../../../library/catalog/connectors/jira.toml"),
     ),
@@ -271,6 +287,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "microsoft-teams",
         include_str!("../../../library/catalog/connectors/microsoft-teams.toml"),
+    ),
+    (
+        "monday",
+        include_str!("../../../library/catalog/connectors/monday.toml"),
     ),
     (
         "notion",
@@ -311,6 +331,10 @@ const CATALOG_CONNECTORS: &[(&str, &str)] = &[
     (
         "tiktok",
         include_str!("../../../library/catalog/connectors/tiktok.toml"),
+    ),
+    (
+        "todoist",
+        include_str!("../../../library/catalog/connectors/todoist.toml"),
     ),
     (
         "trello",
@@ -2562,8 +2586,11 @@ mod bundle_tests {
         assert_eq!(
             slugs,
             [
+                "airtable",
+                "asana",
                 "bitbucket",
                 "calendly",
+                "clickup",
                 "confluence",
                 "discord",
                 "facebook-pages",
@@ -2578,9 +2605,11 @@ mod bundle_tests {
                 "google-tasks",
                 "hubspot",
                 "instagram",
+                "intercom",
                 "jira",
                 "linear",
                 "microsoft-teams",
+                "monday",
                 "notion",
                 "obsidian",
                 "onedrive",
@@ -2591,6 +2620,7 @@ mod bundle_tests {
                 "sentry",
                 "slack",
                 "tiktok",
+                "todoist",
                 "trello",
                 "x",
                 "youtube",
@@ -2618,7 +2648,17 @@ mod bundle_tests {
                 )
             })
             .collect();
-        let want: [(&str, u32, &str); 33] = [
+        let want: [(&str, u32, &str); 39] = [
+            (
+                "airtable",
+                1,
+                "5be2b98d141e1342dd73558209979865c06dab38afc98170b09ebdb41e6e8e6f",
+            ),
+            (
+                "asana",
+                1,
+                "7d784b6b686469162cec36b51fa83a6c63971cf6cc40830524e066cbe89f23e2",
+            ),
             (
                 "bitbucket",
                 1,
@@ -2628,6 +2668,11 @@ mod bundle_tests {
                 "calendly",
                 1,
                 "9f6b65f0ef33f5b5f5a02bc845bbf5b7022c7199c1eca7750eadf87493088a6e",
+            ),
+            (
+                "clickup",
+                1,
+                "0542bffc5070fab564a3151a9a0754846d4fc618a3e96ef2ef284f90ea65a998",
             ),
             (
                 "confluence",
@@ -2700,6 +2745,11 @@ mod bundle_tests {
                 "89f8b222ea0c429cbbdf73ff938629508b55ec3b590ad85038d792cded715efe",
             ),
             (
+                "intercom",
+                1,
+                "b70bd8dd71c025433598e6464c38ca27c2318f8e42ab45dccc2a58893131eb6a",
+            ),
+            (
                 "jira",
                 1,
                 "f9fb40eed4e80b632ac3a525287369aead609e59c921b63ab7e3583574204ef6",
@@ -2713,6 +2763,11 @@ mod bundle_tests {
                 "microsoft-teams",
                 1,
                 "c6acf8601fc2ea7626d1abde8aa756d7891834aaefc82915b08d4c7cefc4cd3c",
+            ),
+            (
+                "monday",
+                1,
+                "17680c8570ab7a42ab355094fdd90fa4c46ab1935e92d06a93211598e031154f",
             ),
             (
                 "notion",
@@ -2763,6 +2818,11 @@ mod bundle_tests {
                 "tiktok",
                 1,
                 "3184ef794c807babb957c402e3a75bd861f157ab65cd9e8f63c6f774335951f7",
+            ),
+            (
+                "todoist",
+                1,
+                "b5e428eee7f609f3a8c4dc82065a9799217dfd27216488de31dbb8cc1c8ae58e",
             ),
             (
                 "trello",

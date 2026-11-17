@@ -150,7 +150,7 @@ Guides: [Workflows](../guide/workflows.md), [Events and gateways](../guide/event
 | **Standing health check** | `standing-health-check` | `command`, `interval`, `channel`, `project` | `manual`, `check` | 9 | Start → The check starts failing → Run the check → Healthy → Diagnose → Severe? → Open an incident → Post the finding → Handled | `ops` `quality` |
 | **Mobile release** | `mobile-release` | `release`, `project`, `tests` | `manual` | 8 | Start → Build and run on the devices → Tests pass → Code review → Shippable? → Submit to the stores? → Submit to the stores → Done | `delivery` `engineering` `mobile` |
 
-## Connectors (33)
+## Connectors (39)
 
 A connector is a declarative definition of one outside platform's API — its hosts, its auth scheme, a handful
 of its most useful operations — that a `connector` step calls. Nothing here holds a credential: an **account** is
@@ -160,8 +160,11 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 
 | Connector | Slug | Auth | Hosts | Operations | Tags |
 |---|---|---|---|---|---|
+| **Airtable** | `airtable` | `bearer` | `api.airtable.com` | `whoami`, `list_bases`, `tables`, `list_records`, `get_record`, `create_record` *writes*, `update_record` *writes* | `business` `data` |
+| **Asana** | `asana` | `bearer` | `app.asana.com` | `me`, `workspaces`, `projects`, `project_tasks`, `get_task`, `create_task` *writes*, `update_task` *writes*, `comment` *writes* | `management` `planning` |
 | **Bitbucket** | `bitbucket` | `basic` | `api.bitbucket.org` | `user`, `repositories`, `pull_requests`, `pull_request`, `comment_pull_request` *writes* | `engineering` `management` |
 | **Calendly** | `calendly` | `bearer` | `api.calendly.com` | `me`, `event_types`, `scheduled_events`, `get_event`, `invitees`, `create_scheduling_link` *writes* | `business` `planning` |
+| **ClickUp** | `clickup` | `api_key` | `api.clickup.com` | `user`, `workspaces`, `spaces`, `folders`, `lists`, `folderless_lists`, `tasks`, `get_task`, `create_task` *writes*, `update_task` *writes*, `comments`, `comment` *writes* | `management` `planning` |
 | **Confluence** | `confluence` | `basic` | `*.atlassian.net` | `current_user`, `search`, `spaces`, `get_page`, `create_page` *writes* | `engineering` `writing` |
 | **Discord** | `discord` | `api_key` | `discord.com` | `me`, `guilds`, `channels`, `messages`, `send_message` *writes* | `management` `ops` |
 | **Facebook Pages** | `facebook-pages` | `bearer` | `graph.facebook.com` | `me`, `page_posts`, `publish_post` *writes* | `marketing` |
@@ -176,9 +179,11 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 | **Google Tasks** | `google-tasks` | `oauth2` | `tasks.googleapis.com` | `task_lists`, `list_tasks`, `get_task`, `create_task` *writes*, `update_task` *writes* | `ops` `planning` |
 | **HubSpot** | `hubspot` | `bearer` | `api.hubapi.com` | `account`, `list_contacts`, `get_contact`, `create_contact` *writes*, `update_contact` *writes*, `list_deals`, `get_deal`, `create_deal` *writes*, `list_companies`, `create_company` *writes* | `business` `management` |
 | **Instagram** | `instagram` | `bearer` | `graph.facebook.com` | `me`, `media`, `create_media` *writes*, `publish_media` *writes* | `content` `marketing` |
+| **Intercom** | `intercom` | `bearer` | `api.intercom.io` | `me`, `list_contacts`, `get_contact`, `search_contacts`, `create_contact` *writes*, `update_contact` *writes*, `add_note` *writes*, `list_conversations`, `get_conversation` | `business` `ops` |
 | **Jira** | `jira` | `basic` | `*.atlassian.net` | `myself`, `search`, `get_issue`, `create_issue` *writes*, `transition` *writes*, `comment` *writes* | `engineering` `management` |
 | **Linear** | `linear` | `api_key` | `api.linear.app` | `viewer`, `issues`, `create_issue` *writes* | `engineering` `product` |
 | **Microsoft Teams** | `microsoft-teams` | `oauth2` | `graph.microsoft.com` | `joined_teams`, `channels`, `channel_messages`, `send_channel_message` *writes*, `reply` *writes*, `chats`, `chat_messages` | `management` `ops` |
+| **monday.com** | `monday` | `api_key` | `api.monday.com` | `me`, `boards`, `items`, `get_item`, `create_item` *writes*, `set_column` *writes*, `create_update` *writes* | `management` `planning` |
 | **Notion** | `notion` | `bearer` | `api.notion.com` | `me`, `search`, `get_page`, `create_page` *writes*, `query_database` | `planning` `writing` |
 | **Obsidian** | `obsidian` | `bearer` | `127.0.0.1:27124` | `status`, `list_vault`, `list_folder`, `read_note`, `search` | `research` `writing` |
 | **OneDrive** | `onedrive` | `oauth2` | `graph.microsoft.com` | `drive`, `list_root`, `list_children`, `get_item`, `search`, `create_folder` *writes*, `create_root_folder` *writes* | `content` `data` |
@@ -189,6 +194,7 @@ on the platform; a workflow puts an `approval` or `human` step before it, unless
 | **Sentry** | `sentry` | `bearer` | `*.sentry.io` | `projects`, `issues`, `issue`, `issue_events`, `update_issue` *writes* | `engineering` `ops` |
 | **Slack** | `slack` | `bearer` | `slack.com` | `auth_test`, `post_message` *writes*, `list_channels`, `channel_history` | `management` `ops` |
 | **TikTok** | `tiktok` | `oauth2` | `open.tiktokapis.com` | `user_info`, `video_list` | `content` `marketing` |
+| **Todoist** | `todoist` | `bearer` | `api.todoist.com` | `user`, `projects`, `tasks`, `filter_tasks`, `get_task`, `create_task` *writes*, `update_task` *writes*, `close_task` *writes*, `add_comment` *writes* | `ops` `planning` |
 | **Trello** | `trello` | `api_key` | `api.trello.com` | `me`, `boards`, `lists`, `create_card` *writes* | `management` `planning` |
 | **X** | `x` | `oauth2` | `api.x.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
 | **YouTube** | `youtube` | `oauth2` | `www.googleapis.com` | `my_channel`, `search`, `channel`, `video` | `content` `marketing` |

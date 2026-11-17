@@ -10,6 +10,23 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Six more built-in connectors — work tracking and support** (39 in the catalog), each pinned
+  to its platform's own documentation, cited in the file, with reads and ordinary creates only —
+  nothing deletes, and every write is marked as one:
+  - **Airtable** — bases, tables and records listed and read, a record created, a record updated
+    with a PATCH, so the fields not named stay.
+  - **Asana** — workspaces, projects and a project's tasks, a task created, updated or completed,
+    a comment added.
+  - **ClickUp** — workspaces down to lists, a list's tasks, a task created or updated, comments
+    read and added.
+  - **monday.com** — boards and their items over GraphQL, an item created, a column set, an
+    update posted; the API version is named on every call.
+  - **Todoist** — projects and tasks, tasks by a Todoist filter, a task added, updated or
+    completed, a comment added. Its reference page could not be read past its first sections, so
+    the paths and field names are taken from the source of Doist's own two clients.
+  - **Intercom** — contacts listed, found, created and updated, a note on a contact,
+    conversations read. No reply in a conversation yet.
+
 - **Six more built-in connectors — collaboration, sales and design** (33 in the catalog), each
   pinned to its platform's own documentation, cited in the file, with reads and ordinary creates
   only — nothing deletes, and every write is marked as one:

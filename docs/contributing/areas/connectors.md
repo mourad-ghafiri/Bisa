@@ -5,7 +5,7 @@ own API: send a mail, post to a channel, search an issue tracker. The **definiti
 the hosts it may reach, its auth scheme, its operations) syncs with the workspace; the **account** a
 person adds is this machine's alone, its secret fields in the keystore. In code, the definition and
 its validation are `bisa-core`'s, everything between a definition and the wire is
-`bisa-connectors`, the host grammar three crates share is `bisa-netrules`, and thirty-three built-ins are
+`bisa-connectors`, the host grammar three crates share is `bisa-netrules`, and thirty-nine built-ins are
 TOML files in the catalog.
 
 ## Where it lives
@@ -17,7 +17,7 @@ TOML files in the catalog.
 - `crates/bisa-engine/src/connectors.rs` — the step and the start that call, `call_spec` and the shape maps, the budgeted account check.
 - `crates/bisa-engine/src/connector_health.rs` — what each account answered when last checked: in memory, joined when running, told to the bus, forgotten when the way in changes.
 - `crates/bisa-node/src/connectors.rs` · `crates/bisa-store/src/connectors.rs` · `crates/bisa-cli/src/connector.rs` — the routes, the records and the default account, `bisa connector`.
-- `library/catalog/connectors/` — the thirty-three built-ins, one TOML file each.
+- `library/catalog/connectors/` — the thirty-nine built-ins, one TOML file each.
 - `desktop/src/views/_settings/connectorsModel.mjs` · `desktop/src/views/_settings/connectorHealthModel.mjs` · `desktop/src/views/_workflow/forms/connectorStepModel.mjs` — the Settings panel's facts, an account's health in words, and the step form's.
 
 ## Read first
@@ -59,7 +59,7 @@ TOML files in the catalog.
 
 - A connector definition is one of the files a person writes: a definition a release accepts is accepted, and means the same, by every later release of the line ([Workflow, connector and catalog files](../../reference/compatibility.md#workflow-connector-and-catalog-files)). It grows by an optional key, or by a new scheme, body kind or parameter kind beside the old ones; renaming a key or changing what one means waits for 1.0.0.
 - `bisa connector` and the `/connectors` routes, with the status each refusal answers, are [the command line](../../reference/compatibility.md#the-command-line) and [the HTTP API](../../reference/compatibility.md#the-http-api-and-its-events).
-- The thirty-three built-ins are catalog content, not contract: one may change in a minor. An installed copy is refreshed at the engine's start when the bundle's `revision` is higher — its accounts, secrets and steps kept; the slug and the operation ids are the contract a workflow step relies on. A peer on an earlier release sets the refreshed snapshot aside, as mixed releases already do.
+- The thirty-nine built-ins are catalog content, not contract: one may change in a minor. An installed copy is refreshed at the engine's start when the bundle's `revision` is higher — its accounts, secrets and steps kept; the slug and the operation ids are the contract a workflow step relies on. A peer on an earlier release sets the refreshed snapshot aside, as mixed releases already do.
 - Declare your change's compatibility in the pull request ([Keeping compatibility](../compatibility.md)).
 
 ## Review focus

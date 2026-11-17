@@ -1,0 +1,216 @@
+# Built-in connector: monday.com — boards, their items and updates over the GraphQL API.
+#
+# A personal API token goes in the Authorization header bare, as monday's
+# own example sends it, so the scheme is an api_key in that header. One
+# endpoint, `https://api.monday.com/v2`, takes a POST of a GraphQL query;
+# the `API-Version` header names the version, here `2026-10`, the current
+# one — a version monday retires is answered by the one it maintains. An
+# application error is an HTTP 200 whose body carries `errors`, so every
+# operation expects none. A board's items are read through `items_page`,
+# 25 unless told otherwise and 500 at most. A new item's column values
+# are "a JSON-formatted string", not an object. GraphQL's own braces are
+# doubled: a definition's `{…}` is a placeholder.
+#
+# Reference: https://developer.monday.com/api-reference/docs/authentication
+# Reference: https://developer.monday.com/api-reference/docs/introduction-to-graphql
+# Reference: https://developer.monday.com/api-reference/docs/api-versioning
+# Reference: https://developer.monday.com/api-reference/docs/errors
+# Reference: https://developer.monday.com/api-reference/docs/rate-limits
+# Reference: https://developer.monday.com/api-reference/reference/me
+# Reference: https://developer.monday.com/api-reference/reference/boards
+# Reference: https://developer.monday.com/api-reference/reference/items-page
+# Reference: https://developer.monday.com/api-reference/reference/items
+# Reference: https://developer.monday.com/api-reference/reference/column-values-v2
+# Reference: https://developer.monday.com/api-reference/reference/columns
+# Reference: https://developer.monday.com/api-reference/reference/updates
+
+[connector]
+name = "monday.com"
+description = "List boards and a board's items, read an item with its updates, create an item, set a column and post an update. Paste your personal API token from the Developers section."
+tags = ["planning", "management"]
+base_url = "https://api.monday.com"
+hosts = ["api.monday.com"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "header", name = "Authorization" }
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The token's user — the one call that proves the token works."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "query {{ me {{ id name email }} }}" } }
+
+[connector.operations.output]
+select = "data.me"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "boards"
+name = "List boards"
+description = "The account's active boards, with their ids."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "query($limit: Int) {{ boards(limit: $limit) {{ id name state workspace_id }} }}", variables = { limit = "{params.max}" } } }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many boards to return; monday's default is 25."
+
+[connector.operations.output]
+select = "data.boards"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "items"
+name = "List items"
+description = "A board's active items, each with its column values as text."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "query($board: [ID!], $limit: Int!) {{ boards(ids: $board) {{ items_page(limit: $limit) {{ cursor items {{ id name column_values {{ id text value }} }} }} }} }}", variables = { board = ["{params.board}"], limit = "{params.max}" } } }
+
+[[connector.operations.params]]
+name = "board"
+label = "Board id"
+required = true
+doc = "The board's id, the number in its address."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+required = true
+default = 25
+doc = "How many items to return, 500 at most; 25 unless set."
+
+[connector.operations.output]
+select = "data.boards.0.items_page.items"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "get_item"
+name = "Get item"
+description = "One item, with its column values and its updates."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "query($ids: [ID!]) {{ items(ids: $ids) {{ id name column_values {{ id text value }} updates {{ id text_body created_at }} }} }}", variables = { ids = ["{params.item}"] } } }
+
+[[connector.operations.params]]
+name = "item"
+label = "Item id"
+required = true
+doc = "The item's id."
+
+[connector.operations.output]
+select = "data.items.0"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "create_item"
+name = "Create item"
+description = "Add an item to a board, optionally in a group and with column values."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "mutation($board: ID!, $name: String!, $group: String, $values: JSON) {{ create_item(board_id: $board, item_name: $name, group_id: $group, column_values: $values) {{ id }} }}", variables = { board = "{params.board}", name = "{params.name}", group = "{params.group}", values = "{params.values}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "board"
+label = "Board id"
+required = true
+doc = "The board's id."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The item's name, 1 to 255 characters."
+
+[[connector.operations.params]]
+name = "group"
+label = "Group id"
+doc = "The id of the board's group to add it to; empty for the board's first."
+
+[[connector.operations.params]]
+name = "values"
+label = "Column values"
+doc = "Column values as JSON text, by column id: {\"date\":\"2026-09-07\",\"status\":{\"label\":\"Done\"}}. Empty for none."
+
+[connector.operations.output]
+select = "data.create_item"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "set_column"
+name = "Set column"
+description = "Set one column of an item from a plain text value."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "mutation($board: ID!, $item: ID, $column: String!, $value: String) {{ change_simple_column_value(board_id: $board, item_id: $item, column_id: $column, value: $value) {{ id }} }}", variables = { board = "{params.board}", item = "{params.item}", column = "{params.column}", value = "{params.value}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "board"
+label = "Board id"
+required = true
+doc = "The board's id."
+
+[[connector.operations.params]]
+name = "item"
+label = "Item id"
+required = true
+doc = "The item's id."
+
+[[connector.operations.params]]
+name = "column"
+label = "Column id"
+required = true
+doc = "The column's id, as an item's column values name it: status."
+
+[[connector.operations.params]]
+name = "value"
+label = "Value"
+required = true
+doc = "The value as text: Working on it."
+
+[connector.operations.output]
+select = "data.change_simple_column_value"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
+
+[[connector.operations]]
+id = "create_update"
+name = "Post update"
+description = "Post an update on an item."
+method = "post"
+path = "/v2"
+headers = { "API-Version" = "2026-10" }
+body = { kind = "json", value = { query = "mutation($item: ID, $body: String!) {{ create_update(item_id: $item, body: $body) {{ id }} }}", variables = { item = "{params.item}", body = "{params.body}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "item"
+label = "Item id"
+required = true
+doc = "The item's id."
+
+[[connector.operations.params]]
+name = "body"
+label = "Update"
+required = true
+doc = "The update's text."
+
+[connector.operations.output]
+select = "data.create_update"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }

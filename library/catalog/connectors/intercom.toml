@@ -1,0 +1,234 @@
+# Built-in connector: Intercom — contacts and conversations of a workspace.
+#
+# A private app's access token, from Configure › Authentication in the
+# Developer Hub, is sent as `Authorization: Bearer`. Calls go to
+# `api.intercom.io`, of which Intercom says "we'll attempt to route your
+# request to the correct region". Every call names `Intercom-Version:
+# 2.18`, the version the reference describes; left out, a call would run
+# under whatever the app is set to. Contacts answer ten a page under
+# `data`, 150 at most; conversations twenty under `conversations`. A new
+# contact needs one of an email, an external id or a role. A search is
+# one condition here: a field, an operator and a value. A note is written
+# on a contact. Replying in a conversation is left out: the admin's form
+# of that request could not be read in full.
+#
+# Reference: https://developers.intercom.com/docs/build-an-integration/learn-more/authentication
+# Reference: https://developers.intercom.com/docs/build-an-integration/learn-more/rest-apis/
+# Reference: https://developers.intercom.com/docs/build-an-integration/learn-more/rest-apis/update-your-api-version
+# Reference: https://developers.intercom.com/docs/references/introduction
+# Reference: https://developers.intercom.com/docs/references/rest-api/errors/rate-limiting
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/admins/identifyadmin
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/listcontacts
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/showcontact
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/searchcontacts
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/createcontact
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/updatecontact
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/createnote
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/listconversations
+# Reference: https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/retrieveconversation
+# Reference: https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.18/api.intercom.io.yaml
+
+[connector]
+name = "Intercom"
+description = "List, find and read contacts, create or update one, add a note to one, and read conversations. Paste the access token of your own app from the Intercom Developer Hub."
+tags = ["business", "ops"]
+base_url = "https://api.intercom.io"
+hosts = ["api.intercom.io"]
+check = "me"
+revision = 1
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The admin the token belongs to, and its workspace — the one call that proves the token works."
+method = "get"
+path = "/me"
+headers = { "Intercom-Version" = "2.18" }
+
+[[connector.operations]]
+id = "list_contacts"
+name = "List contacts"
+description = "The workspace's contacts, users and leads."
+method = "get"
+path = "/contacts"
+query = { per_page = "{params.max}" }
+headers = { "Intercom-Version" = "2.18" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many contacts to return, 150 at most; Intercom's default is 10."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "get_contact"
+name = "Get contact"
+description = "One contact."
+method = "get"
+path = "/contacts/{params.contact}"
+headers = { "Intercom-Version" = "2.18" }
+
+[[connector.operations.params]]
+name = "contact"
+label = "Contact id"
+required = true
+doc = "The contact's Intercom id."
+
+[[connector.operations]]
+id = "search_contacts"
+name = "Find contacts"
+description = "Contacts one of whose fields matches a value — by email, say."
+method = "post"
+path = "/contacts/search"
+headers = { "Intercom-Version" = "2.18" }
+body = { kind = "json", value = { query = { field = "{params.field}", operator = "{params.operator}", value = "{params.value}" } } }
+
+[[connector.operations.params]]
+name = "field"
+label = "Field"
+required = true
+doc = "The contact field to compare: email, name, external_id."
+
+[[connector.operations.params]]
+name = "operator"
+label = "Operator"
+required = true
+default = "="
+doc = "= unless set; also !=, ~ (contains), !~, ^ (starts with), $ (ends with), <, >."
+
+[[connector.operations.params]]
+name = "value"
+label = "Value"
+required = true
+doc = "What the field is compared with."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "create_contact"
+name = "Create contact"
+description = "Create a user or a lead; one of email, external id or role is needed."
+method = "post"
+path = "/contacts"
+headers = { "Intercom-Version" = "2.18" }
+body = { kind = "json", value = { role = "{params.role}", email = "{params.email}", external_id = "{params.external_id}", name = "{params.name}", phone = "{params.phone}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "role"
+label = "Role"
+doc = "lead for a lead; anything else, or empty, makes a user."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "The contact's email address."
+
+[[connector.operations.params]]
+name = "external_id"
+label = "External id"
+doc = "Your own identifier for the contact."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The contact's name."
+
+[[connector.operations.params]]
+name = "phone"
+label = "Phone"
+doc = "The contact's phone number."
+
+[[connector.operations]]
+id = "update_contact"
+name = "Update contact"
+description = "Change a contact's name, email or phone; what is left empty stays as it is."
+method = "put"
+path = "/contacts/{params.contact}"
+headers = { "Intercom-Version" = "2.18" }
+body = { kind = "json", value = { name = "{params.name}", email = "{params.email}", phone = "{params.phone}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "contact"
+label = "Contact id"
+required = true
+doc = "The contact's Intercom id."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+doc = "The new name; empty to keep it."
+
+[[connector.operations.params]]
+name = "email"
+label = "Email"
+doc = "The new email address; empty to keep it."
+
+[[connector.operations.params]]
+name = "phone"
+label = "Phone"
+doc = "The new phone number; empty to keep it."
+
+[[connector.operations]]
+id = "add_note"
+name = "Add note"
+description = "Write a note on a contact, for the team to read."
+method = "post"
+path = "/contacts/{params.contact}/notes"
+headers = { "Intercom-Version" = "2.18" }
+body = { kind = "json", value = { body = "{params.body}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "contact"
+label = "Contact id"
+required = true
+doc = "The contact's Intercom id."
+
+[[connector.operations.params]]
+name = "body"
+label = "Note"
+required = true
+doc = "The note's text."
+
+[[connector.operations]]
+id = "list_conversations"
+name = "List conversations"
+description = "The workspace's conversations."
+method = "get"
+path = "/conversations"
+query = { per_page = "{params.max}" }
+headers = { "Intercom-Version" = "2.18" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many conversations to return; Intercom's default is 20."
+
+[connector.operations.output]
+select = "conversations"
+
+[[connector.operations]]
+id = "get_conversation"
+name = "Get conversation"
+description = "One conversation with its most recent parts, as plain text."
+method = "get"
+path = "/conversations/{params.conversation}"
+query = { display_as = "plaintext" }
+headers = { "Intercom-Version" = "2.18" }
+
+[[connector.operations.params]]
+name = "conversation"
+label = "Conversation id"
+kind = "number"
+required = true
+doc = "The conversation's number."
